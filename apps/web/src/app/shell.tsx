@@ -1,3 +1,4 @@
+import { ChapterFlowShell } from "./layouts/chapterflow-shell";
 import "./shell.css";
 
 import { useQuery } from "@tanstack/react-query";
@@ -123,9 +124,16 @@ function useRailCollapsed(): [boolean, () => void] {
 export function AppShell() {
   return (
     <BrowserRouter>
-      <ShellFrame />
+      <ShellRouter />
     </BrowserRouter>
   );
+}
+
+function ShellRouter() {
+ const location = useLocation();
+ if(location.pathname === "/") return <Navigate to="/books" replace />;
+ if(location.pathname.startsWith("/books")) return <ChapterFlowShell />;
+ return <ShellFrame />;
 }
 
 function StatusPill() {
