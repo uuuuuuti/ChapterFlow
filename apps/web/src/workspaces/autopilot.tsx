@@ -1,3 +1,5 @@
+import { queryKeys } from "../shared/query/keys";
+import { findActiveSession, requestIdFor, type PendingRequest } from "../features/batch-writing/session-state";
 /* 长篇推演（航海日志）：罗盘 hero + 航次档 + 指令口 + 手账。 */
 
 import "../styles/autopilot.css";
@@ -87,7 +89,7 @@ export function AutopilotWorkspace() {
   });
   const sessions = useMemo(() => sessionsQuery.data ?? [], [sessionsQuery.data]);
   const foundationRunsQuery = useQuery({
-    queryKey: ["project", projectId, "runs"],
+    queryKey: queryKeys.runs(projectId),
     queryFn: ({ signal }) => getProjectRuns(projectId!, signal),
     enabled: Boolean(projectId),
     refetchInterval: (query) => query.state.data?.some((run) =>
@@ -111,7 +113,7 @@ export function AutopilotWorkspace() {
     retry: false,
   });
   const reviewQuery = useQuery({
-    queryKey: ["project", projectId, "review"],
+    queryKey: queryKeys.review(projectId),
     queryFn: ({ signal }) => getReviewWorkspace(projectId!, signal),
     enabled: Boolean(projectId),
     refetchInterval: () =>
@@ -237,7 +239,7 @@ export function AutopilotWorkspace() {
     onSuccess: (snapshot) => {
       foundationRequestRef.current = null;
       void queryClient.invalidateQueries({ queryKey: ["project", projectId, "foundation"] });
-      queryClient.setQueryData<NarrativeRun[]>(["project", projectId, "runs"], (current = []) => [
+      queryClient.setQueryData<NarrativeRun[]>(queryKeys.runs(projectId), (current = []) => [
         snapshot.run,
         ...current.filter((run) => run.id !== snapshot.run.id),
       ]);
@@ -1000,27 +1002,3 @@ function legOutcomeLabel(outcome: string | null): string {
   return key ? translate(getLocale(), key) : translate(getLocale(), "autopilot.legOutcome.pending");
 }
 
-function findActiveSession(...sessions: Array<AutopilotSession | null | undefined>): AutopilotSession | null {
-  const seen = new Set<string>();
-  for (const session of sessions) {
-    if (!session || seen.has(session.id)) continue;
-    seen.add(session.id);
-    if (!["completed", "cancelled"].includes(session.status)) return session;
-  }
-  return null;
-}
-
-interface PendingRequest {
-  key: string;
-  requestId: string;
-}
-
-function requestIdFor(
-  ref: { current: PendingRequest | null },
-  key: string,
-): string {
-  if (ref.current?.key !== key) {
-    ref.current = { key, requestId: crypto.randomUUID() };
-  }
-  return ref.current.requestId;
-}

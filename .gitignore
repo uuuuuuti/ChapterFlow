@@ -37,3 +37,5 @@ Thumbs.db
 AGENTS.md
 /skills/
 docs/internal/
+
+.playwright-cli/

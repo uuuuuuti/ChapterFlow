@@ -1,3 +1,4 @@
+import { queryKeys } from "../shared/query/keys";
 import "../styles/runs.css";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -37,7 +38,7 @@ export function RunsWorkspace() {
   const [searchParams, setSearchParams] = useSearchParams();
   const selectedRunId = searchParams.get("run");
   const runsQuery = useQuery({
-    queryKey: ["project", projectId, "runs"],
+    queryKey: queryKeys.runs(projectId),
     queryFn: ({ signal }) => getProjectRuns(projectId!, signal),
     enabled: Boolean(projectId),
     refetchInterval: (query) => query.state.data?.some((run) => !TERMINAL.has(run.status)) ? 1_250 : false,
@@ -58,7 +59,7 @@ export function RunsWorkspace() {
   const liveText = useRunLiveText(selectedRunId, persistedStreamSignal);
   useServerEvents({
     onRunStatus: (runId) => {
-      void queryClient.invalidateQueries({ queryKey: ["project", projectId, "runs"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.runs(projectId) });
       if (runId === selectedRunId) void queryClient.invalidateQueries({ queryKey: ["run", runId] });
     },
     onRunEvent: (runId) => {
@@ -117,7 +118,7 @@ function RunDetailPanel({ projectId, detail, liveText, pending, error, onSelectR
         if (run?.id && run.id !== detail?.run.id) onSelectRun(run.id);
       }
       void queryClient.invalidateQueries({ queryKey: ["run", detail?.run.id] });
-      void queryClient.invalidateQueries({ queryKey: ["project", projectId, "runs"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.runs(projectId) });
     },
   });
   if (pending) return <section className="run-detail"><Skeleton lines={10} /></section>;

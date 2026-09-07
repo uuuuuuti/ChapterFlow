@@ -1,3 +1,5 @@
+import { queryKeys } from "../shared/query/keys";
+import { useDraftAutosave } from "../features/draft-autosave/use-draft-autosave";
 import "../styles/studio.css";
 import "../styles/review.css";
 
@@ -44,12 +46,10 @@ import {
   getStudioDocument,
   getStudioDocuments,
   restoreDocumentVersion,
-  saveDocumentDraft,
   setStoryDocumentArchived,
   setDocumentCommentStatus,
   type CanonChangeSetView,
   type DocumentComment,
-  type DocumentDraft,
   type DocumentVersion,
   type EditProposal,
   type OutlineNode,
@@ -127,12 +127,12 @@ export function StudioWorkspace() {
         queryKey: ["project", projectId, "studio"],
       });
       void queryClient.invalidateQueries({
-        queryKey: ["project", projectId, "review"],
+        queryKey: queryKeys.review(projectId),
       });
     },
   }, Boolean(projectId));
   const documentsQuery = useQuery({
-    queryKey: ["project", projectId, "studio", "documents"],
+    queryKey: queryKeys.documents(projectId),
     queryFn: ({ signal }) => getStudioDocuments(projectId!, signal),
     enabled: Boolean(projectId),
   });
@@ -149,7 +149,7 @@ export function StudioWorkspace() {
     [documents, recycledDocumentsQuery.data, showRecycle],
   );
   const reviewQuery = useQuery({
-    queryKey: ["project", projectId, "review"],
+    queryKey: queryKeys.review(projectId),
     queryFn: ({ signal }) => getReviewWorkspace(projectId!, signal),
     enabled: Boolean(projectId),
   });
@@ -158,7 +158,7 @@ export function StudioWorkspace() {
     [documents, reviewQuery.data?.reports],
   );
   const overviewQuery = useQuery({
-    queryKey: ["project", projectId, "overview"],
+    queryKey: queryKeys.overview(projectId),
     queryFn: ({ signal }) => getProjectOverview(projectId!, signal),
     enabled: Boolean(projectId),
     refetchInterval: (query) => query.state.data?.activeTask ? 3_000 : false,
@@ -259,7 +259,7 @@ export function StudioWorkspace() {
       setStoryDocumentArchived(document, archived),
     onSuccess: () => {
       updateWorkspaceParams({ document: null, outline: null, run: null });
-      void queryClient.invalidateQueries({ queryKey: ["project", projectId, "studio", "documents"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.documents(projectId) });
       void queryClient.invalidateQueries({ queryKey: ["project", projectId, "studio", "document"] });
     },
   });
@@ -283,7 +283,7 @@ export function StudioWorkspace() {
       createRequestRef.current = null;
       setCreating(false);
       updateWorkspaceParams({ document: document.id, outline: null, run: null });
-      void queryClient.invalidateQueries({ queryKey: ["project", projectId, "studio", "documents"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.documents(projectId) });
     },
   });
   const registerFlush = useCallback((flush: FlushDraft | null) => {
@@ -301,7 +301,7 @@ export function StudioWorkspace() {
     );
   }
   const refresh = () => {
-    void queryClient.invalidateQueries({ queryKey: ["project", projectId, "studio", "documents"] });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.documents(projectId) });
     void queryClient.invalidateQueries({ queryKey: ["project", projectId, "studio", "document", activeDocumentId] });
   };
   const selectDocument = async (nextDocumentId: string) => {
@@ -377,9 +377,7 @@ function RecycleDesk({ document, pending, error, onRestore }: { document: StoryD
 
 function StudioDesk({ projectId, detail, pending, error, review, reviewPending, reviewError, focusTarget, runId, onRunChange, onDismissRun, onCreateDocument, onArchive, onRefresh, onFlushReady }: { projectId: string; detail: StudioDocumentDetail | undefined; pending: boolean; error: unknown; review: ReviewWorkspace | undefined; reviewPending: boolean; reviewError: unknown; focusTarget: string | null; runId: string | null; onRunChange: (runId: string) => void; onDismissRun: () => void; onCreateDocument: () => void; onArchive: (document: StoryDocument) => void | Promise<void>; onRefresh: () => void; onFlushReady: (flush: FlushDraft | null) => void }) {
   const { t } = useI18n();
-  const initialContent = detail?.draft?.content ?? detail?.currentVersion?.content ?? "";
-  const [content, setContent] = useState(initialContent);
-  const [draftSavedContent, setDraftSavedContent] = useState(initialContent);
+  const { content, setContent, draftSavedContent, setDraftSavedContent, contentRef, savedContentRef, latestDraftRef, saveQueueRef, draftMutation, persistDraft, cancelScheduledAutosave } = useDraftAutosave(projectId, detail, onFlushReady);
   const [selection, setSelection] = useState({ start: 0, end: 0 });
   const [commentBody, setCommentBody] = useState("");
   const [editInstruction, setEditInstruction] = useState("");
@@ -394,11 +392,6 @@ function StudioDesk({ projectId, detail, pending, error, review, reviewPending, 
     ? toolSelection.tool
     : studioToolFromFocus(focusTarget);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const contentRef = useRef(content);
-  const savedContentRef = useRef(draftSavedContent);
-  const latestDraftRef = useRef<DocumentDraft | null>(detail?.draft ?? null);
-  const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
-  const autosaveTimerRef = useRef<number | null>(null);
   const aiRequestRef = useRef<{ identity: string; requestId: string } | null>(null);
   const queryClient = useQueryClient();
 
@@ -416,84 +409,6 @@ function StudioDesk({ projectId, detail, pending, error, review, reviewPending, 
     });
   }, [content, detail?.document.id, detail?.document.outlineNodeId, selection]);
 
-  const draftMutation = useMutation({
-    mutationFn: (value: string) => saveDocumentDraft(projectId, detail!.document.id, { content: value, baseVersionId: detail!.document.currentVersionId, expectedDraftUpdatedAt: latestDraftRef.current?.updatedAt ?? null }),
-    onSuccess: (draft, value) => {
-      latestDraftRef.current = draft;
-      savedContentRef.current = value;
-      setDraftSavedContent(value);
-      if (detail) {
-        queryClient.setQueryData<StudioDocumentDetail>(
-          ["project", projectId, "studio", "document", detail.document.id],
-          (current) => current ? { ...current, draft } : current,
-        );
-      }
-    },
-  });
-  const mutateDraft = draftMutation.mutateAsync;
-  const persistDraft = useCallback((value: string): Promise<DocumentDraft | null> => {
-    const perform = () => mutateDraft(value);
-    const queued = saveQueueRef.current.then(perform, perform);
-    saveQueueRef.current = queued.then(() => undefined, () => undefined);
-    return queued;
-  }, [mutateDraft]);
-  const cancelScheduledAutosave = useCallback(() => {
-    if (autosaveTimerRef.current !== null) {
-      window.clearTimeout(autosaveTimerRef.current);
-      autosaveTimerRef.current = null;
-    }
-  }, []);
-  const flushDraft = useCallback(async (): Promise<boolean> => {
-    if (!detail) return true;
-    cancelScheduledAutosave();
-    await saveQueueRef.current;
-    const value = contentRef.current;
-    if (value === savedContentRef.current) return true;
-    try {
-      await persistDraft(value);
-      return true;
-    } catch {
-      return false;
-    }
-  }, [cancelScheduledAutosave, detail, persistDraft]);
-  useEffect(() => {
-    if (!detail || content === draftSavedContent) return;
-    autosaveTimerRef.current = window.setTimeout(() => {
-      autosaveTimerRef.current = null;
-      void persistDraft(content).catch(() => undefined);
-    }, 700);
-    return cancelScheduledAutosave;
-  }, [cancelScheduledAutosave, content, detail, draftSavedContent, persistDraft]);
-  // 正式版本身份或服务端草稿变化（历史恢复、AI 候选采纳、其他标签页写入）时，
-  // 编辑器必须重新装载新正文；本地有未保存编辑时不覆盖，留待草稿保存冲突显式暴露。
-  const detailContentIdentity = detail
-    ? `${detail.document.id}·${detail.document.currentVersionId ?? "none"}·${detail.draft?.contentHash ?? "none"}·${detail.draft?.updatedAt ?? "none"}`
-    : null;
-  const syncedIdentityRef = useRef(detailContentIdentity);
-  useEffect(() => {
-    if (!detail || detailContentIdentity === null) return;
-    if (detailContentIdentity === syncedIdentityRef.current) return;
-    syncedIdentityRef.current = detailContentIdentity;
-    latestDraftRef.current = detail.draft;
-    if (contentRef.current !== savedContentRef.current) return;
-    cancelScheduledAutosave();
-    const next = detail.draft?.content ?? detail.currentVersion?.content ?? "";
-    contentRef.current = next;
-    savedContentRef.current = next;
-    setContent(next);
-    setDraftSavedContent(next);
-  }, [cancelScheduledAutosave, detail, detailContentIdentity]);
-  useEffect(() => {
-    onFlushReady(flushDraft);
-    return () => onFlushReady(null);
-  }, [flushDraft, onFlushReady]);
-  useEffect(() => {
-    const onBeforeUnload = (event: BeforeUnloadEvent) => {
-      if (content !== draftSavedContent || draftMutation.isPending || draftMutation.isError) event.preventDefault();
-    };
-    window.addEventListener("beforeunload", onBeforeUnload);
-    return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [content, draftSavedContent, draftMutation.isPending, draftMutation.isError]);
   const versionMutation = useMutation({
     mutationFn: async () => {
       cancelScheduledAutosave();
@@ -603,7 +518,7 @@ function StudioDesk({ projectId, detail, pending, error, review, reviewPending, 
         documentId: detail!.document.id,
       });
       onRunChange(created.run.id);
-      void queryClient.invalidateQueries({ queryKey: ["project", projectId, "runs"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.runs(projectId) });
     },
   });
 
@@ -710,7 +625,7 @@ function ReviewPanel({ projectId, document, workspace, pending, error }: { proje
     onSuccess: (_data, input) => {
       setFlash(t("studio.review.decisionFlash", { action: reviewIssueActionLabel(input.action) }));
       window.setTimeout(() => setFlash(null), 2200);
-      void queryClient.invalidateQueries({ queryKey: ["project", projectId, "review"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.review(projectId) });
       void queryClient.invalidateQueries({ queryKey: ["project", projectId, "studio"] });
     },
   });
@@ -744,7 +659,7 @@ function ReviewPanel({ projectId, document, workspace, pending, error }: { proje
         documentId: document.id,
       });
       void queryClient.invalidateQueries({
-        queryKey: ["project", projectId, "runs"],
+        queryKey: queryKeys.runs(projectId),
       });
     },
   });
@@ -858,14 +773,14 @@ function RevisionProposalPanel({ projectId, activeDocumentId }: { projectId: str
   const { t } = useI18n();
   const queryClient = useQueryClient();
   const query = useQuery({
-    queryKey: ["project", projectId, "review"],
+    queryKey: queryKeys.review(projectId),
     queryFn: ({ signal }) => getReviewWorkspace(projectId, signal),
   });
   const mutation = useMutation({
     mutationFn: (input: { proposal: ReviewRevisionProposal; action: "apply" | "reject" }) =>
       decideRevisionProposal(projectId, input.proposal.id, input.action),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["project", projectId, "review"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.review(projectId) });
       void queryClient.invalidateQueries({ queryKey: ["project", projectId, "studio"] });
     },
   });
@@ -911,7 +826,7 @@ function CanonChangesPanel({ projectId, document, versions }: { projectId: strin
     queryFn: ({ signal }) => getCanonChangeSets(projectId, signal),
   });
   const runsQuery = useQuery({
-    queryKey: ["project", projectId, "runs"],
+    queryKey: queryKeys.runs(projectId),
     queryFn: ({ signal }) => getProjectRuns(projectId, signal),
   });
   const storyQuery = useQuery({
@@ -928,8 +843,8 @@ function CanonChangesPanel({ projectId, document, versions }: { projectId: strin
     onSuccess: () => {
       setForceTarget(null);
       void queryClient.invalidateQueries({ queryKey: ["project", projectId, "canon-change-sets"] });
-      void queryClient.invalidateQueries({ queryKey: ["project", projectId, "runs"] });
-      void queryClient.invalidateQueries({ queryKey: ["project", projectId, "overview"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.runs(projectId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.overview(projectId) });
       void queryClient.invalidateQueries({ queryKey: ["project", projectId, "autopilot"] });
     },
   });

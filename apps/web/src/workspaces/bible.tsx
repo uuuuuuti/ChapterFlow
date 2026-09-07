@@ -1,3 +1,4 @@
+import { queryKeys } from "../shared/query/keys";
 /* 故事圣经：单页 Canon Spread。左侧辑签负责切换主题，右侧同一张纸幅
    同时承载稳定的阅读面与显式的人工编辑，不再叠放七个板块和独立控制台。 */
 
@@ -57,7 +58,7 @@ export function BibleWorkspace() {
     );
   };
   const query = useQuery({
-    queryKey: ["project", projectId, "bible"],
+    queryKey: queryKeys.story(projectId),
     queryFn: ({ signal }) => getStoryBible(projectId!, signal),
     enabled: Boolean(projectId),
   });

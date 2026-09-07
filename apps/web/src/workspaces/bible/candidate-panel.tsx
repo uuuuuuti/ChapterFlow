@@ -1,3 +1,4 @@
+import { queryKeys } from "../../shared/query/keys";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowUpRight,
@@ -54,7 +55,7 @@ function CanonCandidatePanelView({
     queryFn: ({ signal }) => getCanonCandidates(projectId, spread, signal),
   });
   const runsQuery = useQuery({
-    queryKey: ["project", projectId, "runs"],
+    queryKey: queryKeys.runs(projectId),
     queryFn: ({ signal }) => getProjectRuns(projectId, signal),
   });
   const relevantRuns = useMemo(
@@ -82,7 +83,7 @@ function CanonCandidatePanelView({
 
   const refresh = () => {
     void queryClient.invalidateQueries({
-      queryKey: ["project", projectId, "runs"],
+      queryKey: queryKeys.runs(projectId),
     });
     void queryClient.invalidateQueries({
       queryKey: ["project", projectId, "canon-candidates", spread],
@@ -295,7 +296,7 @@ function CandidateItem({
         queryKey: ["project", projectId, "canon-candidates", set.spread],
       });
       void queryClient.invalidateQueries({
-        queryKey: ["project", projectId, "bible"],
+        queryKey: queryKeys.story(projectId),
       });
     },
   });

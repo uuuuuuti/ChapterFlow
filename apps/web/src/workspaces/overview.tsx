@@ -1,3 +1,4 @@
+import { queryKeys } from "../shared/query/keys";
 import "../styles/overview.css";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -48,7 +49,7 @@ export function OverviewWorkspace() {
   const { t } = useI18n();
   const projectId = useProjectId();
   const overviewQuery = useQuery({
-    queryKey: ["project", projectId, "overview"],
+    queryKey: queryKeys.overview(projectId),
     queryFn: ({ signal }) => getProjectOverview(projectId!, signal),
     enabled: Boolean(projectId),
     refetchInterval: (query) =>
@@ -178,7 +179,7 @@ function ActiveTaskCard({ projectId, task }: { projectId: string; task: ProjectO
     },
     onSuccess: () => {
       setConfirmCancel(false);
-      void queryClient.invalidateQueries({ queryKey: ["project", projectId, "overview"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.overview(projectId) });
       void queryClient.invalidateQueries({ queryKey: ["run", task.id] });
     },
   });

@@ -1,3 +1,4 @@
+import { queryKeys } from "../../shared/query/keys";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CircleAlert, Check, ExternalLink, Pause, Play, RefreshCcw, Sparkles, Square, X } from "lucide-react";
 import { useRef, useState } from "react";
@@ -54,9 +55,9 @@ export function WritingTaskPanel({ projectId, runId, onRunChange, onDismiss, onA
       if (nextRunId && nextRunId !== runId) onRunChange(nextRunId);
       if (request.action === "accept_manuscript") onAccepted();
       void queryClient.invalidateQueries({ queryKey: ["run", runId] });
-      void queryClient.invalidateQueries({ queryKey: ["project", projectId, "overview"] });
-      void queryClient.invalidateQueries({ queryKey: ["project", projectId, "runs"] });
-      void queryClient.invalidateQueries({ queryKey: ["project", projectId, "review"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.overview(projectId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.runs(projectId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.review(projectId) });
       onRefreshDocument();
     },
   });
@@ -78,8 +79,8 @@ export function WritingTaskPanel({ projectId, runId, onRunChange, onDismiss, onA
         origin: { surface: "writing" },
       });
       onRunChange(nextRunId);
-      void queryClient.invalidateQueries({ queryKey: ["project", projectId, "runs"] });
-      void queryClient.invalidateQueries({ queryKey: ["project", projectId, "overview"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.runs(projectId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.overview(projectId) });
       onRefreshDocument();
     },
   });

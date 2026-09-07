@@ -1,3 +1,4 @@
+import { queryKeys } from "../../shared/query/keys";
 import "../../styles/bible-actions.css";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -79,7 +80,7 @@ export function BibleEditor({
       );
       if (work.kind === "write") {
         void queryClient.invalidateQueries({
-          queryKey: ["project", projectId, "bible"],
+          queryKey: queryKeys.story(projectId),
         });
       }
     },
