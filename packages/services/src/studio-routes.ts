@@ -883,6 +883,7 @@ export function registerStudioRoutes(
         // 版本追加/检索段/大纲状态/操作日志/手动结算的完整组装在服务层。
         const decided = acceptEditProposal(database, {
           proposal,
+          ...(input.mode ? { mode: input.mode } : {}),
           now,
           environment: options.environment,
           coordinatorWake: () => wake(options),

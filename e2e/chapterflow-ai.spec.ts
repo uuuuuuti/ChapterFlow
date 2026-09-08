@@ -81,6 +81,32 @@ test("V2 AI 续写、离页恢复、接受、选区改写与检查", async ({ pa
     "scrollWidth",
     info.project.use.viewport!.width,
   );
+  // Insertion keeps the selected passage and the suffix, and persists as an accepted version.
+  const beforeInsert = await editor.inputValue();
+  await page.getByRole("tab", { name: "AI", exact: true }).click();
+  await editor.evaluate((el) => {
+    const t = el as HTMLTextAreaElement;
+    t.focus();
+    t.setSelectionRange(0, 3);
+    t.ownerDocument.dispatchEvent(new Event("selectionchange"));
+  });
+  await page
+    .getByRole("toolbar", { name: "选区 AI 工具" })
+    .getByRole("button", { name: "更克制", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "插入到选区后", exact: true }),
+  ).toBeVisible({ timeout: 60000 });
+  await expect(editor).toHaveValue(beforeInsert);
+  await page.getByRole("button", { name: "插入到选区后", exact: true }).click();
+  const inserted =
+    beforeInsert.slice(0, 3) +
+    "海风停了一瞬。他握紧罗盘，没有回头。" +
+    beforeInsert.slice(3);
+  await expect(editor).toHaveValue(inserted);
+  await page.reload();
+  await expect(editor).toHaveValue(inserted);
+  await page.getByRole("tab", { name: "检查", exact: true }).click();
   // Exercise a non-empty review and the full review -> suggestion -> acceptance loop.
   const needsRevision = "他非常非常非常紧张，站在灯塔前。";
   await editor.fill(needsRevision);

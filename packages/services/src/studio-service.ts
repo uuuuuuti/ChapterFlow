@@ -196,7 +196,10 @@ export function acceptEditProposal(
       runId: string;
       baseVersionId: string;
       proposedContent: string;
+      selectionEnd: number;
+      replacementText: string;
     };
+    mode?: "replace" | "insert_after";
     now: string;
     environment: Readonly<Record<string, string | undefined>>;
     coordinatorWake: () => void;
@@ -222,12 +225,29 @@ export function acceptEditProposal(
     );
   }
   const now = input.now;
+  const base = documents.getVersion(
+    proposal.projectId,
+    proposal.documentId,
+    proposal.baseVersionId,
+  );
+  if (!base)
+    throw new StudioServiceError(
+      "document.version.not_found",
+      "Base version not found",
+      404,
+    );
+  const content =
+    input.mode === "insert_after"
+      ? base.content.slice(0, proposal.selectionEnd) +
+        proposal.replacementText +
+        base.content.slice(proposal.selectionEnd)
+      : proposal.proposedContent;
   const version = documents.appendVersion(
     proposal.projectId,
     proposal.documentId,
     {
       id: randomUuid(),
-      content: proposal.proposedContent,
+      content,
       source: `edit-proposal:${proposal.id}`,
       runId: proposal.runId,
       expectedCurrentVersionId: proposal.baseVersionId,

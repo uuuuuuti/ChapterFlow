@@ -266,6 +266,7 @@ export const CreateSelectionEditRequestSchema = z
 export const DecideEditProposalRequestSchema = z.object({
   requestId: IdSchema,
   action: z.enum(["accept", "reject"]),
+  mode: z.enum(["replace", "insert_after"]).optional(),
 });
 
 export const DocumentDraftSchema = z.object({

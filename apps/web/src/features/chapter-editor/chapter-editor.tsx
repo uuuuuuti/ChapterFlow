@@ -228,11 +228,11 @@ export function ChapterEditor({
     },
   });
   const accept = useMutation({
-    mutationFn: async (input: { id: string; action: "accept" | "reject" }) => {
+    mutationFn: async (input: { id: string; action: "accept" | "reject"; mode?: "insert_after" }) => {
       if (!(await flushDraft())) throw new Error("请先保存当前正文。");
       if (input.action === "accept")
         await requireUnchangedDraft(projectId, detail.document.id);
-      return decideEditProposal(input.id, input.action);
+      return decideEditProposal(input.id, input.action, input.mode);
     },
     onSuccess: async () => {
       setSelection({ start: 0, end: 0 });
@@ -530,6 +530,12 @@ export function ChapterEditor({
                       }
                     >
                       接受改写
+                    </button>
+                    <button
+                      disabled={busy}
+                      onClick={() => accept.mutate({ id: p.id, action: "accept", mode: "insert_after" })}
+                    >
+                      插入到选区后
                     </button>
                     <button
                       disabled={busy}

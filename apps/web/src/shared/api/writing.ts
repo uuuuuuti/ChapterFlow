@@ -151,12 +151,14 @@ export async function createSelectionEdit(
 export async function decideEditProposal(
   proposalId: string,
   action: "accept" | "reject",
+  mode?: "replace" | "insert_after",
 ): Promise<EditProposal> {
   return requestJson(
     `/api/studio/edit-proposals/${encodeURIComponent(proposalId)}/actions`,
     jsonRequest("POST", {
       action,
-      requestId: `${proposalId}:${action}`,
+      ...(mode ? { mode } : {}),
+      requestId: `${proposalId}:${action}${mode ? `:${mode}` : ""}`,
     }),
   );
 }
