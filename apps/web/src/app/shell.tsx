@@ -48,7 +48,7 @@ import {
 const RAIL_COLLAPSED_KEY = "narralume:rail-collapsed";
 const AUTO_COLLAPSE_QUERY = "(max-width: 1100px)";
 const ASSISTANT_OPEN_KEY = "narralume:assistant-open";
-const REPOSITORY_URL = "https://github.com/abligail/narralume";
+const REPOSITORY_URL = "https://github.com/uuuuuuti/ChapterFlow";
 
 function GitHubMark({ size = 17 }: { size?: number }) {
   return (

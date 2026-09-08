@@ -1,5 +1,26 @@
-import { type RunOriginInput, type NarrativeRun, type RunDetail, type RunActionRequest, type RunSnapshot, type BackgroundRunCreated, type ProjectFoundationTaskCreated, type FoundationCandidateSet, type FoundationCandidate, type StoryCompass, type AutopilotSession, type AutopilotSessionDetail, type SessionActionRequest, type StorySteer } from "./types";
-import { type ModelExecutionPolicy, type ChapterRunCreatedDto, type ContinueRunStreamRequest, type AdoptRunStreamResponse, type RegenerateRunStreamResponse } from "@narralume/contracts";
+import {
+  type RunOriginInput,
+  type NarrativeRun,
+  type RunDetail,
+  type RunActionRequest,
+  type RunSnapshot,
+  type BackgroundRunCreated,
+  type ProjectFoundationTaskCreated,
+  type FoundationCandidateSet,
+  type FoundationCandidate,
+  type StoryCompass,
+  type AutopilotSession,
+  type AutopilotSessionDetail,
+  type SessionActionRequest,
+  type StorySteer,
+} from "./types";
+import {
+  type ModelExecutionPolicy,
+  type ChapterRunCreatedDto,
+  type ContinueRunStreamRequest,
+  type AdoptRunStreamResponse,
+  type RegenerateRunStreamResponse,
+} from "@narralume/contracts";
 import { requestJson, jsonRequest, ApiError } from "./client";
 
 export async function createChapterRun(
@@ -151,7 +172,10 @@ export async function createProjectWithFoundation(input: {
     volumes: number;
   };
 }): Promise<ProjectFoundationTaskCreated> {
-  return requestJson("/api/projects/with-foundation", jsonRequest("POST", input));
+  return requestJson(
+    "/api/projects/with-foundation",
+    jsonRequest("POST", input),
+  );
 }
 
 export async function getFoundationCandidates(

@@ -1,6 +1,19 @@
-import { type StoryBible, type AuthorIntent, type CanonEntity, type StoryResourceRemoval, type OutlineNode, type CanonFact, type RelationshipEvent, type TimelineEvent, type Foreshadow } from "./types";
+import {
+  type StoryBible,
+  type AuthorIntent,
+  type CanonEntity,
+  type StoryResourceRemoval,
+  type OutlineNode,
+  type CanonFact,
+  type RelationshipEvent,
+  type TimelineEvent,
+  type Foreshadow,
+} from "./types";
 import { requestJson, jsonRequest } from "./client";
-import { type CanonSpread, type CanonCandidateSetDto } from "@narralume/contracts";
+import {
+  type CanonSpread,
+  type CanonCandidateSetDto,
+} from "@narralume/contracts";
 
 export async function getStoryBible(
   projectId: string,

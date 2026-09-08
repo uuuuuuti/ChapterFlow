@@ -1,4 +1,12 @@
-import { type StoryDocument, type StudioDocumentDetail, type DocumentVersion, type DocumentDraft, type DocumentComment, type RunSnapshot, type EditProposal } from "./types";
+import {
+  type StoryDocument,
+  type StudioDocumentDetail,
+  type DocumentVersion,
+  type DocumentDraft,
+  type DocumentComment,
+  type RunSnapshot,
+  type EditProposal,
+} from "./types";
 import { requestJson, jsonRequest } from "./client";
 import { type ModelExecutionPolicy } from "@narralume/contracts";
 

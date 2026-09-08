@@ -1,6 +1,9 @@
 import { type Project, type RecycledProject } from "./types";
 import { requestJson, jsonRequest, requestBlob, requestVoid } from "./client";
-import { type ProjectLanguage, type ProjectCoverMutation } from "@narralume/contracts";
+import {
+  type ProjectLanguage,
+  type ProjectCoverMutation,
+} from "@narralume/contracts";
 import { readDriverOverride, currentDriverMode } from "../../kernel/transport";
 
 export async function getProjects(signal?: AbortSignal): Promise<Project[]> {
@@ -76,9 +79,7 @@ export function projectCoverUrl(
 
 const localCoverCache = new Map<string, string>();
 
-export function coverCacheKey(
-  project: Pick<Project, "id" | "cover">,
-): string {
+export function coverCacheKey(project: Pick<Project, "id" | "cover">): string {
   return `${project.id}:${project.cover?.updatedAt ?? ""}`;
 }
 
@@ -129,10 +130,7 @@ export async function deleteProject(
 export async function getRecycledProjects(
   signal?: AbortSignal,
 ): Promise<RecycledProject[]> {
-  return requestJson(
-    "/api/projects/recycle-bin",
-    signal ? { signal } : {},
-  );
+  return requestJson("/api/projects/recycle-bin", signal ? { signal } : {});
 }
 
 export async function restoreRecycledProject(

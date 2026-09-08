@@ -1,4 +1,11 @@
-import { type CreateAssistantConversationRequest, type AssistantConversationDto, type AssistantConversationDetailDto, type CreateAssistantMessageRequest, type AssistantMessageAcceptedDto, type AssistantActivityActionResponseDto } from "@narralume/contracts";
+import {
+  type CreateAssistantConversationRequest,
+  type AssistantConversationDto,
+  type AssistantConversationDetailDto,
+  type CreateAssistantMessageRequest,
+  type AssistantMessageAcceptedDto,
+  type AssistantActivityActionResponseDto,
+} from "@narralume/contracts";
 import { requestJson, jsonRequest } from "./client";
 
 export async function createAssistantConversation(

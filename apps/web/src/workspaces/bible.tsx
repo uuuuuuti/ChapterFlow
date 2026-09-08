@@ -38,13 +38,13 @@ const SECTION_TABS: { id: BibleSectionId; en: string }[] = [
   { id: "foreshadows", en: "FORESHADOW" },
 ];
 
-export function BibleWorkspace() {
+export function BibleWorkspace({initialSection, productTitle}: {initialSection?: BibleSectionId; productTitle?: string} = {}) {
   const { t } = useI18n();
   const projectId = useProjectId();
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedSection = searchParams.get("spread");
   const [activeSectionState, setActiveSectionState] =
-    useState<BibleSectionId>(() => bibleSection(requestedSection));
+    useState<BibleSectionId>(() => bibleSection(requestedSection ?? initialSection ?? null));
   const activeSection = bibleSection(requestedSection ?? activeSectionState);
   const setActiveSection = (section: BibleSectionId) => {
     setActiveSectionState(section);
@@ -80,8 +80,8 @@ export function BibleWorkspace() {
   return (
     <div className="bible">
       <PageBand
-        index="CANON · 03"
-        title={t("bible.title")}
+        index={productTitle ? "CHAPTERFLOW" : "CANON · 03"}
+        title={productTitle ?? t("bible.title")}
         meta={
           bible ? (
             <>
@@ -115,7 +115,7 @@ export function BibleWorkspace() {
       ) : bible ? (
         <div className="bible__spread">
           <aside className="bible__rail" aria-label={t("bible.railLabel")}>
-            <p className="bible__rail-title">CANON SPREAD</p>
+            <p className="bible__rail-title">{productTitle ? "故事资料" : "CANON SPREAD"}</p>
             {SECTION_TABS.map((tab, index) => {
               const count = countForSection(bible, tab.id);
               const name = t(`bible.tabs.${tab.id}`);

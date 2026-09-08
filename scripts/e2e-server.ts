@@ -1,3 +1,7 @@
+import {
+  chapterflowDraft,
+  chapterflowStructured,
+} from "./chapterflow-e2e-model.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -28,7 +32,7 @@ const app = await buildApp({
     NARRATIVE_LLM_MAX_OUTPUT_TOKENS: "32000",
   },
   narrativeModelClient: scriptedE2eModel(),
-  enableRunWorker: false,
+  enableRunWorker: process.env.CHAPTERFLOW_E2E_SUCCESS_MODEL === "1",
   logger: false,
 });
 await app.listen({ host: config.host, port: config.port });
@@ -61,11 +65,18 @@ function scriptedE2eModel(): NarrativeModelClient {
   };
   return {
     async text() {
+      if (process.env.CHAPTERFLOW_E2E_SUCCESS_MODEL === "1")
+        return { text: chapterflowDraft, usage };
       return fatal();
     },
     async structured(_run, _step, purpose, request, _contract, validate) {
-      let value: unknown;
-      if (purpose === "project-assistant") {
+      let value: unknown =
+        process.env.CHAPTERFLOW_E2E_SUCCESS_MODEL === "1"
+          ? chapterflowStructured(purpose)
+          : null;
+      if (value) {
+        /* Validate deterministic writing output below. */
+      } else if (purpose === "project-assistant") {
         const stagesFoundation = JSON.stringify(request).includes("待确认任务");
         value = stagesFoundation
           ? {

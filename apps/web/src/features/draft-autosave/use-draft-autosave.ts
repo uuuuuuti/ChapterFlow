@@ -1,9 +1,18 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { saveDocumentDraft, type DocumentDraft, type StudioDocumentDetail } from "../../lib/api";
+import {
+  saveDocumentDraft,
+  type DocumentDraft,
+  type StudioDocumentDetail,
+} from "../../lib/api";
 export type FlushDraft = () => Promise<boolean>;
-export function useDraftAutosave(projectId: string, detail: StudioDocumentDetail | undefined, onFlushReady: (flush: FlushDraft | null) => void) {
-  const initialContent = detail?.draft?.content ?? detail?.currentVersion?.content ?? "";
+export function useDraftAutosave(
+  projectId: string,
+  detail: StudioDocumentDetail | undefined,
+  onFlushReady: (flush: FlushDraft | null) => void,
+) {
+  const initialContent =
+    detail?.draft?.content ?? detail?.currentVersion?.content ?? "";
   const [content, setContent] = useState(initialContent);
   const [draftSavedContent, setDraftSavedContent] = useState(initialContent);
   const contentRef = useRef(content);
@@ -13,7 +22,12 @@ export function useDraftAutosave(projectId: string, detail: StudioDocumentDetail
   const autosaveTimerRef = useRef<number | null>(null);
   const queryClient = useQueryClient();
   const draftMutation = useMutation({
-    mutationFn: (value: string) => saveDocumentDraft(projectId, detail!.document.id, { content: value, baseVersionId: detail!.document.currentVersionId, expectedDraftUpdatedAt: latestDraftRef.current?.updatedAt ?? null }),
+    mutationFn: (value: string) =>
+      saveDocumentDraft(projectId, detail!.document.id, {
+        content: value,
+        baseVersionId: detail!.document.currentVersionId,
+        expectedDraftUpdatedAt: latestDraftRef.current?.updatedAt ?? null,
+      }),
     onSuccess: (draft, value) => {
       latestDraftRef.current = draft;
       savedContentRef.current = value;
@@ -21,37 +35,54 @@ export function useDraftAutosave(projectId: string, detail: StudioDocumentDetail
       if (detail) {
         queryClient.setQueryData<StudioDocumentDetail>(
           ["project", projectId, "studio", "document", detail.document.id],
-          (current) => current ? { ...current, draft } : current,
+          (current) => (current ? { ...current, draft } : current),
         );
       }
     },
   });
   const mutateDraft = draftMutation.mutateAsync;
-  const persistDraft = useCallback((value: string): Promise<DocumentDraft | null> => {
-    const perform = () => mutateDraft(value);
-    const queued = saveQueueRef.current.then(perform, perform);
-    saveQueueRef.current = queued.then(() => undefined, () => undefined);
-    return queued;
-  }, [mutateDraft]);
+  const persistDraft = useCallback(
+    (value: string): Promise<DocumentDraft | null> => {
+      const perform = () => mutateDraft(value);
+      const queued = saveQueueRef.current.then(perform, perform);
+      saveQueueRef.current = queued.then(
+        () => undefined,
+        () => undefined,
+      );
+      return queued;
+    },
+    [mutateDraft],
+  );
   const cancelScheduledAutosave = useCallback(() => {
     if (autosaveTimerRef.current !== null) {
       window.clearTimeout(autosaveTimerRef.current);
       autosaveTimerRef.current = null;
     }
   }, []);
-  const flushDraft = useCallback(async (): Promise<boolean> => {
-    if (!detail) return true;
-    cancelScheduledAutosave();
-    await saveQueueRef.current;
-    const value = contentRef.current;
-    if (value === savedContentRef.current) return true;
-    try {
-      await persistDraft(value);
-      return true;
-    } catch {
-      return false;
-    }
-  }, [cancelScheduledAutosave, detail, persistDraft]);
+  const flushCurrentDraft = useCallback(
+    async (force = false): Promise<boolean> => {
+      if (!detail) return true;
+      cancelScheduledAutosave();
+      await saveQueueRef.current;
+      const value = contentRef.current;
+      if (!force && value === savedContentRef.current) return true;
+      try {
+        await persistDraft(value);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [cancelScheduledAutosave, detail, persistDraft],
+  );
+  const flushDraft = useCallback(
+    () => flushCurrentDraft(false),
+    [flushCurrentDraft],
+  );
+  const retryDraft = useCallback(
+    () => flushCurrentDraft(true),
+    [flushCurrentDraft],
+  );
   useEffect(() => {
     if (!detail || content === draftSavedContent) return;
     autosaveTimerRef.current = window.setTimeout(() => {
@@ -59,7 +90,13 @@ export function useDraftAutosave(projectId: string, detail: StudioDocumentDetail
       void persistDraft(content).catch(() => undefined);
     }, 700);
     return cancelScheduledAutosave;
-  }, [cancelScheduledAutosave, content, detail, draftSavedContent, persistDraft]);
+  }, [
+    cancelScheduledAutosave,
+    content,
+    detail,
+    draftSavedContent,
+    persistDraft,
+  ]);
   // 正式版本身份或服务端草稿变化（历史恢复、AI 候选采纳、其他标签页写入）时，
   // 编辑器必须重新装载新正文；本地有未保存编辑时不覆盖，留待草稿保存冲突显式暴露。
   const detailContentIdentity = detail
@@ -85,10 +122,34 @@ export function useDraftAutosave(projectId: string, detail: StudioDocumentDetail
   }, [flushDraft, onFlushReady]);
   useEffect(() => {
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
-      if (content !== draftSavedContent || draftMutation.isPending || draftMutation.isError) event.preventDefault();
+      if (
+        content !== draftSavedContent ||
+        draftMutation.isPending ||
+        draftMutation.isError
+      )
+        event.preventDefault();
     };
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [content, draftSavedContent, draftMutation.isPending, draftMutation.isError]);
-  return { content, setContent, draftSavedContent, setDraftSavedContent, contentRef, savedContentRef, latestDraftRef, saveQueueRef, draftMutation, persistDraft, cancelScheduledAutosave, flushDraft };
+  }, [
+    content,
+    draftSavedContent,
+    draftMutation.isPending,
+    draftMutation.isError,
+  ]);
+  return {
+    content,
+    setContent,
+    draftSavedContent,
+    setDraftSavedContent,
+    contentRef,
+    savedContentRef,
+    latestDraftRef,
+    saveQueueRef,
+    draftMutation,
+    persistDraft,
+    cancelScheduledAutosave,
+    flushDraft,
+    retryDraft,
+  };
 }

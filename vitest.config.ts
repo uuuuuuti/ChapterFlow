@@ -12,6 +12,8 @@ export default defineConfig({
     },
   },
   test: {
+    // Keep Node 25 Web Storage from shadowing jsdom's per-test storage.
+    execArgv: ["--no-experimental-webstorage"],
     coverage: {
       provider: "v8",
       reporter: ["text", "html", "json-summary"],

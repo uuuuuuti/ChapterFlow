@@ -1,4 +1,12 @@
-import { type StoryPersona, type CoCreateSession, type CoCreateSessionDetail, type StoryTurn, type NarrativeRun, type RunSnapshot, type StoryBranch } from "./types";
+import {
+  type StoryPersona,
+  type CoCreateSession,
+  type CoCreateSessionDetail,
+  type StoryTurn,
+  type NarrativeRun,
+  type RunSnapshot,
+  type StoryBranch,
+} from "./types";
 import { requestJson, jsonRequest } from "./client";
 
 export async function getPersonas(

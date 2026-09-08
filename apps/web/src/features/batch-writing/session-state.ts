@@ -1,5 +1,7 @@
 import type { AutopilotSession } from "../../lib/api";
-export function findActiveSession(...sessions: Array<AutopilotSession | null | undefined>): AutopilotSession | null {
+export function findActiveSession(
+  ...sessions: Array<AutopilotSession | null | undefined>
+): AutopilotSession | null {
   const seen = new Set<string>();
   for (const session of sessions) {
     if (!session || seen.has(session.id)) continue;

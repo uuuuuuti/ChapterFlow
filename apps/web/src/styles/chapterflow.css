@@ -1,7 +1,1628 @@
-.cf-shell{--cf-blue:#2878ff;--cf-ink:#17243a;--cf-muted:#7786a2;--cf-line:#e7ecf3;--cf-bg:#f7f8fa;--cf-soft:#edf4ff;color-scheme:light;background:var(--cf-bg);color:var(--cf-ink);font-family:Inter,"Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;min-height:100vh;line-height:1.6;font-size:14px;--bg:#f7f8fa;--surface:#fff;--text:#17243a;--border:#e7ecf3;--accent:#2878ff}
-.cf-shell *{box-sizing:border-box}.cf-shell h1,.cf-shell h2,.cf-shell h3,.cf-shell p{margin:0}.cf-shell h1{font-size:30px;letter-spacing:-.7px;font-weight:750}.cf-shell h2{font-size:18px;font-weight:700;margin-bottom:16px}.cf-shell h3{font-size:16px;font-weight:650}.cf-shell p{color:var(--cf-muted);line-height:1.8}.cf-shell small{color:var(--cf-muted);font-size:12px}.cf-shell a{color:inherit;text-decoration:none}.cf-shell button,.cf-shell input,.cf-shell textarea,.cf-shell select{font:inherit}.cf-shell button,.cf-button{cursor:pointer;background:#fff;border:1px solid var(--cf-line);border-radius:7px;padding:8px 13px;color:var(--cf-ink);display:inline-flex;align-items:center;justify-content:center;gap:7px;white-space:nowrap}.cf-shell button:hover,.cf-button:hover{border-color:#b9d2ff;background:#f5f9ff}.cf-shell button:disabled{cursor:not-allowed;opacity:.5}.cf-shell :focus-visible{outline:3px solid #90b8ff;outline-offset:3px}.cf-shell .cf-primary{display:inline-flex;align-items:center;justify-content:center;gap:8px;background:var(--cf-blue);border:1px solid var(--cf-blue);border-radius:7px;padding:10px 17px;color:white;font-weight:600;cursor:pointer;white-space:nowrap;box-shadow:0 3px 6px #2878ff10}.cf-shell .cf-primary:hover{background:#1767e8}.cf-shell .cf-text-link{display:inline-flex;align-items:center;gap:6px;color:var(--cf-blue);font-size:13px}.cf-shell input,.cf-shell textarea,.cf-shell select{border:1px solid #dfe6f0;border-radius:7px;background:#fff;color:var(--cf-ink);padding:9px 12px;min-width:0}.cf-shell input::placeholder,.cf-shell textarea::placeholder{color:#9aa6ba}.cf-shell label{display:grid;gap:8px;font-weight:600}.cf-shell label input,.cf-shell label textarea{width:100%;font-weight:400}.cf-shell textarea{resize:vertical}.cf-sidebar{position:fixed;inset:0 auto 0 0;width:222px;background:#fcfdff;border-right:1px solid var(--cf-line);z-index:30;display:flex;flex-direction:column;padding:24px 15px}.cf-brand{display:flex;align-items:center;gap:9px;margin:0 4px 35px}.cf-brand>svg{color:var(--cf-blue);flex-shrink:0}.cf-brand strong{font-family:Georgia,serif;font-size:24px;letter-spacing:-.8px;line-height:1}.cf-brand small{display:block;color:#24334c;font-size:12px;letter-spacing:2px;font-weight:600;margin-top:7px}.cf-sidebar nav{display:flex;flex-direction:column;gap:10px}.cf-sidebar nav a{display:flex;align-items:center;gap:17px;padding:13px 18px;color:#576887;font-size:15px;border-radius:9px}.cf-sidebar nav a.active{color:var(--cf-blue);background:#eaf2ff;font-weight:600}.cf-sidebar nav a:hover{background:#f0f5fd}.cf-sidebar-footer{margin-top:auto;padding:32px 15px 4px;position:relative}.cf-sidebar-footer p{font:19px/1.8 "Songti SC",serif;color:#4d607d}.cf-sidebar-footer>span{display:block;color:#8398b4;padding:6px 0}.cf-sidebar-footer small{display:block;line-height:1.9}.cf-sidebar-footer>svg{display:block;color:#b9cbd6;transform:rotate(-9deg);margin:20px 0 15px 63px}.cf-main{margin-left:222px;min-width:0}.cf-topbar{height:72px;background:#ffffffed;position:sticky;top:0;z-index:20;border-bottom:1px solid var(--cf-line);display:flex;align-items:center;justify-content:space-between;gap:20px;padding:0 27px;backdrop-filter:blur(14px)}.cf-search{display:flex;align-items:center;gap:10px;background:#f3f6fa;border:1px solid #e0e7f0;border-radius:8px;padding:0 13px;max-width:490px;flex:1;color:#7e91af}.cf-search input{width:100%;border:0;background:none;outline:none;padding:10px 0}.cf-search kbd{font:12px sans-serif;color:#9faabe}.cf-top-actions{display:flex;gap:19px;align-items:center}.cf-top-actions>button,.cf-top-actions>a:not(.cf-primary){border:0;background:none;padding:5px;color:#62748e}.cf-connection{font-size:12px;color:#8190a7;display:flex;gap:6px;align-items:center;white-space:nowrap}.cf-connection i,.cf-dot{width:7px;height:7px;border-radius:50%;background:#39b98b;display:inline-block}.cf-connection i.is-offline{background:#e8af44}.cf-shell .cf-menu,.cf-shell .cf-mobile-close{display:none}.cf-page{padding:26px 28px 45px;max-width:1760px;margin:auto}.cf-page-title{display:flex;justify-content:space-between;align-items:center;gap:20px;margin-bottom:24px}.cf-page-title p{margin-top:2px}.cf-content-aside{display:grid;grid-template-columns:minmax(0,1fr) 270px;gap:22px}.cf-card{background:#fff;border:1px solid #edf0f5;border-radius:12px;padding:20px;box-shadow:0 3px 12px #253c6105}.cf-side-stack{display:flex;flex-direction:column;gap:18px}.cf-side-stack h3{display:flex;gap:8px;align-items:center;margin-bottom:13px}.cf-side-stack h3 svg{color:#f1b03e}.cf-recent-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-bottom:26px}.cf-book-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.cf-book{display:flex;gap:17px;padding:15px;min-width:0}.cf-cover{position:relative;width:87px;min-width:87px;aspect-ratio:2/3;border-radius:6px;background:hsl(var(--cover-hue,215) 28% 26%);color:#e7f0ff;overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:space-around;padding:18px 7px;box-shadow:0 4px 9px #15284220;text-align:center}.cf-cover img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.cf-cover strong{font:17px/1.5 "Songti SC",serif;position:relative;z-index:1}.cf-cover small{font-size:7px;letter-spacing:1.5px;color:#e2ebf7b0}.cf-cover-line{position:absolute;inset:8px;border:1px solid #ffffff28;border-radius:3px;pointer-events:none}.cf-book-info{flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start}.cf-book-info h3{margin:1px 0 7px}.cf-book-info p{font-size:12px;margin:8px 0}.cf-book-info small{display:block}.cf-book-info .cf-actions{margin-top:auto;padding-top:11px}.cf-badge{color:#199b66;background:#e8f8f0;border-radius:5px;padding:2px 9px;font-size:11px;display:inline-block;white-space:nowrap}.cf-clamp{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.cf-book-featured .cf-cover{width:115px;min-width:115px;max-height:205px}.cf-book-featured .cf-cover strong{font-size:20px}.cf-book-featured h3{font-size:18px}.cf-book-featured .cf-primary,.cf-book-featured .cf-button{font-size:12px;padding:8px 12px}.cf-section-title{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:24px 0 15px}.cf-section-title h2{margin:0}.cf-section-title h2 span{color:#8796ad;font-weight:400}.cf-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.cf-actions select{font-size:12px}.cf-stat{display:flex;gap:12px;align-items:center;border-bottom:1px solid var(--cf-line);padding:19px 0}.cf-stat:last-child{border:0;padding-bottom:3px}.cf-stat>span{width:42px;height:42px;background:#ecf3ff;color:var(--cf-blue);border-radius:9px;display:grid;place-items:center}.cf-stat>span svg{width:22px}.cf-stat>div{flex:1}.cf-stat small{display:block;font-size:11px;margin-top:4px}.cf-stat b{margin-left:auto;font-size:22px}.cf-quote{min-height:210px;position:relative;overflow:hidden;border-radius:12px;background:#f4f0e8;padding:29px}.cf-quote p{color:#5b625f;font:20px/1.9 "Songti SC",serif}.cf-quote span{display:block;margin:5px 0}.cf-quote small{color:#93978f;line-height:1.9}.cf-quote svg{position:absolute;bottom:16px;right:13px;color:#c5cdb6;transform:rotate(-12deg)}.cf-empty{display:flex;align-items:center;text-align:center;flex-direction:column;gap:17px;padding:65px 25px}.cf-empty>svg{color:#83acf1}.cf-empty h2{margin:0}.cf-create{max-width:720px;padding-top:50px}.cf-create>h1{margin-top:23px}.cf-create>.cf-card{margin:24px 0}.cf-create form{display:grid;gap:20px}.cf-create form h2{margin:0}.cf-create form>.cf-primary{justify-self:end}.cf-dashboard-hero{display:grid;grid-template-columns:125px minmax(0,1fr) minmax(200px,.85fr);gap:23px;align-items:center;margin-bottom:26px}.cf-dashboard-hero .cf-cover{width:125px}.cf-dashboard-hero h2{font-size:25px;margin:0 0 14px}.cf-dashboard-hero p{margin:12px 0;font-size:13px}.cf-continue{border-left:1px solid var(--cf-line);padding-left:23px}.cf-continue h3{margin-top:12px}.cf-continue .cf-primary{width:100%;margin-bottom:10px}.cf-suggestion-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:13px}.cf-suggestion-grid .cf-card{padding:16px}.cf-suggestion-grid svg{color:var(--cf-blue);width:22px;margin-bottom:8px}.cf-suggestion-grid strong{display:block;font-size:13px}.cf-suggestion-grid p{font-size:12px;margin-top:5px}.cf-chapter-row{display:flex;align-items:center;gap:13px;border-bottom:1px solid var(--cf-line);padding:15px 0}.cf-chapter-row:first-child{padding-top:0}.cf-chapter-row:last-child{border:0;padding-bottom:0}.cf-chapter-row>svg{color:#7d94b8}.cf-chapter-row>div{flex:1}.cf-chapter-row small{display:block;margin-top:5px}.cf-progress-card{margin-top:20px}.cf-progress-card progress{width:100%;height:8px;display:block;margin:12px 0;accent-color:var(--cf-blue)}.cf-overlay{position:fixed;inset:0;background:#13274335;z-index:100;display:flex;justify-content:flex-end}.cf-drawer{width:min(540px,100%);height:100%;background:#fff;padding:24px;overflow:auto;box-shadow:-8px 0 35px #18355015}.cf-drawer>header{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px}.cf-drawer>header h2{margin:0}.cf-drawer>header button{border:0}.cf-notice{padding:13px 26px;background:#fff3de;color:#936d2c;display:flex;gap:20px;align-items:center}.cf-legacy-content{padding:24px;--paper:#fff;--ink:#17243a;--vermillion:#2878ff;--ink-muted:#7786a2;--line:#e7ecf3}.cf-task{margin-bottom:16px}.cf-task h3{margin-bottom:9px}.cf-task pre{white-space:pre-wrap;font:14px/1.8 inherit;max-height:360px;overflow:auto;background:#f8fafc;padding:14px;border-radius:8px}.cf-task .cf-actions{margin-top:13px}
-@media(min-width:1600px){.cf-book-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.cf-content-aside{grid-template-columns:minmax(0,1fr) 300px}.cf-sidebar{width:240px}.cf-main{margin-left:240px}}
-@media(max-width:1250px){.cf-content-aside{grid-template-columns:minmax(0,1fr)}.cf-side-stack{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}.cf-stat{gap:6px}.cf-stat b{font-size:19px}.cf-stat>span{display:none}.cf-sidebar{width:195px;padding-inline:10px}.cf-main{margin-left:195px}.cf-brand strong{font-size:21px}.cf-brand>svg{width:35px}.cf-page{padding:22px}.cf-topbar{padding:0 22px}.cf-connection{display:none}}
-@media(max-width:850px){.cf-sidebar{width:175px}.cf-main{margin-left:175px}.cf-brand strong{font-size:18px}.cf-brand>svg{width:28px}.cf-brand small{font-size:10px;letter-spacing:1px}.cf-sidebar nav a{padding:12px;gap:12px;font-size:14px}.cf-recent-grid,.cf-book-grid{grid-template-columns:1fr}.cf-side-stack{grid-template-columns:1fr 1fr}.cf-side-stack>.cf-card:last-child{display:none}.cf-dashboard-hero{grid-template-columns:95px minmax(0,1fr)}.cf-dashboard-hero .cf-cover{width:95px}.cf-continue{grid-column:1/-1;border:0;border-top:1px solid var(--cf-line);padding:16px 0 0}.cf-suggestion-grid{grid-template-columns:1fr}.cf-top-actions{gap:9px}.cf-top-actions .cf-primary{padding:8px}.cf-top-actions .cf-primary span{display:none}}
-@media(max-width:600px){.cf-sidebar{display:none;width:240px;box-shadow:10px 0 50px #10234330}.cf-sidebar.is-open{display:flex}.cf-main{margin:0}.cf-shell .cf-menu{display:inline-flex;padding:5px;border:0}.cf-shell .cf-mobile-close{display:inline-flex;position:absolute;right:10px;top:8px;padding:4px;border:0}.cf-brand strong{font-size:24px}.cf-brand>svg{width:38px}.cf-brand small{font-size:12px}.cf-topbar{height:60px;padding:0 12px;gap:10px}.cf-search{padding:0 8px}.cf-search input{font-size:12px}.cf-search kbd{display:none}.cf-top-actions{gap:6px}.cf-top-actions>a[aria-label="设置"]{display:none}.cf-page{padding:21px 15px}.cf-page-title{align-items:flex-start;gap:12px}.cf-page-title>.cf-primary{display:none}.cf-shell h1{font-size:26px}.cf-page-title p{font-size:12px}.cf-section-title{flex-wrap:wrap}.cf-side-stack{grid-template-columns:1fr}.cf-side-stack .cf-quote{display:none}.cf-book-featured .cf-cover{width:90px;min-width:90px}.cf-book-featured h3{font-size:17px}.cf-card{padding:17px}.cf-book{padding:14px}.cf-dashboard-hero{gap:16px}.cf-legacy-content{padding:12px}.cf-empty{padding:45px 18px}.cf-top-actions .cf-primary{padding:7px}.cf-drawer{padding:18px}}
-@media(max-width:600px){.cf-page-title>.cf-primary{display:inline-flex;font-size:12px;padding:8px}.cf-page-title>.cf-primary svg{display:none}}
+.cf-shell {
+  --cf-blue: #2878ff;
+  --cf-ink: #17243a;
+  --cf-muted: #7786a2;
+  --cf-line: #e7ecf3;
+  --cf-bg: #f7f8fa;
+  --cf-soft: #edf4ff;
+  color-scheme: light;
+  background: var(--cf-bg);
+  color: var(--cf-ink);
+  font-family:
+    Inter, "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  min-height: 100vh;
+  line-height: 1.6;
+  font-size: 14px;
+  --bg: #f7f8fa;
+  --surface: #fff;
+  --text: #17243a;
+  --border: #e7ecf3;
+  --accent: #2878ff;
+}
+.cf-shell * {
+  box-sizing: border-box;
+}
+.cf-shell h1,
+.cf-shell h2,
+.cf-shell h3,
+.cf-shell p {
+  margin: 0;
+}
+.cf-shell h1 {
+  font-size: 30px;
+  letter-spacing: -0.7px;
+  font-weight: 750;
+}
+.cf-shell h2 {
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: 16px;
+}
+.cf-shell h3 {
+  font-size: 16px;
+  font-weight: 650;
+}
+.cf-shell p {
+  color: var(--cf-muted);
+  line-height: 1.8;
+}
+.cf-shell small {
+  color: var(--cf-muted);
+  font-size: 12px;
+}
+.cf-shell a {
+  color: inherit;
+  text-decoration: none;
+}
+.cf-shell button,
+.cf-shell input,
+.cf-shell textarea,
+.cf-shell select {
+  font: inherit;
+}
+.cf-shell button,
+.cf-button {
+  cursor: pointer;
+  background: #fff;
+  border: 1px solid var(--cf-line);
+  border-radius: 7px;
+  padding: 8px 13px;
+  color: var(--cf-ink);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+.cf-shell button:hover,
+.cf-button:hover {
+  border-color: #b9d2ff;
+  background: #f5f9ff;
+}
+.cf-shell button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.cf-shell :focus-visible {
+  outline: 3px solid #90b8ff;
+  outline-offset: 3px;
+}
+.cf-shell .cf-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: var(--cf-blue);
+  border: 1px solid var(--cf-blue);
+  border-radius: 7px;
+  padding: 10px 17px;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: 0 3px 6px #2878ff10;
+}
+.cf-shell .cf-primary:hover {
+  background: #1767e8;
+}
+.cf-shell .cf-text-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--cf-blue);
+  font-size: 13px;
+}
+.cf-shell input,
+.cf-shell textarea,
+.cf-shell select {
+  border: 1px solid #dfe6f0;
+  border-radius: 7px;
+  background: #fff;
+  color: var(--cf-ink);
+  padding: 9px 12px;
+  min-width: 0;
+}
+.cf-shell input::placeholder,
+.cf-shell textarea::placeholder {
+  color: #9aa6ba;
+}
+.cf-shell label {
+  display: grid;
+  gap: 8px;
+  font-weight: 600;
+}
+.cf-shell label input,
+.cf-shell label textarea {
+  width: 100%;
+  font-weight: 400;
+}
+.cf-shell textarea {
+  resize: vertical;
+}
+.cf-sidebar {
+  position: fixed;
+  inset: 0 auto 0 0;
+  width: 222px;
+  background: #fcfdff;
+  border-right: 1px solid var(--cf-line);
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  padding: 24px 15px;
+}
+.cf-brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0 4px 35px;
+}
+.cf-brand > svg {
+  color: var(--cf-blue);
+  flex-shrink: 0;
+}
+.cf-brand strong {
+  font-family: Georgia, serif;
+  font-size: 24px;
+  letter-spacing: -0.8px;
+  line-height: 1;
+}
+.cf-brand small {
+  display: block;
+  color: #24334c;
+  font-size: 12px;
+  letter-spacing: 2px;
+  font-weight: 600;
+  margin-top: 7px;
+}
+.cf-sidebar nav {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.cf-sidebar nav a {
+  display: flex;
+  align-items: center;
+  gap: 17px;
+  padding: 13px 18px;
+  color: #576887;
+  font-size: 15px;
+  border-radius: 9px;
+}
+.cf-sidebar nav a.active {
+  color: var(--cf-blue);
+  background: #eaf2ff;
+  font-weight: 600;
+}
+.cf-sidebar nav a:hover {
+  background: #f0f5fd;
+}
+.cf-sidebar-footer {
+  margin-top: auto;
+  padding: 32px 15px 4px;
+  position: relative;
+}
+.cf-sidebar-footer p {
+  font:
+    19px/1.8 "Songti SC",
+    serif;
+  color: #4d607d;
+}
+.cf-sidebar-footer > span {
+  display: block;
+  color: #8398b4;
+  padding: 6px 0;
+}
+.cf-sidebar-footer small {
+  display: block;
+  line-height: 1.9;
+}
+.cf-sidebar-footer > svg {
+  display: block;
+  color: #b9cbd6;
+  transform: rotate(-9deg);
+  margin: 20px 0 15px 63px;
+}
+.cf-main {
+  margin-left: 222px;
+  min-width: 0;
+}
+.cf-topbar {
+  height: 72px;
+  background: #ffffffed;
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  border-bottom: 1px solid var(--cf-line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 0 27px;
+  backdrop-filter: blur(14px);
+}
+.cf-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #f3f6fa;
+  border: 1px solid #e0e7f0;
+  border-radius: 8px;
+  padding: 0 13px;
+  max-width: 490px;
+  flex: 1;
+  color: #7e91af;
+}
+.cf-search input {
+  width: 100%;
+  border: 0;
+  background: none;
+  outline: none;
+  padding: 10px 0;
+}
+.cf-search kbd {
+  font: 12px sans-serif;
+  color: #9faabe;
+}
+.cf-top-actions {
+  display: flex;
+  gap: 19px;
+  align-items: center;
+}
+.cf-top-actions > button,
+.cf-top-actions > a:not(.cf-primary) {
+  border: 0;
+  background: none;
+  padding: 5px;
+  color: #62748e;
+}
+.cf-connection {
+  font-size: 12px;
+  color: #8190a7;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  white-space: nowrap;
+}
+.cf-connection i,
+.cf-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #39b98b;
+  display: inline-block;
+}
+.cf-connection i.is-offline {
+  background: #e8af44;
+}
+.cf-shell .cf-menu,
+.cf-shell .cf-mobile-close {
+  display: none;
+}
+.cf-page {
+  padding: 26px 28px 45px;
+  max-width: 1760px;
+  margin: auto;
+}
+.cf-page-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  margin-bottom: 24px;
+}
+.cf-page-title p {
+  margin-top: 2px;
+}
+.cf-content-aside {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 270px;
+  gap: 22px;
+}
+.cf-card {
+  background: #fff;
+  border: 1px solid #edf0f5;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 3px 12px #253c6105;
+}
+.cf-side-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.cf-side-stack h3 {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 13px;
+}
+.cf-side-stack h3 svg {
+  color: #f1b03e;
+}
+.cf-recent-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 26px;
+}
+.cf-book-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.cf-book {
+  display: flex;
+  gap: 17px;
+  padding: 15px;
+  min-width: 0;
+}
+.cf-cover {
+  position: relative;
+  width: 87px;
+  min-width: 87px;
+  aspect-ratio: 2/3;
+  border-radius: 6px;
+  background: hsl(var(--cover-hue, 215) 28% 26%);
+  color: #e7f0ff;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-around;
+  padding: 18px 7px;
+  box-shadow: 0 4px 9px #15284220;
+  text-align: center;
+}
+.cf-cover img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.cf-cover strong {
+  font:
+    17px/1.5 "Songti SC",
+    serif;
+  position: relative;
+  z-index: 1;
+}
+.cf-cover small {
+  font-size: 7px;
+  letter-spacing: 1.5px;
+  color: #e2ebf7b0;
+}
+.cf-cover-line {
+  position: absolute;
+  inset: 8px;
+  border: 1px solid #ffffff28;
+  border-radius: 3px;
+  pointer-events: none;
+}
+.cf-book-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.cf-book-info h3 {
+  margin: 1px 0 7px;
+}
+.cf-book-info p {
+  font-size: 12px;
+  margin: 8px 0;
+}
+.cf-book-info small {
+  display: block;
+}
+.cf-book-info .cf-actions {
+  margin-top: auto;
+  padding-top: 11px;
+}
+.cf-badge {
+  color: #199b66;
+  background: #e8f8f0;
+  border-radius: 5px;
+  padding: 2px 9px;
+  font-size: 11px;
+  display: inline-block;
+  white-space: nowrap;
+}
+.cf-clamp {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.cf-book-featured .cf-cover {
+  width: 115px;
+  min-width: 115px;
+  max-height: 205px;
+}
+.cf-book-featured .cf-cover strong {
+  font-size: 20px;
+}
+.cf-book-featured h3 {
+  font-size: 18px;
+}
+.cf-book-featured .cf-primary,
+.cf-book-featured .cf-button {
+  font-size: 12px;
+  padding: 8px 12px;
+}
+.cf-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 24px 0 15px;
+}
+.cf-section-title h2 {
+  margin: 0;
+}
+.cf-section-title h2 span {
+  color: #8796ad;
+  font-weight: 400;
+}
+.cf-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.cf-actions select {
+  font-size: 12px;
+}
+.cf-stat {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  border-bottom: 1px solid var(--cf-line);
+  padding: 19px 0;
+}
+.cf-stat:last-child {
+  border: 0;
+  padding-bottom: 3px;
+}
+.cf-stat > span {
+  width: 42px;
+  height: 42px;
+  background: #ecf3ff;
+  color: var(--cf-blue);
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+}
+.cf-stat > span svg {
+  width: 22px;
+}
+.cf-stat > div {
+  flex: 1;
+}
+.cf-stat small {
+  display: block;
+  font-size: 11px;
+  margin-top: 4px;
+}
+.cf-stat b {
+  margin-left: auto;
+  font-size: 22px;
+}
+.cf-quote {
+  min-height: 210px;
+  position: relative;
+  overflow: hidden;
+  border-radius: 12px;
+  background: #f4f0e8;
+  padding: 29px;
+}
+.cf-quote p {
+  color: #5b625f;
+  font:
+    20px/1.9 "Songti SC",
+    serif;
+}
+.cf-quote span {
+  display: block;
+  margin: 5px 0;
+}
+.cf-quote small {
+  color: #93978f;
+  line-height: 1.9;
+}
+.cf-quote svg {
+  position: absolute;
+  bottom: 16px;
+  right: 13px;
+  color: #c5cdb6;
+  transform: rotate(-12deg);
+}
+.cf-empty {
+  display: flex;
+  align-items: center;
+  text-align: center;
+  flex-direction: column;
+  gap: 17px;
+  padding: 65px 25px;
+}
+.cf-empty > svg {
+  color: #83acf1;
+}
+.cf-empty h2 {
+  margin: 0;
+}
+.cf-create {
+  max-width: 720px;
+  padding-top: 50px;
+}
+.cf-create > h1 {
+  margin-top: 23px;
+}
+.cf-create > .cf-card {
+  margin: 24px 0;
+}
+.cf-create form {
+  display: grid;
+  gap: 20px;
+}
+.cf-create form h2 {
+  margin: 0;
+}
+.cf-create form > .cf-primary {
+  justify-self: end;
+}
+.cf-dashboard-hero {
+  display: grid;
+  grid-template-columns: 125px minmax(0, 1fr) minmax(200px, 0.85fr);
+  gap: 23px;
+  align-items: center;
+  margin-bottom: 26px;
+}
+.cf-dashboard-hero .cf-cover {
+  width: 125px;
+}
+.cf-dashboard-hero h2 {
+  font-size: 25px;
+  margin: 0 0 14px;
+}
+.cf-dashboard-hero p {
+  margin: 12px 0;
+  font-size: 13px;
+}
+.cf-continue {
+  border-left: 1px solid var(--cf-line);
+  padding-left: 23px;
+}
+.cf-continue h3 {
+  margin-top: 12px;
+}
+.cf-continue .cf-primary {
+  width: 100%;
+  margin-bottom: 10px;
+}
+.cf-suggestion-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 13px;
+}
+.cf-suggestion-grid .cf-card {
+  padding: 16px;
+}
+.cf-suggestion-grid svg {
+  color: var(--cf-blue);
+  width: 22px;
+  margin-bottom: 8px;
+}
+.cf-suggestion-grid strong {
+  display: block;
+  font-size: 13px;
+}
+.cf-suggestion-grid p {
+  font-size: 12px;
+  margin-top: 5px;
+}
+.cf-chapter-row {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  border-bottom: 1px solid var(--cf-line);
+  padding: 15px 0;
+}
+.cf-chapter-row:first-child {
+  padding-top: 0;
+}
+.cf-chapter-row:last-child {
+  border: 0;
+  padding-bottom: 0;
+}
+.cf-chapter-row > svg {
+  color: #7d94b8;
+}
+.cf-chapter-row > div {
+  flex: 1;
+}
+.cf-chapter-row small {
+  display: block;
+  margin-top: 5px;
+}
+.cf-progress-card {
+  margin-top: 20px;
+}
+.cf-progress-card progress {
+  width: 100%;
+  height: 8px;
+  display: block;
+  margin: 12px 0;
+  accent-color: var(--cf-blue);
+}
+.cf-overlay {
+  position: fixed;
+  inset: 0;
+  background: #13274335;
+  z-index: 100;
+  display: flex;
+  justify-content: flex-end;
+}
+.cf-drawer {
+  width: min(540px, 100%);
+  height: 100%;
+  background: #fff;
+  padding: 24px;
+  overflow: auto;
+  box-shadow: -8px 0 35px #18355015;
+}
+.cf-drawer > header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+.cf-drawer > header h2 {
+  margin: 0;
+}
+.cf-drawer > header button {
+  border: 0;
+}
+.cf-notice {
+  padding: 13px 26px;
+  background: #fff3de;
+  color: #936d2c;
+  display: flex;
+  gap: 20px;
+  align-items: center;
+}
+.cf-legacy-content {
+  padding: 24px;
+  --paper: #fff;
+  --ink: #17243a;
+  --vermillion: #2878ff;
+  --ink-muted: #7786a2;
+  --line: #e7ecf3;
+}
+.cf-task {
+  margin-bottom: 16px;
+}
+.cf-task h3 {
+  margin-bottom: 9px;
+}
+.cf-task pre {
+  white-space: pre-wrap;
+  font: 14px/1.8 inherit;
+  max-height: 360px;
+  overflow: auto;
+  background: #f8fafc;
+  padding: 14px;
+  border-radius: 8px;
+}
+.cf-task .cf-actions {
+  margin-top: 13px;
+}
+@media (min-width: 1600px) {
+  .cf-book-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .cf-content-aside {
+    grid-template-columns: minmax(0, 1fr) 300px;
+  }
+  .cf-sidebar {
+    width: 240px;
+  }
+  .cf-main {
+    margin-left: 240px;
+  }
+}
+@media (max-width: 1250px) {
+  .cf-content-aside {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .cf-side-stack {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .cf-stat {
+    gap: 6px;
+  }
+  .cf-stat b {
+    font-size: 19px;
+  }
+  .cf-stat > span {
+    display: none;
+  }
+  .cf-sidebar {
+    width: 195px;
+    padding-inline: 10px;
+  }
+  .cf-main {
+    margin-left: 195px;
+  }
+  .cf-brand strong {
+    font-size: 21px;
+  }
+  .cf-brand > svg {
+    width: 35px;
+  }
+  .cf-page {
+    padding: 22px;
+  }
+  .cf-topbar {
+    padding: 0 22px;
+  }
+  .cf-connection {
+    display: none;
+  }
+}
+@media (max-width: 850px) {
+  .cf-sidebar {
+    width: 175px;
+  }
+  .cf-main {
+    margin-left: 175px;
+  }
+  .cf-brand strong {
+    font-size: 18px;
+  }
+  .cf-brand > svg {
+    width: 28px;
+  }
+  .cf-brand small {
+    font-size: 10px;
+    letter-spacing: 1px;
+  }
+  .cf-sidebar nav a {
+    padding: 12px;
+    gap: 12px;
+    font-size: 14px;
+  }
+  .cf-recent-grid,
+  .cf-book-grid {
+    grid-template-columns: 1fr;
+  }
+  .cf-side-stack {
+    grid-template-columns: 1fr 1fr;
+  }
+  .cf-side-stack > .cf-card:last-child {
+    display: none;
+  }
+  .cf-dashboard-hero {
+    grid-template-columns: 95px minmax(0, 1fr);
+  }
+  .cf-dashboard-hero .cf-cover {
+    width: 95px;
+  }
+  .cf-continue {
+    grid-column: 1/-1;
+    border: 0;
+    border-top: 1px solid var(--cf-line);
+    padding: 16px 0 0;
+  }
+  .cf-suggestion-grid {
+    grid-template-columns: 1fr;
+  }
+  .cf-top-actions {
+    gap: 9px;
+  }
+  .cf-top-actions .cf-primary {
+    padding: 8px;
+  }
+  .cf-top-actions .cf-primary span {
+    display: none;
+  }
+}
+@media (max-width: 600px) {
+  .cf-sidebar {
+    display: none;
+    width: 240px;
+    box-shadow: 10px 0 50px #10234330;
+  }
+  .cf-sidebar.is-open {
+    display: flex;
+  }
+  .cf-main {
+    margin: 0;
+  }
+  .cf-shell .cf-menu {
+    display: inline-flex;
+    padding: 5px;
+    border: 0;
+  }
+  .cf-shell .cf-mobile-close {
+    display: inline-flex;
+    position: absolute;
+    right: 10px;
+    top: 8px;
+    padding: 4px;
+    border: 0;
+  }
+  .cf-brand strong {
+    font-size: 24px;
+  }
+  .cf-brand > svg {
+    width: 38px;
+  }
+  .cf-brand small {
+    font-size: 12px;
+  }
+  .cf-topbar {
+    height: 60px;
+    padding: 0 12px;
+    gap: 10px;
+  }
+  .cf-search {
+    padding: 0 8px;
+  }
+  .cf-search input {
+    font-size: 12px;
+  }
+  .cf-search kbd {
+    display: none;
+  }
+  .cf-top-actions {
+    gap: 6px;
+  }
+  .cf-top-actions > a[aria-label="设置"] {
+    display: none;
+  }
+  .cf-page {
+    padding: 21px 15px;
+  }
+  .cf-page-title {
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .cf-page-title > .cf-primary {
+    display: none;
+  }
+  .cf-shell h1 {
+    font-size: 26px;
+  }
+  .cf-page-title p {
+    font-size: 12px;
+  }
+  .cf-section-title {
+    flex-wrap: wrap;
+  }
+  .cf-side-stack {
+    grid-template-columns: 1fr;
+  }
+  .cf-side-stack .cf-quote {
+    display: none;
+  }
+  .cf-book-featured .cf-cover {
+    width: 90px;
+    min-width: 90px;
+  }
+  .cf-book-featured h3 {
+    font-size: 17px;
+  }
+  .cf-card {
+    padding: 17px;
+  }
+  .cf-book {
+    padding: 14px;
+  }
+  .cf-dashboard-hero {
+    gap: 16px;
+  }
+  .cf-legacy-content {
+    padding: 12px;
+  }
+  .cf-empty {
+    padding: 45px 18px;
+  }
+  .cf-top-actions .cf-primary {
+    padding: 7px;
+  }
+  .cf-drawer {
+    padding: 18px;
+  }
+}
+@media (max-width: 600px) {
+  .cf-page-title > .cf-primary {
+    display: inline-flex;
+    font-size: 12px;
+    padding: 8px;
+  }
+  .cf-page-title > .cf-primary svg {
+    display: none;
+  }
+}
+.cf-writing {
+  display: flex;
+  min-height: calc(100vh - 72px);
+  align-items: stretch;
+  position: relative;
+}
+.cf-chapter-tree {
+  width: 220px;
+  min-width: 220px;
+  background: #fcfdff;
+  border-right: 1px solid var(--cf-line);
+  padding: 19px 13px;
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 72px;
+  height: calc(100vh - 72px);
+}
+.cf-chapter-tree header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.cf-chapter-tree header h2 {
+  margin: 0;
+}
+.cf-chapter-tree > small {
+  padding: 6px 3px 14px;
+  border-bottom: 1px solid var(--cf-line);
+}
+.cf-tree-scroll {
+  overflow: auto;
+  flex: 1;
+  padding: 12px 0;
+}
+.cf-tree-group {
+  margin-bottom: 14px;
+}
+.cf-shell .cf-tree-volume {
+  border: 0;
+  background: none;
+  padding: 10px 4px;
+  width: 100%;
+  justify-content: flex-start;
+  white-space: normal;
+  text-align: left;
+  font-size: 12px;
+}
+.cf-shell .cf-tree-chapter {
+  border: 0;
+  background: none;
+  padding: 10px 8px;
+  display: flex;
+  gap: 9px;
+  width: 100%;
+  color: #7a8caa;
+  font-size: 12px;
+  text-align: left;
+  white-space: normal;
+  justify-content: flex-start;
+}
+.cf-tree-chapter svg {
+  flex-shrink: 0;
+}
+.cf-tree-chapter span {
+  flex: 1;
+}
+.cf-shell .cf-tree-chapter.is-active {
+  background: #eaf2ff;
+  color: var(--cf-blue);
+  box-shadow: inset 2px 0 var(--cf-blue);
+}
+.cf-shell .cf-tree-chapter:hover {
+  background: #f1f5fb;
+}
+.cf-shell .cf-add-chapter {
+  color: var(--cf-blue);
+  background: #f7faff;
+  font-size: 12px;
+  width: 100%;
+  margin-top: 8px;
+}
+.cf-writing-desk {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) 300px;
+  gap: 19px;
+  flex: 1;
+  min-width: 0;
+  padding: 18px 20px 30px;
+}
+.cf-writing-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  color: #8291aa;
+  flex-wrap: wrap;
+  margin: 0 0 18px;
+}
+.cf-editor-column {
+  min-width: 0;
+}
+.cf-editor-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 20px;
+}
+.cf-editor-header h2 {
+  font-size: 21px;
+  margin: 0 0 5px;
+}
+.cf-editor-header small {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.cf-editor-header .cf-actions {
+  gap: 6px;
+  flex-wrap: nowrap;
+}
+.cf-editor-header button {
+  font-size: 11px;
+  padding: 8px;
+}
+.cf-paper {
+  position: relative;
+  background: white;
+  border: 1px solid #eaf0f7;
+  border-radius: 12px;
+  box-shadow: 0 3px 14px #1f3d6010;
+  min-height: calc(100vh - 240px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.cf-paper > h1 {
+  font-size: 22px;
+  font-weight: 650;
+  margin: 23px 25px 12px;
+  letter-spacing: 0;
+}
+.cf-paper-tools {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 0;
+  margin: 0 25px;
+  border-top: 1px solid var(--cf-line);
+  border-bottom: 1px solid var(--cf-line);
+  font-size: 11px;
+  color: #92a0b8;
+}
+.cf-paper-tools span:last-child {
+  margin-left: auto;
+}
+.cf-shell textarea.cf-manuscript {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-radius: 0;
+  resize: vertical;
+  flex: 1;
+  min-height: 520px;
+  padding: 24px 32px 50px;
+  outline: none;
+  font-family: "Noto Serif SC", "Songti SC", "STSong", serif;
+  font-size: 18px;
+  line-height: 2.05;
+  letter-spacing: 0.25px;
+  box-shadow: none;
+  color: #374863;
+}
+.cf-manuscript:focus-visible {
+  outline: none !important;
+}
+.cf-paper footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid #edf0f5;
+  padding: 9px 16px;
+  color: #8396b4;
+  font-size: 11px;
+}
+.cf-writing-assistant {
+  min-width: 0;
+  background: white;
+  border: 1px solid #edf0f5;
+  border-radius: 12px;
+  align-self: start;
+  position: sticky;
+  top: 90px;
+  max-height: calc(100vh - 110px);
+  overflow: auto;
+  box-shadow: 0 3px 14px #1f3d6006;
+}
+.cf-assistant-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--cf-line);
+  background: white;
+  position: sticky;
+  top: 0;
+  z-index: 4;
+}
+.cf-shell .cf-assistant-tabs button {
+  flex: 1;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  padding: 15px 5px;
+  color: #8290ab;
+  font-size: 15px;
+  font-weight: 600;
+}
+.cf-assistant-tabs button[aria-selected="true"] {
+  color: var(--cf-blue);
+  box-shadow: inset 0 -2px var(--cf-blue);
+}
+.cf-assistant-content {
+  padding: 17px;
+}
+.cf-assistant-content > .cf-section-title {
+  margin: 0 0 8px;
+}
+.cf-assistant-content > p {
+  font-size: 12px;
+  margin: 10px 0 17px;
+}
+.cf-assistant-content > small {
+  display: block;
+  margin-top: 10px;
+}
+.cf-assistant-content > label {
+  font-size: 12px;
+  margin: 18px 0 12px;
+}
+.cf-assistant-content h3 {
+  font-size: 14px;
+}
+.cf-assistant-content .cf-primary {
+  font-size: 12px;
+}
+.cf-brief-item {
+  display: flex;
+  gap: 12px;
+  padding: 19px 0;
+  border-bottom: 1px solid var(--cf-line);
+}
+.cf-brief-item:last-of-type {
+  border: 0;
+}
+.cf-brief-item > span {
+  color: var(--cf-blue);
+  padding-top: 3px;
+}
+.cf-brief-item svg {
+  width: 21px;
+  height: 21px;
+}
+.cf-brief-item h3 {
+  font-size: 13px;
+  margin-bottom: 7px;
+}
+.cf-brief-item p {
+  font-size: 12px;
+  line-height: 1.9;
+}
+.cf-ai-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 15px 0;
+}
+.cf-ai-actions button {
+  font-size: 12px;
+  justify-content: flex-start;
+  padding: 9px 8px;
+}
+.cf-ai-actions svg {
+  color: var(--cf-blue);
+}
+.cf-selection-toolbar {
+  position: sticky;
+  bottom: 50px;
+  align-self: center;
+  display: flex;
+  max-width: 96%;
+  flex-wrap: wrap;
+  justify-content: center;
+  border: 1px solid #dde5f2;
+  background: #fffffff5;
+  border-radius: 10px;
+  padding: 5px;
+  box-shadow: 0 8px 30px #19385920;
+  z-index: 5;
+}
+.cf-selection-toolbar button {
+  border: 0;
+  padding: 6px 9px;
+  font-size: 11px;
+  color: #56709b;
+}
+.cf-proposal {
+  border-top: 1px solid var(--cf-line);
+  padding-top: 18px;
+  margin-top: 20px;
+}
+.cf-proposal del,
+.cf-proposal ins {
+  display: block;
+  white-space: pre-wrap;
+  font: 13px/1.8 inherit;
+  padding: 12px;
+  margin: 8px 0;
+  border-radius: 6px;
+  max-height: 260px;
+  overflow: auto;
+}
+.cf-proposal del {
+  background: #fff0ef;
+  color: #8c6260;
+}
+.cf-proposal ins {
+  background: #edf9f3;
+  color: #3a6f58;
+  text-decoration: none;
+}
+.cf-proposal .cf-actions button,
+.cf-review-issue button {
+  font-size: 11px;
+  padding: 7px 9px;
+}
+.cf-review-issue {
+  border-top: 1px solid var(--cf-line);
+  padding-top: 15px;
+  margin-top: 15px;
+}
+.cf-review-issue h4 {
+  font-size: 13px;
+  margin: 10px 0;
+}
+.cf-review-issue blockquote {
+  margin: 10px 0;
+  padding: 10px;
+  border-left: 2px solid #a8bfe5;
+  background: #f6f8fc;
+  font-size: 12px;
+  color: #7a8ca9;
+}
+.cf-review-issue p {
+  font-size: 12px;
+}
+.cf-writing-empty {
+  padding: 80px 25px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 19px;
+  text-align: center;
+}
+.cf-writing-empty svg {
+  color: #83acf1;
+}
+.cf-writing-empty h1 {
+  font-size: 25px;
+}
+.cf-form {
+  display: grid;
+  gap: 20px;
+}
+.cf-form > .cf-primary {
+  justify-self: start;
+}
+.cf-version {
+  padding: 20px 0;
+  border-bottom: 1px solid var(--cf-line);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.cf-version > div {
+  flex: 1;
+}
+.cf-version small {
+  display: block;
+}
+.cf-version p {
+  font-size: 12px;
+}
+.cf-version details {
+  width: 100%;
+  font-size: 12px;
+}
+.cf-version pre {
+  white-space: pre-wrap;
+  max-height: 300px;
+  overflow: auto;
+  font-family: inherit;
+  background: #f7f9fc;
+  padding: 15px;
+}
+.cf-editor-notice {
+  font-size: 12px;
+  background: #eff6ff;
+  border-radius: 7px;
+  padding: 10px 12px;
+  color: #607da9;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.cf-editor-notice button {
+  border: 0;
+  background: none;
+  padding: 0 5px;
+}
+.cf-writing-desk.is-focus {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: #f3f4f6;
+  display: block;
+  overflow: auto;
+  padding: 35px max(24px, calc((100vw - 850px) / 2));
+}
+.cf-writing-desk.is-focus .cf-writing-assistant,
+.cf-writing-desk.is-focus .cf-writing-breadcrumb {
+  display: none;
+}
+.cf-writing-desk.is-focus .cf-manuscript {
+  min-height: 75vh;
+}
+.cf-writing-assistant .cf-task {
+  padding: 12px;
+}
+.cf-writing-assistant .cf-task button {
+  font-size: 11px;
+  padding: 7px 8px;
+}
+.cf-writing-assistant .cf-task pre {
+  font-size: 12px;
+}
+@media (min-width: 1700px) {
+  .cf-writing-desk {
+    grid-template-columns: minmax(360px, 1fr) 340px;
+  }
+  .cf-chapter-tree {
+    width: 245px;
+    min-width: 245px;
+  }
+  .cf-shell textarea.cf-manuscript {
+    padding-inline: 45px;
+  }
+}
+@media (max-width: 1350px) {
+  .cf-chapter-tree {
+    width: 180px;
+    min-width: 180px;
+  }
+  .cf-writing-desk {
+    grid-template-columns: minmax(260px, 1fr) 260px;
+    padding: 16px 14px;
+    gap: 14px;
+  }
+  .cf-paper > h1 {
+    font-size: 20px;
+    margin-inline: 20px;
+  }
+  .cf-shell textarea.cf-manuscript {
+    padding-inline: 22px;
+    font-size: 17px;
+  }
+  .cf-editor-header .cf-actions span {
+    display: none;
+  }
+  .cf-editor-header h2 {
+    font-size: 18px;
+  }
+}
+@media (max-width: 1150px) {
+  .cf-writing-desk {
+    display: flex;
+    flex-wrap: wrap;
+  }
+  .cf-editor-column {
+    width: 100%;
+  }
+  .cf-writing-assistant {
+    position: static;
+    width: 100%;
+    max-height: none;
+  }
+  .cf-assistant-content {
+    padding: 20px;
+  }
+  .cf-brief-item {
+    padding: 12px 0;
+  }
+  .cf-ai-actions {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .cf-writing-desk.is-focus {
+    display: block;
+  }
+}
+@media (max-width: 850px) {
+  .cf-chapter-tree {
+    width: 145px;
+    min-width: 145px;
+    padding: 14px 8px;
+  }
+  .cf-tree-chapter {
+    font-size: 11px !important;
+  }
+  .cf-writing-desk {
+    padding: 14px 10px;
+  }
+  .cf-editor-header {
+    align-items: flex-start;
+  }
+  .cf-writing-breadcrumb {
+    font-size: 10px;
+  }
+  .cf-paper > h1 {
+    font-size: 18px;
+    margin-inline: 16px;
+  }
+  .cf-shell textarea.cf-manuscript {
+    padding: 20px 17px;
+    font-size: 16px;
+  }
+  .cf-ai-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 600px) {
+  .cf-writing {
+    display: block;
+  }
+  .cf-chapter-tree {
+    position: relative;
+    top: 0;
+    width: 100%;
+    height: auto;
+    min-width: 0;
+    padding: 10px 15px;
+    border-bottom: 1px solid var(--cf-line);
+    border-right: 0;
+  }
+  .cf-chapter-tree header {
+    margin: 0;
+  }
+  .cf-chapter-tree > small,
+  .cf-chapter-tree > .cf-add-chapter {
+    display: none;
+  }
+  .cf-tree-scroll {
+    max-height: 130px;
+    padding: 7px 0 0;
+    display: flex;
+    gap: 8px;
+    overflow: auto;
+  }
+  .cf-tree-group {
+    margin: 0;
+    min-width: 160px;
+  }
+  .cf-shell .cf-tree-chapter {
+    min-width: 120px;
+    max-width: 200px;
+    padding: 7px;
+    flex-shrink: 0;
+  }
+  .cf-tree-group .cf-tree-chapter {
+    min-width: 0;
+    max-width: none;
+  }
+  .cf-shell .cf-tree-volume {
+    padding: 4px;
+    font-size: 11px;
+  }
+  .cf-writing-desk {
+    padding: 15px 12px;
+  }
+  .cf-editor-header h2 {
+    font-size: 18px;
+  }
+  .cf-writing-breadcrumb {
+    margin-bottom: 12px;
+  }
+  .cf-paper-tools {
+    margin-inline: 16px;
+    font-size: 10px;
+    gap: 10px;
+  }
+  .cf-writing-empty {
+    padding: 55px 20px;
+  }
+  .cf-selection-toolbar {
+    bottom: 45px;
+  }
+  .cf-selection-toolbar button {
+    font-size: 10px;
+    padding: 5px 7px;
+  }
+}
+.cf-shell ::selection {
+  background: #d8e9ff;
+  color: #173a71;
+}
+.cf-brand strong {
+  font-size: 22px;
+}
+.cf-editor-header h2 {
+  overflow-wrap: anywhere;
+}
+.cf-writing-assistant .cf-task summary {
+  color: #7187a6;
+  font-size: 12px;
+  cursor: pointer;
+  margin: 12px 0;
+}
+.cf-shell .cf-paper-tools {
+  user-select: none;
+}
+.cf-book {
+  position: relative;
+}
+.cf-book-info h3 {
+  padding-right: 20px;
+}
+.cf-book-menu {
+  position: absolute;
+  right: 11px;
+  top: 12px;
+  z-index: 2;
+}
+.cf-book-menu summary {
+  list-style: none;
+  cursor: pointer;
+  color: #8b9db6;
+  padding: 3px;
+}
+.cf-book-menu summary::-webkit-details-marker {
+  display: none;
+}
+.cf-book-menu details > div {
+  position: absolute;
+  right: 0;
+  top: 27px;
+  min-width: 140px;
+  background: #fff;
+  border: 1px solid var(--cf-line);
+  border-radius: 9px;
+  box-shadow: 0 8px 28px #1b365b20;
+  padding: 6px;
+}
+.cf-book-menu details button {
+  display: block;
+  width: 100%;
+  border: 0;
+  text-align: left;
+  font-size: 12px;
+}
+.cf-book-menu > .error-note {
+  width: 220px;
+}
+.cf-book-menu .cf-overlay {
+  position: fixed;
+}
+.cf-book-menu .cf-form {
+  text-align: left;
+}

@@ -1,4 +1,10 @@
-import { type StyleProfile, type BackgroundRunCreated, type WritingSkill, type WritingSkillScope, type WritingSkillValidation } from "./types";
+import {
+  type StyleProfile,
+  type BackgroundRunCreated,
+  type WritingSkill,
+  type WritingSkillScope,
+  type WritingSkillValidation,
+} from "./types";
 import { requestJson, jsonRequest, requestVoid, requestBlob } from "./client";
 import { type ImportedAgentSkillDto } from "@narralume/contracts";
 
@@ -202,8 +208,7 @@ export async function setAgentSkillEnabled(
 }
 
 export async function deleteAgentSkill(skillId: string): Promise<void> {
-  return requestVoid(
-    `/api/agent-skills/${encodeURIComponent(skillId)}`,
-    { method: "DELETE" },
-  );
+  return requestVoid(`/api/agent-skills/${encodeURIComponent(skillId)}`, {
+    method: "DELETE",
+  });
 }

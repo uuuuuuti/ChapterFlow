@@ -4,7 +4,7 @@ import "../../styles/bible-actions.css";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { PenLine, Save, Search, Trash2 } from "lucide-react";
 import { useState, type FormEvent, type ReactNode } from "react";
-import { Link } from "react-router";
+import { Link, useLocation } from "react-router";
 
 import { ConfirmDialog } from "../../components/confirm-dialog";
 import { ErrorNote } from "../../components/error-note";
@@ -193,6 +193,8 @@ const OUTLINE_CHILD_KINDS: Readonly<Record<OutlineNode["kind"], readonly Outline
 
 function OutlineFields({ projectId, bible, selected, pending, onSave, onSelect }: { projectId: string; bible: StoryBible; selected: OutlineNode | undefined; pending: boolean; onSave: (work: () => Promise<unknown>) => void; onSelect: (id: string) => void }) {
   const { t } = useI18n();
+  const location = useLocation();
+  const writingPath = location.pathname.startsWith("/books/") ? `/books/${encodeURIComponent(projectId)}/write` : projectWorkspacePath(projectId, "studio");
   const kindLabel = (kind: OutlineNode["kind"]) => t(`bible.outlineKind.${kind}`);
   const root = bible.outline.find((node) => node.kind === "book") ?? bible.outline[0];
   const [parentId, setParentId] = useState(selected?.parentId ?? root?.id ?? "");
@@ -212,7 +214,7 @@ function OutlineFields({ projectId, bible, selected, pending, onSave, onSelect }
     <Field label={t("bible.fields.title")}><input required value={title} onChange={(event) => setTitle(event.target.value)} /></Field>
     <Field label={t("bible.fields.summary")}><textarea value={summary ?? ""} onChange={(event) => setSummary(event.target.value)} /></Field>
     {selected ? <><Field label={t("bible.fields.goal")}><input value={goal ?? ""} onChange={(event) => setGoal(event.target.value)} /></Field><Field label={t("bible.fields.conflict")}><input value={conflict ?? ""} onChange={(event) => setConflict(event.target.value)} /></Field></> : null}
-    <Buttons pending={pending}>{selected && selected.kind !== "book" ? <RemoveResourceButton pending={pending} label={selected.status === "abandoned" ? t("bible.editor.removeUnusedNode") : t("bible.editor.removeNode")} onConfirm={() => onSave(() => removeOutlineNode(projectId, selected))} /> : null}{selected?.kind === "chapter" ? <Link className="btn" to={`${projectWorkspacePath(projectId, "studio")}?outline=${encodeURIComponent(selected.id)}`}><PenLine size={13} />{t("bible.editor.goWriteChapter")}</Link> : null}</Buttons>
+    <Buttons pending={pending}>{selected && selected.kind !== "book" ? <RemoveResourceButton pending={pending} label={selected.status === "abandoned" ? t("bible.editor.removeUnusedNode") : t("bible.editor.removeNode")} onConfirm={() => onSave(() => removeOutlineNode(projectId, selected))} /> : null}{selected?.kind === "chapter" ? <Link className="btn" to={`${writingPath}?outline=${encodeURIComponent(selected.id)}`}><PenLine size={13} />{t("bible.editor.goWriteChapter")}</Link> : null}</Buttons>
   </form>;
 }
 

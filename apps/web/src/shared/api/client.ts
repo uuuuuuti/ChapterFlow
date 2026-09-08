@@ -9,7 +9,12 @@ export class ApiError extends Error {
   readonly status: number;
   readonly details: unknown;
 
-  constructor(code: string, message: string, status: number, details?: unknown) {
+  constructor(
+    code: string,
+    message: string,
+    status: number,
+    details?: unknown,
+  ) {
     super(message);
     this.name = "ApiError";
     this.code = code;
@@ -97,7 +102,8 @@ export async function transportRequest(
   const mode = await requireResolvedMode();
   if (mode === "local") {
     return kernelRequest({
-      method: (init.method ?? "GET") as "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
+      method: (init.method ?? "GET") as
+        "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
       path: input,
       body: init.body,
       headers: init.headers as Record<string, string> | undefined,
@@ -115,10 +121,7 @@ export async function transportRequest(
   return { status: response.status, headers, body };
 }
 
-export function transportError(
-  status: number,
-  body: unknown,
-): ApiError {
+export function transportError(status: number, body: unknown): ApiError {
   const envelope =
     body && typeof body === "object" && "error" in body
       ? (body as { error: Record<string, unknown> }).error
@@ -146,14 +149,20 @@ export function transportError(
   return new ApiError(code, message, status, details);
 }
 
-export async function requestJson<T>(input: string, init: RequestInit): Promise<T> {
+export async function requestJson<T>(
+  input: string,
+  init: RequestInit,
+): Promise<T> {
   const response = await transportRequest(input, init);
   if (response.status >= 400)
     throw transportError(response.status, response.body);
   return response.body as T;
 }
 
-export async function requestVoid(input: string, init: RequestInit): Promise<void> {
+export async function requestVoid(
+  input: string,
+  init: RequestInit,
+): Promise<void> {
   const response = await transportRequest(input, init);
   if (response.status >= 400)
     throw transportError(response.status, response.body);
@@ -162,11 +171,16 @@ export async function requestVoid(input: string, init: RequestInit): Promise<voi
 export async function requestBlob(
   input: string,
   init: RequestInit = {},
-): Promise<{ blob: Blob; filename: string | null; contentType: string | null }> {
+): Promise<{
+  blob: Blob;
+  filename: string | null;
+  contentType: string | null;
+}> {
   const mode = await requireResolvedMode();
   if (mode === "local") {
     const response = await kernelRequest({
-      method: (init.method ?? "GET") as "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
+      method: (init.method ?? "GET") as
+        "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
       path: input,
       body: init.body,
       headers: init.headers as Record<string, string> | undefined,
@@ -174,7 +188,9 @@ export async function requestBlob(
     if (response.status >= 400) {
       throw transportError(
         response.status,
-        response.body && typeof response.body === "object" && "error" in response.body
+        response.body &&
+          typeof response.body === "object" &&
+          "error" in response.body
           ? response.body
           : null,
       );

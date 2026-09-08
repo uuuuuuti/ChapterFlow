@@ -60,9 +60,15 @@ export function ConversationPicker({
         <ChevronDown size={14} strokeWidth={1.5} aria-hidden="true" />
       </button>
       {open ? (
-        <div className="assistant-conv__menu" role="listbox" aria-label={t("assistant.conversation.pickerLabel")}>
+        <div
+          className="assistant-conv__menu"
+          role="listbox"
+          aria-label={t("assistant.conversation.pickerLabel")}
+        >
           {active.length === 0 && archived.length === 0 ? (
-            <p className="assistant-conv__empty">{t("assistant.conversation.empty")}</p>
+            <p className="assistant-conv__empty">
+              {t("assistant.conversation.empty")}
+            </p>
           ) : null}
           {active.map((conversation) => (
             <button
@@ -84,12 +90,16 @@ export function ConversationPicker({
                 aria-expanded={showArchived}
                 onClick={() => setShowArchived((v) => !v)}
               >
-                {t("assistant.conversation.archivedGroup", { count: archived.length })}
+                {t("assistant.conversation.archivedGroup", {
+                  count: archived.length,
+                })}
                 <ChevronDown
                   size={13}
                   strokeWidth={1.5}
                   aria-hidden="true"
-                  style={{ transform: showArchived ? "rotate(180deg)" : undefined }}
+                  style={{
+                    transform: showArchived ? "rotate(180deg)" : undefined,
+                  }}
                 />
               </button>
               {showArchived
@@ -113,4 +123,3 @@ export function ConversationPicker({
     </span>
   );
 }
-

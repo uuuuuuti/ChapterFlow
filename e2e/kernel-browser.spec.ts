@@ -25,7 +25,8 @@ test("本地内核 UI 主链：建项目 → 大纲 → 写作 → 版本持久 
   const body =
     "林昇回港当夜，灯塔突然熄灭。退潮前，他在石阶下找到一封没有署名的信。";
 
-  await page.goto("/");
+  // ChapterFlow owns `/`; exercise the preserved legacy shell explicitly.
+  await page.goto("/shelf");
   await expect(page.locator(".status-pill__label").first()).toHaveText(
     "内核在线",
     { timeout: KERNEL_READY_TIMEOUT },

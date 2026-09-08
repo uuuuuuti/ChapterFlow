@@ -1,10 +1,52 @@
-import { MIN_VIABLE_PARTIAL_CHARACTERS, QUALITY_PRESETS, type AdoptRunStreamResponse, type ProjectLanguage, type AssistantActivityDto, type AssistantActivityTextDto, type AssistantActivityActionResponseDto, type AssistantContext, type AssistantConversationDetailDto, type AssistantConversationDto, type AssistantMessageAcceptedDto, type AssistantMessageDto, type AssignmentRole, type AutopilotSessionDetailDto, type AutopilotSessionDto, type ChapterRunCreatedDto, type CanonCandidateSetDto, type CanonSpread, type ContinueRunStreamRequest, type CreateAssistantConversationRequest, type CreateAssistantMessageRequest, type DocumentReviewRunCreatedDto, type EffectivePolicy, type HealthResponse, type ImportedAgentSkillDto, type ModelAssignmentDto, type ModelConfigDto, type ModelExecutionPolicy, type ModelTaskType, type PublicProviderDto, type ProjectCoverDto, type ProjectCoverMutation, type QualityPreset, type RegenerateRunStreamResponse, type RunDetailDto, type RunOrigin, type StorySteerDto, type UpsertModelRequest, type UpsertProviderRequest, type WireApi } from "@narralume/contracts";
+import {
+  MIN_VIABLE_PARTIAL_CHARACTERS,
+  QUALITY_PRESETS,
+  type AdoptRunStreamResponse,
+  type ProjectLanguage,
+  type AssistantActivityDto,
+  type AssistantActivityTextDto,
+  type AssistantActivityActionResponseDto,
+  type AssistantContext,
+  type AssistantConversationDetailDto,
+  type AssistantConversationDto,
+  type AssistantMessageAcceptedDto,
+  type AssistantMessageDto,
+  type AssignmentRole,
+  type AutopilotSessionDetailDto,
+  type AutopilotSessionDto,
+  type ChapterRunCreatedDto,
+  type CanonCandidateSetDto,
+  type CanonSpread,
+  type ContinueRunStreamRequest,
+  type CreateAssistantConversationRequest,
+  type CreateAssistantMessageRequest,
+  type DocumentReviewRunCreatedDto,
+  type EffectivePolicy,
+  type HealthResponse,
+  type ImportedAgentSkillDto,
+  type ModelAssignmentDto,
+  type ModelConfigDto,
+  type ModelExecutionPolicy,
+  type ModelTaskType,
+  type PublicProviderDto,
+  type ProjectCoverDto,
+  type ProjectCoverMutation,
+  type QualityPreset,
+  type RegenerateRunStreamResponse,
+  type RunDetailDto,
+  type RunOrigin,
+  type StorySteerDto,
+  type UpsertModelRequest,
+  type UpsertProviderRequest,
+  type WireApi,
+} from "@narralume/contracts";
 
 export { MIN_VIABLE_PARTIAL_CHARACTERS, QUALITY_PRESETS };
 
 export type {
   AdoptRunStreamResponse,
-  ProjectLanguage,  AssistantActivityDto,
+  ProjectLanguage,
+  AssistantActivityDto,
   AssistantActivityTextDto,
   AssistantActivityActionResponseDto,
   AssistantContext,
@@ -154,12 +196,7 @@ export interface Project {
   premise: string | null;
   language: ProjectLanguage;
   phase:
-    | "idea"
-    | "foundation"
-    | "outlining"
-    | "writing"
-    | "revising"
-    | "complete";
+    "idea" | "foundation" | "outlining" | "writing" | "revising" | "complete";
   archivedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -328,11 +365,7 @@ export interface StyleProfile {
 }
 
 export type WritingSkillScope =
-  | "all"
-  | "chapter"
-  | "cocreate"
-  | "edit"
-  | "review";
+  "all" | "chapter" | "cocreate" | "edit" | "review";
 
 export interface WritingSkill {
   id: string;
@@ -350,19 +383,10 @@ export interface WritingSkill {
 }
 
 export type ImportFormat =
-  | "markdown"
-  | "text"
-  | "docx"
-  | "html"
-  | "epub"
-  | "narrative-bundle";
+  "markdown" | "text" | "docx" | "html" | "epub" | "narrative-bundle";
 
 export type ExportFormat =
-  | "markdown"
-  | "text"
-  | "docx"
-  | "epub"
-  | "narrative-bundle";
+  "markdown" | "text" | "docx" | "epub" | "narrative-bundle";
 
 export interface ImportBatch {
   id: string;
@@ -618,12 +642,7 @@ export interface NarrativeRunStep {
   kind: RunStepKind;
   cycle: number;
   status:
-    | "pending"
-    | "running"
-    | "succeeded"
-    | "failed"
-    | "skipped"
-    | "cancelled";
+    "pending" | "running" | "succeeded" | "failed" | "skipped" | "cancelled";
   outputArtifact: Record<string, unknown> | null;
   outputHash: string | null;
   error: { code: string; message: string; retryable: boolean } | null;
@@ -656,10 +675,7 @@ export type RunDetail = RunDetailDto;
 export type ReviewIssueStatus = "open" | "accepted" | "rejected" | "resolved";
 
 export type ReviewIssueDecisionAction =
-  | "accept"
-  | "reject"
-  | "false_positive"
-  | "intentional_keep";
+  "accept" | "reject" | "false_positive" | "intentional_keep";
 
 export interface ReviewWorkspaceIssue {
   id: string;

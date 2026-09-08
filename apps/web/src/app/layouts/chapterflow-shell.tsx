@@ -1,7 +1,39 @@
+import { BrandMark } from "../../shared/ui/brand-mark";
 import "../../styles/chapterflow.css";
-import { createContext, useContext, useRef, useState, useEffect, Suspense, lazy } from "react";
-import { Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate } from "react-router";
-import { BookOpen, House, Library, ListTree, PenLine, Shield, ChartNoAxesCombined, Send, Search, Settings, Bell, Plus, Menu, X } from "lucide-react";
+import {
+  createContext,
+  useContext,
+  useRef,
+  useState,
+  useEffect,
+  Suspense,
+  lazy,
+} from "react";
+import {
+  Link,
+  NavLink,
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+} from "react-router";
+import {
+  BookOpen,
+  House,
+  Library,
+  ListTree,
+  PenLine,
+  Shield,
+  ChartNoAxesCombined,
+  Send,
+  Search,
+  Settings,
+  Bell,
+  Plus,
+  Menu,
+  X,
+} from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { LibraryPage, BookCreatePage } from "../../pages/library/library-page";
 import { DashboardPage } from "../../pages/dashboard/dashboard-page";
@@ -9,23 +41,340 @@ import { getHealth } from "../../shared/api/client";
 import { queryKeys } from "../../shared/query/keys";
 import { Drawer } from "../../shared/ui/drawer";
 import type { FlushDraft } from "../../features/draft-autosave/use-draft-autosave";
-const WritingPage = lazy(()=>import("../../pages/writing/writing-page").then(m=>({default:m.WritingPageV2})));
-const Bible = lazy(()=>import("../../workspaces/bible").then(m=>({default:m.BibleWorkspace})));
-const Delivery = lazy(()=>import("../../workspaces/delivery").then(m=>({default:m.DeliveryWorkspace})));
-const Tasks = lazy(()=>import("../../features/task-progress/task-center").then(m=>({default:m.TaskCenter})));
-const NavigationGuard=createContext<(flush:FlushDraft|null)=>void>(()=>{});
-export const useWritingGuard=()=>useContext(NavigationGuard);
-export function ChapterFlowShell(){
- const location=useLocation();const navigate=useNavigate();const projectId=/^\/books\/([^/]+)\//.exec(location.pathname)?.[1]??null;
- const [menu,setMenu]=useState(false);const [tasks,setTasks]=useState(false);const [search,setSearch]=useState("");const flush=useRef<FlushDraft|null>(null);const [notice,setNotice]=useState("");
- const health=useQuery({queryKey:queryKeys.health,queryFn:({signal})=>getHealth(signal),refetchInterval:30000});
- useEffect(()=>{document.title="ChapterFlow · 文织·网文工坊";},[]);
- const nav=[{path:"dashboard",label:"创作首页",icon:House},{path:"outline",label:"大纲",icon:ListTree},{path:"write",label:"写作",icon:PenLine},{path:"knowledge",label:"作品设定",icon:Shield},{path:"analytics",label:"数据",icon:ChartNoAxesCombined},{path:"publish",label:"发布",icon:Send}];
- return <NavigationGuard.Provider value={f=>{flush.current=f;}}><div className="cf-shell" onClickCapture={e=>{const anchor=(e.target as HTMLElement).closest("a");if(!anchor||!flush.current||e.ctrlKey||e.metaKey||e.shiftKey||e.altKey||anchor.target==="_blank")return;const url=new URL(anchor.href);if(url.origin!==locationOrigin())return;e.preventDefault();e.stopPropagation();void flush.current().then(ok=>{if(ok){setMenu(false);navigate(url.pathname+url.search+url.hash);}else setNotice("草稿保存失败，请重试保存后再离开。");});}}>
- <aside className={`cf-sidebar ${menu?"is-open":""}`}><Link to="/books" className="cf-brand"><BookOpen size={43} strokeWidth={1.8}/><span><strong>ChapterFlow</strong><small>文织 · 网文工坊</small></span></Link><button className="cf-mobile-close" aria-label="关闭导航" onClick={()=>setMenu(false)}><X/></button><nav aria-label="创作导航"><NavLink to="/books" end><Library size={21}/>我的作品</NavLink>{projectId?nav.map(item=><NavLink key={item.path} to={`/books/${projectId}/${item.path}`} onClick={()=>setMenu(false)}><item.icon size={21}/>{item.label}</NavLink>):<><NavLink to="/books/templates"><ListTree size={21}/>创作模板</NavLink><NavLink to="/settings"><Settings size={21}/>设置</NavLink></>}</nav><div className="cf-sidebar-footer"><p>从一个想法，<br/>到一部长篇。</p><span>——</span><small>让每一个故事，<br/>都被认真对待。</small><BookOpen size={65} strokeWidth={.8}/><small>ChapterFlow<br/>文织 · 网文工坊</small></div></aside>
- <div className="cf-main"><header className="cf-topbar"><button className="cf-menu" aria-label="打开导航" onClick={()=>setMenu(!menu)}><Menu/></button><form className="cf-search" onSubmit={e=>{e.preventDefault();navigate(`/books?q=${encodeURIComponent(search)}`);}}><Search size={19}/><input aria-label="搜索作品" value={search} onChange={e=>setSearch(e.target.value)} placeholder="搜索你的作品…"/><kbd>↵</kbd></form><div className="cf-top-actions"><span className="cf-connection" title="内容存储连接状态"><i className={health.isError?"is-offline":""}/>{health.isPending?"连接中":"写作可用"}</span><Link className="cf-primary" to="/books/new"><Plus size={17}/><span>新建作品</span></Link>{projectId?<button aria-label="任务中心" title="任务中心" onClick={()=>setTasks(true)}><Bell size={21}/></button>:null}<Link to="/settings" aria-label="设置"><Settings size={21}/></Link></div></header>{notice?<div role="alert" className="cf-notice">{notice}<button onClick={()=>setNotice("")}>关闭</button></div>:null}
- <main><Suspense fallback={<div className="cf-page" role="status">正在打开…</div>}><Routes><Route path="/books" element={<LibraryPage/>}/><Route path="/books/new" element={<BookCreatePage/>}/><Route path="/books/templates" element={<div className="cf-page"><h1>创作模板</h1><p>当前可在设置中管理已有的写作模板。</p><Link className="cf-button" to="/settings">管理创作设置</Link></div>}/><Route path="/books/:projectId" element={<BookHomeRedirect/>}/><Route path="/books/:projectId/dashboard" element={<DashboardPage/>}/><Route path="/books/:projectId/write" element={<WritingPage/>}/><Route path="/books/:projectId/write/:chapterId" element={<WritingPage/>}/><Route path="/books/:projectId/outline" element={<div className="cf-legacy-content"><Bible/></div>}/><Route path="/books/:projectId/knowledge/*" element={<div className="cf-legacy-content"><Bible/></div>}/><Route path="/books/:projectId/analytics" element={<div className="cf-page"><h1>数据</h1><section className="cf-card cf-empty"><ChartNoAxesCombined size={40}/><h2>先写好故事，再看它的回响。</h2><p>平台数据录入与复盘将在后续阶段开放。当前作品字数与章节进度可在创作首页查看。</p></section></div>}/><Route path="/books/:projectId/publish" element={<div className="cf-legacy-content"><div className="cf-page-title"><div><h1>发布</h1><p>导出作品后，手动上传至你的发布平台。</p></div></div><Delivery/></div>}/><Route path="*" element={<Navigate replace to="/books"/>}/></Routes></Suspense></main></div>
- {tasks&&projectId?<Drawer title="任务中心" onClose={()=>setTasks(false)}><Suspense fallback={<p>正在读取任务…</p>}><Tasks projectId={projectId}/></Suspense></Drawer>:null}</div></NavigationGuard.Provider>;
+const WritingPage = lazy(() =>
+  import("../../pages/writing/writing-page").then((m) => ({
+    default: m.WritingPageV2,
+  })),
+);
+const Bible = lazy(() =>
+  import("../../workspaces/bible").then((m) => ({ default: m.BibleWorkspace })),
+);
+const Delivery = lazy(() =>
+  import("../../workspaces/delivery").then((m) => ({
+    default: m.DeliveryWorkspace,
+  })),
+);
+const Tasks = lazy(() =>
+  import("../../features/task-progress/task-center").then((m) => ({
+    default: m.TaskCenter,
+  })),
+);
+const NavigationGuard = createContext<{
+  register: (flush: FlushDraft | null) => void;
+  flush: () => Promise<boolean>;
+}>({ register: () => {}, flush: async () => true });
+export const useWritingGuard = () => useContext(NavigationGuard).register;
+export const useFlushWriting = () => useContext(NavigationGuard).flush;
+export function ChapterFlowShell() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const projectId = /^\/books\/([^/]+)\//.exec(location.pathname)?.[1] ?? null;
+  const [menu, setMenu] = useState(false);
+  const [tasks, setTasks] = useState(false);
+  const [search, setSearch] = useState("");
+  const flush = useRef<FlushDraft | null>(null);
+  const [notice, setNotice] = useState("");
+  const health = useQuery({
+    queryKey: queryKeys.health,
+    queryFn: ({ signal }) => getHealth(signal),
+    refetchInterval: 30000,
+  });
+  useEffect(() => {
+    document.title = "ChapterFlow · 文织·网文工坊";
+  }, []);
+  const nav = [
+    { path: "dashboard", label: "创作首页", icon: House },
+    { path: "outline", label: "大纲", icon: ListTree },
+    { path: "write", label: "写作", icon: PenLine },
+    { path: "knowledge", label: "作品设定", icon: Shield },
+    { path: "analytics", label: "数据", icon: ChartNoAxesCombined },
+    { path: "publish", label: "发布", icon: Send },
+  ];
+  return (
+    <NavigationGuard.Provider
+      value={{
+        register: (f) => {
+          flush.current = f;
+        },
+        flush: () => flush.current?.() ?? Promise.resolve(true),
+      }}
+    >
+      <div
+        className="cf-shell"
+        onClickCapture={(e) => {
+          const anchor = (e.target as HTMLElement).closest("a");
+          if (
+            !anchor ||
+            !flush.current ||
+            e.ctrlKey ||
+            e.metaKey ||
+            e.shiftKey ||
+            e.altKey ||
+            anchor.target === "_blank"
+          )
+            return;
+          const url = new URL(anchor.href);
+          if (url.origin !== locationOrigin()) return;
+          e.preventDefault();
+          e.stopPropagation();
+          void flush.current().then((ok) => {
+            if (ok) {
+              setMenu(false);
+              navigate(url.pathname + url.search + url.hash);
+            } else setNotice("草稿保存失败，请重试保存后再离开。");
+          });
+        }}
+      >
+        <aside className={`cf-sidebar ${menu ? "is-open" : ""}`}>
+          <Link to="/books" className="cf-brand">
+            <BrandMark />
+            <span>
+              <strong>ChapterFlow</strong>
+              <small>文织 · 网文工坊</small>
+            </span>
+          </Link>
+          <button
+            className="cf-mobile-close"
+            aria-label="关闭导航"
+            onClick={() => setMenu(false)}
+          >
+            <X />
+          </button>
+          <nav aria-label="创作导航">
+            <NavLink to="/books" end>
+              <Library size={21} />
+              我的作品
+            </NavLink>
+            {projectId ? (
+              nav.map((item) => (
+                <NavLink
+                  key={item.path}
+                  to={`/books/${projectId}/${item.path}`}
+                  onClick={() => setMenu(false)}
+                >
+                  <item.icon size={21} />
+                  {item.label}
+                </NavLink>
+              ))
+            ) : (
+              <>
+                <NavLink to="/books/templates">
+                  <ListTree size={21} />
+                  创作模板
+                </NavLink>
+                <NavLink to="/settings">
+                  <Settings size={21} />
+                  设置
+                </NavLink>
+              </>
+            )}
+          </nav>
+          <div className="cf-sidebar-footer">
+            <p>
+              从一个想法，
+              <br />
+              到一部长篇。
+            </p>
+            <span>——</span>
+            <small>
+              让每一个故事，
+              <br />
+              都被认真对待。
+            </small>
+            <BookOpen size={65} strokeWidth={0.8} />
+            <small>
+              ChapterFlow
+              <br />
+              文织 · 网文工坊
+            </small>
+          </div>
+        </aside>
+        <div className="cf-main">
+          <header className="cf-topbar">
+            <button
+              className="cf-menu"
+              aria-label="打开导航"
+              onClick={() => setMenu(!menu)}
+            >
+              <Menu />
+            </button>
+            <form
+              className="cf-search"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void (async () => {
+                  if (flush.current && !(await flush.current())) {
+                    setNotice("草稿保存失败，请重试保存后再离开。");
+                    return;
+                  }
+                  navigate(`/books?q=${encodeURIComponent(search)}`);
+                })();
+              }}
+            >
+              <Search size={19} />
+              <input
+                aria-label="搜索作品"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="搜索你的作品…"
+              />
+              <kbd>↵</kbd>
+            </form>
+            <div className="cf-top-actions">
+              <span className="cf-connection" title="内容存储连接状态">
+                <i className={health.isError ? "is-offline" : ""} />
+                {health.isPending ? "连接中" : "写作可用"}
+              </span>
+              <Link className="cf-primary" to="/books/new">
+                <Plus size={17} />
+                <span>新建作品</span>
+              </Link>
+              {projectId ? (
+                <button
+                  aria-label="任务中心"
+                  title="任务中心"
+                  onClick={() => setTasks(true)}
+                >
+                  <Bell size={21} />
+                </button>
+              ) : null}
+              <Link to="/settings" aria-label="设置">
+                <Settings size={21} />
+              </Link>
+            </div>
+          </header>
+          {notice ? (
+            <div role="alert" className="cf-notice">
+              <span>{notice}</span>
+              <button onClick={() => setNotice("")}>关闭</button>
+            </div>
+          ) : null}
+          <main>
+            <Suspense
+              fallback={
+                <div className="cf-page" role="status">
+                  正在打开…
+                </div>
+              }
+            >
+              <Routes>
+                <Route path="/books" element={<LibraryPage />} />
+                <Route path="/books/new" element={<BookCreatePage />} />
+                <Route
+                  path="/books/templates"
+                  element={
+                    <div className="cf-page">
+                      <h1>创作模板</h1>
+                      <p>当前可在设置中管理已有的写作模板。</p>
+                      <Link className="cf-button" to="/settings">
+                        管理创作设置
+                      </Link>
+                    </div>
+                  }
+                />
+                <Route
+                  path="/books/:projectId"
+                  element={<BookHomeRedirect />}
+                />
+                <Route
+                  path="/books/:projectId/dashboard"
+                  element={<DashboardPage />}
+                />
+                <Route
+                  path="/books/:projectId/write"
+                  element={<WritingPage />}
+                />
+                <Route
+                  path="/books/:projectId/write/:chapterId"
+                  element={<WritingPage />}
+                />
+                <Route
+                  path="/books/:projectId/outline"
+                  element={
+                    <div className="cf-legacy-content">
+                      <Bible
+                        key="outline"
+                        initialSection="outline"
+                        productTitle="大纲"
+                      />
+                    </div>
+                  }
+                />
+                <Route
+                  path="/books/:projectId/knowledge/*"
+                  element={<KnowledgeBridge />}
+                />
+                <Route
+                  path="/books/:projectId/analytics"
+                  element={
+                    <div className="cf-page">
+                      <h1>数据</h1>
+                      <section className="cf-card cf-empty">
+                        <ChartNoAxesCombined size={40} />
+                        <h2>先写好故事，再看它的回响。</h2>
+                        <p>
+                          平台数据录入与复盘将在后续阶段开放。当前作品字数与章节进度可在创作首页查看。
+                        </p>
+                      </section>
+                    </div>
+                  }
+                />
+                <Route
+                  path="/books/:projectId/publish"
+                  element={
+                    <div className="cf-legacy-content">
+                      <div className="cf-page-title">
+                        <div>
+                          <h1>发布</h1>
+                          <p>导出作品后，手动上传至你的发布平台。</p>
+                        </div>
+                      </div>
+                      <Delivery />
+                    </div>
+                  }
+                />
+                <Route path="*" element={<Navigate replace to="/books" />} />
+              </Routes>
+            </Suspense>
+          </main>
+        </div>
+        {tasks && projectId ? (
+          <Drawer title="任务中心" onClose={() => setTasks(false)}>
+            <Suspense fallback={<p>正在读取任务…</p>}>
+              <Tasks projectId={projectId} />
+            </Suspense>
+          </Drawer>
+        ) : null}
+      </div>
+    </NavigationGuard.Provider>
+  );
 }
-function locationOrigin(){return window.location.origin;}
-function BookHomeRedirect(){const location=useLocation();return <Navigate replace to={`${location.pathname}/dashboard`}/>;}
+function locationOrigin() {
+  return window.location.origin;
+}
+function BookHomeRedirect() {
+  const location = useLocation();
+  return <Navigate replace to={`${location.pathname}/dashboard`} />;
+}
+
+function KnowledgeBridge() {
+  const location = useLocation();
+  const section = location.pathname.endsWith("/characters")
+    ? "entities"
+    : location.pathname.endsWith("/world")
+      ? "facts"
+      : location.pathname.endsWith("/timeline")
+        ? "timeline"
+        : location.pathname.endsWith("/foreshadow")
+          ? "foreshadows"
+          : "intent";
+  return (
+    <div className="cf-legacy-content">
+      <Bible
+        key={location.pathname}
+        initialSection={section}
+        productTitle="作品设定"
+      />
+    </div>
+  );
+}

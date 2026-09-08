@@ -1,3 +1,39 @@
+# ChapterFlow · 文织·网文工坊
+
+从一个想法，到一部长篇。基于 [NarraLume](https://github.com/abligail/narralume) 的中文网文创作工作台，保留原长篇引擎与 Apache-2.0 许可证。
+
+本轮实现 Phase 0 → Phase 1 → Phase 2 → Phase 4：作品管理、创作首页、三栏写作台、自动保存、版本、AI 建议采纳、选区改写、检查和任务恢复。详细范围与验证见 [改造记录](docs/refactor/04-writing-workbench.md)。
+
+## 本地启动
+
+使用 Node.js 24 LTS（24.15+）或更新的受支持版本，以及 npm 11+。
+
+```sh
+npm ci
+npm run build
+npm run dev
+```
+
+打开 [ChapterFlow](http://127.0.0.1:4318/books)。服务端为 4317，前端为 4318。手工建书、写作、保存、版本与导出无需配置 AI；使用 AI 前，在设置中添加模型服务与写作模型。
+
+数据默认保存在 `data/` 中；浏览器本地模式的数据位于当前浏览器，请通过设置备份。不要把开发目录中的数据库提交到 Git。
+
+## 验证
+
+```sh
+npm run verify
+npm run test:e2e
+CHAPTERFLOW_E2E_SUCCESS_MODEL=1 npm run test:e2e -- e2e/chapterflow.spec.ts e2e/chapterflow-ai.spec.ts e2e/chapterflow-resilience.spec.ts
+```
+
+最后一条使用仅测试环境启用的确定性 AI，验证完整候选采纳流程，不会调用真实付费模型。原上游故障模型与对应恢复测试保持独立。
+
+原工作区保留在 `/shelf`、`/projects/:projectId/*`；新入口为 `/books`。本轮不实现多方案 AI 开书、平台数据复盘或自动发布，发布通过手工导出完成。
+
+---
+
+以下保留上游项目说明与致谢。
+
 <p align="center">
   <img src="assets/narralume-logo-wide.svg" alt="NarraLume · 叙灯" width="960">
 </p>

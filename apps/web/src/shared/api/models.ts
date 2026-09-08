@@ -1,4 +1,11 @@
-import { type PublicProviderDto, type UpsertProviderRequest, type ModelConfigDto, type UpsertModelRequest, type ModelAssignmentDto, type AssignmentRole } from "@narralume/contracts";
+import {
+  type PublicProviderDto,
+  type UpsertProviderRequest,
+  type ModelConfigDto,
+  type UpsertModelRequest,
+  type ModelAssignmentDto,
+  type AssignmentRole,
+} from "@narralume/contracts";
 import { requestJson, jsonRequest, requestVoid } from "./client";
 import { type ProviderProbeResult } from "./types";
 

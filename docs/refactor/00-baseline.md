@@ -3,7 +3,7 @@
 日期：2026-09-07。产品：ChapterFlow · 文织·网文工坊。
 
 上游：abligail/narralume，main `dfab1c2245b3cd49b3c2206e00dcb3dfcf3b3eb7`。
-Fork：https://github.com/uuuuuuti/narralume。独立分支：`chapterflow/refactor`。
+Fork：https://github.com/uuuuuuti/ChapterFlow。独立分支：`chapterflow/refactor`。
 
 ## 架构与数据流
 
