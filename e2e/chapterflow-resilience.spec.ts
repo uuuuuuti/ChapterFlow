@@ -68,3 +68,57 @@ test("V2 浏览器本地模式无需模型也能建书和保存", async ({ page 
   await page.reload();
   await expect(editor).toHaveValue("没有配置模型，故事也可以从这里开始。");
 });
+
+test("V2 后台刷新不能让未保存草稿覆盖另一页面的更新", async ({
+  page,
+  context,
+}, info) => {
+  await openChapter(page, `并发保护-${info.project.name}-${Date.now()}`);
+  const editor = page.getByRole("textbox", { name: "章节正文" });
+  await editor.fill("共同起点。");
+  await expect(page.locator(".cf-paper footer")).toContainText("已保存");
+  const other = await context.newPage();
+  await other.goto(page.url());
+  const otherEditor = other.getByRole("textbox", { name: "章节正文" });
+  await expect(otherEditor).toHaveValue("共同起点。");
+  let offline = true;
+  await page.route("**/studio/documents/*/draft", async (route) => {
+    if (offline && route.request().method() === "PUT")
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({
+          error: { code: "test.offline", message: "暂时无法保存" },
+        }),
+      });
+    else await route.continue();
+  });
+  await editor.fill("第一页尚未保存的修改。");
+  await expect(
+    page.getByRole("button", { name: "重试保存", exact: true }),
+  ).toBeVisible();
+  await otherEditor.fill("第二页已经保存的修改。");
+  await expect(other.locator(".cf-paper footer")).toContainText("已保存");
+  // Observe an actual poll returning the new server draft before retrying the stale edit.
+  await page.waitForResponse(async (response) => {
+    if (
+      !/\/studio\/documents\/[^/]+$/.test(new URL(response.url()).pathname) ||
+      response.request().method() !== "GET"
+    )
+      return false;
+    return (await response.json()).draft?.content === "第二页已经保存的修改。";
+  });
+  offline = false;
+  const rejected = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/draft") &&
+      response.request().method() === "PUT",
+  );
+  await page.getByRole("button", { name: "重试保存", exact: true }).click();
+  expect((await rejected).status()).toBe(409);
+  await expect(page.locator(".cf-paper footer")).toContainText("保存失败");
+  await expect(editor).toHaveValue("第一页尚未保存的修改。");
+  await other.reload();
+  await expect(otherEditor).toHaveValue("第二页已经保存的修改。");
+  await other.close();
+});

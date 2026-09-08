@@ -18,6 +18,7 @@ export function useDraftAutosave(
   const contentRef = useRef(content);
   const savedContentRef = useRef(draftSavedContent);
   const latestDraftRef = useRef<DocumentDraft | null>(detail?.draft ?? null);
+  const baseVersionRef = useRef(detail?.document.currentVersionId ?? null);
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const autosaveTimerRef = useRef<number | null>(null);
   const queryClient = useQueryClient();
@@ -25,7 +26,7 @@ export function useDraftAutosave(
     mutationFn: (value: string) =>
       saveDocumentDraft(projectId, detail!.document.id, {
         content: value,
-        baseVersionId: detail!.document.currentVersionId,
+        baseVersionId: baseVersionRef.current,
         expectedDraftUpdatedAt: latestDraftRef.current?.updatedAt ?? null,
       }),
     onSuccess: (draft, value) => {
@@ -107,8 +108,9 @@ export function useDraftAutosave(
     if (!detail || detailContentIdentity === null) return;
     if (detailContentIdentity === syncedIdentityRef.current) return;
     syncedIdentityRef.current = detailContentIdentity;
-    latestDraftRef.current = detail.draft;
     if (contentRef.current !== savedContentRef.current) return;
+    latestDraftRef.current = detail.draft;
+    baseVersionRef.current = detail.document.currentVersionId;
     cancelScheduledAutosave();
     const next = detail.draft?.content ?? detail.currentVersion?.content ?? "";
     contentRef.current = next;
