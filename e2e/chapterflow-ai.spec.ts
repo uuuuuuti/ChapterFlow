@@ -55,6 +55,7 @@ test("V2 AI 续写、离页恢复、接受、选区改写与检查", async ({ pa
   await expect(page.locator(".cf-paper footer")).toContainText("已保存");
   await page.getByRole("button", { name: "接受正文", exact: true }).click();
   await expect(editor).toHaveValue(/夜色像一块巨大的幕布/, { timeout: 15000 });
+  expect(await editor.inputValue()).toMatch(new RegExp(`^${original}`));
   await editor.evaluate((el) => {
     const t = el as HTMLTextAreaElement;
     t.focus();

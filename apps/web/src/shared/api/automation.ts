@@ -28,6 +28,7 @@ export async function createChapterRun(
   input: {
     /** 同一次提交的幂等键；网络重试复用同一个 requestId，重新提交才换新。 */
     requestId: string;
+    continuationVersionId?: string;
     targetOutlineNodeId: string;
     planningMode?: "auto" | "confirm";
     origin?: RunOriginInput | null;

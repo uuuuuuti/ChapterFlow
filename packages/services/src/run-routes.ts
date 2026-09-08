@@ -161,6 +161,33 @@ export function registerRunRoutes(
         );
       }
       requireWritingAssignment(database, options.environment);
+      let continuationPrefix: string | undefined;
+      if (input.continuationVersionId) {
+        const documents = new SqliteDocumentRepository(database);
+        const document = documents.getByOutlineNodeId(projectId, target.id);
+        if (
+          !document ||
+          document.currentVersionId !== input.continuationVersionId
+        ) {
+          throw new RunRouteError(
+            "chapter.continuation.version_conflict",
+            "The chapter changed; save and retry continuation",
+            409,
+          );
+        }
+        const version = documents.getVersion(
+          projectId,
+          document.id,
+          input.continuationVersionId,
+        );
+        if (!version)
+          throw new RunRouteError(
+            "document.version.not_found",
+            "Version not found",
+            404,
+          );
+        continuationPrefix = version.content;
+      }
       const template = templates.getByKey("recipe.chapter-production");
       if (!template)
         throw new RunRouteError(
@@ -171,7 +198,7 @@ export function registerRunRoutes(
       const recipe = compileChapterRecipeTemplate(
         runId,
         template.effectiveContent,
-        input.maxRevisionCycles,
+        input.continuationVersionId ? 0 : input.maxRevisionCycles,
         template.version,
       );
       const policy = withRuntimeModelPolicy(
@@ -181,6 +208,7 @@ export function registerRunRoutes(
           origin: input.origin,
           creationRequestId: input.requestId,
           creationRequestHash: requestHash,
+          ...(continuationPrefix !== undefined ? { continuationPrefix } : {}),
         },
         options.environment,
       );

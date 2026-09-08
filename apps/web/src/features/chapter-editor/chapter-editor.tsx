@@ -174,8 +174,9 @@ export function ChapterEditor({
             await createChapterRun(projectId, {
               requestId: request.current.id,
               targetOutlineNodeId: node.id,
+              continuationVersionId: version.id,
               planningMode: "auto",
-              maxRevisionCycles: 2,
+              maxRevisionCycles: 0,
               origin: { surface: "writing", documentId: detail.document.id },
             })
           ).run.id;

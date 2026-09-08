@@ -110,6 +110,7 @@ export type RunOrigin = z.infer<typeof RunOriginSchema>;
 export const CreateChapterRunRequestSchema = z
   .object({
     requestId: IdSchema,
+    continuationVersionId: IdSchema.optional(),
     targetOutlineNodeId: IdSchema,
     planningMode: z.enum(["auto", "confirm"]).default("auto"),
     origin: RunOriginSchema.nullable().default(null),

@@ -95,6 +95,55 @@ async function createProjectAndChapter(
 }
 
 describe("chapter run API", () => {
+  it("continues only the current saved chapter version and preserves its exact prefix", async () => {
+    const { app } = await setup();
+    const target = await createProjectAndChapter(app);
+    const createdDocument = await app.inject({
+      method: "POST",
+      url: `/api/projects/${target.projectId}/documents`,
+      payload: {
+        requestId: "continuation-doc",
+        kind: "chapter",
+        title: "雾港失灯",
+        outlineNodeId: target.chapterId,
+      },
+    });
+    expect(createdDocument.statusCode).toBe(201);
+    const document = createdDocument.json();
+    const prefix = "林昼推开门。\n\n灯还亮着。";
+    const saved = await app.inject({
+      method: "POST",
+      url: `/api/projects/${target.projectId}/documents/${document.id}/versions`,
+      payload: {
+        content: prefix,
+        source: "manual",
+        expectedCurrentVersionId: document.currentVersionId,
+      },
+    });
+    expect(saved.statusCode).toBe(201);
+    const payload = {
+      requestId: "continue-chapter",
+      targetOutlineNodeId: target.chapterId,
+      continuationVersionId: "stale-version",
+    };
+    const stale = await app.inject({
+      method: "POST",
+      url: `/api/projects/${target.projectId}/runs/chapter`,
+      payload,
+    });
+    expect(stale.statusCode).toBe(409);
+    expect(stale.json().error.code).toBe(
+      "chapter.continuation.version_conflict",
+    );
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/projects/${target.projectId}/runs/chapter`,
+      payload: { ...payload, continuationVersionId: saved.json().id },
+    });
+    expect(created.statusCode, created.body).toBe(202);
+    expect(created.json().run.policy.continuationPrefix).toBe(prefix);
+  });
+
   it("replays the same creation request and allows only one active chapter run per project", async () => {
     const { app } = await setup();
     const target = await createProjectAndChapter(app);
