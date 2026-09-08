@@ -1,7 +1,10 @@
 /** Deterministic opt-in model used only by ChapterFlow E2E. Never loaded by production. */
 export const chapterflowDraft =
   "夜色像一块巨大的幕布，缓缓盖住了海面。\n\n林觉站在灯塔的石阶上。海风带着咸湿的味道，吹乱了他的头发。远处的海平线已经看不见最后一丝余晖，只有乌云在天际翻涌。\n\n他握紧了手中的旧罗盘。指针依旧在轻微地颤抖，仿佛也感受到了即将来临的变化。这座灯塔守护了这片海域上百年，从未熄灭。而今晚，它第一次陷入黑暗。\n\n海浪拍打着礁石，发出沉闷的声响。林觉抬头望向灯塔顶端，灯室里只剩下一把空椅。\n\n门后有人轻轻敲了三下。他没有回头，只把罗盘藏进衣袋。父亲离开前说过，如果灯灭了，千万不要回应陌生人的敲门声。\n\n那声音却叫出了他的名字。";
-export function chapterflowStructured(purpose: string): unknown {
+export function chapterflowStructured(
+  purpose: string,
+  request?: unknown,
+): unknown {
   if (purpose === "scene-plan")
     return {
       chapterGoal: "发现灯塔失灯的线索",
@@ -36,7 +39,18 @@ export function chapterflowStructured(purpose: string): unknown {
         prose: 88,
         goal: 94,
       },
-      issues: [],
+      issues: JSON.stringify(request ?? {}).includes("他非常非常非常紧张")
+        ? [
+            {
+              category: "prose",
+              severity: "minor",
+              message: "情绪形容重复，缺少具体动作。",
+              evidenceParagraphs: [1],
+              suggestedDirection: "用握紧罗盘的动作表达紧张。",
+              requiresAuthorDecision: false,
+            },
+          ]
+        : [],
     };
   if (purpose === "chapter-settlement")
     return {

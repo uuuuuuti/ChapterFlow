@@ -33,7 +33,7 @@ describe("源码入口", () => {
     const view = render(<RepositoryLink />);
     const link = view.getByRole("link", { name: "在 GitHub 查看源代码" });
 
-    expect(link).toHaveAttribute("href", "https://github.com/abligail/narralume");
+    expect(link).toHaveAttribute("href", "https://github.com/uuuuuuti/ChapterFlow");
     expect(link).toHaveAttribute("target", "_blank");
     expect(link).toHaveAttribute("rel", "noreferrer");
   });

@@ -13,11 +13,13 @@ export function ReviewPanel({
   projectId,
   documentId,
   onCheck,
+  onRevise,
   busy,
 }: {
   projectId: string;
   documentId: string;
   onCheck: () => void;
+  onRevise: (instruction: string) => void;
   busy: boolean;
 }) {
   const client = useQueryClient();
@@ -95,6 +97,18 @@ export function ReviewPanel({
                 <blockquote key={i}>{e.quote}</blockquote>
               ))}
               <p>{issue.suggestedDirection}</p>
+              {issue.status === "open" || issue.status === "accepted" ? (
+                <button
+                  disabled={busy}
+                  onClick={() =>
+                    onRevise(
+                      `请针对以下检查问题修改本章，保留无关情节和已确认设定。\n问题：${issue.message}\n原文证据：${issue.evidence.map((e) => e.quote).join("；")}\n修改方向：${issue.suggestedDirection ?? "以最小必要修改解决问题"}`,
+                    )
+                  }
+                >
+                  生成修改建议
+                </button>
+              ) : null}
               {issue.status === "open" ? (
                 <div className="cf-actions">
                   <button

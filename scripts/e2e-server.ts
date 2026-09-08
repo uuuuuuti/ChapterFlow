@@ -72,7 +72,7 @@ function scriptedE2eModel(): NarrativeModelClient {
     async structured(_run, _step, purpose, request, _contract, validate) {
       let value: unknown =
         process.env.CHAPTERFLOW_E2E_SUCCESS_MODEL === "1"
-          ? chapterflowStructured(purpose)
+          ? chapterflowStructured(purpose, request)
           : null;
       if (value) {
         /* Validate deterministic writing output below. */

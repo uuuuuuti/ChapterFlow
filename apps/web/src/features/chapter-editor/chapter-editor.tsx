@@ -555,6 +555,7 @@ export function ChapterEditor({
             projectId={projectId}
             documentId={detail.document.id}
             onCheck={() => action.mutate({ kind: "review" })}
+            onRevise={(instruction) => edit(instruction)}
             busy={busy}
           />
         ) : null}

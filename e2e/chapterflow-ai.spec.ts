@@ -81,4 +81,23 @@ test("V2 AI 续写、离页恢复、接受、选区改写与检查", async ({ pa
     "scrollWidth",
     info.project.use.viewport!.width,
   );
+  // Exercise a non-empty review and the full review -> suggestion -> acceptance loop.
+  const needsRevision = "他非常非常非常紧张，站在灯塔前。";
+  await editor.fill(needsRevision);
+  await page.getByRole("button", { name: "检查本章", exact: true }).click();
+  const issue = page
+    .locator(".cf-review-issue")
+    .filter({ hasText: "情绪形容重复" });
+  await expect(issue).toBeVisible({ timeout: 60000 });
+  await issue
+    .getByRole("button", { name: "生成修改建议", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "接受改写", exact: true }),
+  ).toBeVisible({ timeout: 60000 });
+  await expect(editor).toHaveValue(needsRevision);
+  await page.getByRole("button", { name: "接受改写", exact: true }).click();
+  await expect(editor).toHaveValue("海风停了一瞬。他握紧罗盘，没有回头。");
+  await page.reload();
+  await expect(editor).toHaveValue("海风停了一瞬。他握紧罗盘，没有回头。");
 });
