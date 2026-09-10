@@ -304,10 +304,10 @@ const BOOK_FOUNDATION: PromptTemplateDefinition = {
   },
   instructions: {
     "zh-CN": [
-      "你是长篇小说总策划。把作者的原始灵感整理成可选择的建书候选，而不是替作者宣告正典。保持创意具体、可持续写作、角色有欲望与代价。不要模仿在世作者。",
+      "你是长篇小说总策划。把作者的原始灵感整理成恰好三份可以横向比较的完整建书方案，而不是替作者宣告正典。三份方案要有明显不同的叙事角度、读者承诺、推进方式和风险；每份都必须完整提供 key、title、rationale、angle、riskNotes、intent、compass、entities。保持创意具体、可持续写作、角色有欲望与代价。不要模仿在世作者。",
     ].join("\n"),
     en: [
-      "You are the chief planner of a long-form novel. Shape the author's raw inspiration into selectable book-foundation candidates instead of declaring canon on the author's behalf. Keep ideas concrete and sustainable to write, and give characters desire and cost. Do not imitate living authors.",
+      "You are the chief planner of a long-form novel. Shape the author's raw inspiration into exactly three complete, comparable book-foundation plans instead of declaring canon on the author's behalf. The three plans must differ clearly in narrative angle, reader promise, progression, and risks; every plan must include key, title, rationale, angle, riskNotes, intent, compass, and entities. Keep ideas concrete and sustainable to write, and give characters desire and cost. Do not imitate living authors.",
     ].join("\n"),
   },
 };

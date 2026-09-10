@@ -12,6 +12,7 @@ import type {
 import {
   SqliteCanonRepository,
   SqliteDocumentRepository,
+  SqliteNarrativeStateRepository,
   SqliteProjectRepository,
   SqliteReviewRepository,
   SqliteStoryRepository,
@@ -23,6 +24,7 @@ import {
   candidateSemanticIssues,
   materializeCandidateItems,
   readCanonSpread,
+  type CanonCandidateEvidenceIndex,
   type CanonSpreadState,
 } from "./canon-candidate-context.js";
 import {
@@ -39,6 +41,7 @@ interface CanonContextArtifact extends Readonly<Record<string, unknown>> {
   instruction: string;
   baseFingerprint: string;
   current: CanonSpreadState["value"];
+  evidenceIndex: CanonCandidateEvidenceIndex;
   prompt: string;
 }
 
@@ -98,6 +101,17 @@ export class CanonCandidateWorkerSuite {
     const entities = this.canon.listEntities(project.id, {
       includeRetired: true,
     });
+    const narrativeState = new SqliteNarrativeStateRepository(
+      this.database,
+      this.canon,
+      this.story,
+    );
+    const facts = this.canon.listEffectiveFacts(project.id, {
+      includeCandidates: true,
+    });
+    const relationships = narrativeState.listCurrentRelationships(project.id);
+    const timeline = narrativeState.listTimeline(project.id);
+    const foreshadows = narrativeState.listForeshadows(project.id);
     const documents = this.documents
       .list(project.id)
       .filter((document) => document.currentVersionId)
@@ -116,6 +130,15 @@ export class CanonCandidateWorkerSuite {
           content: version ? clipText(version.content, 10_000) : null,
         };
       });
+    const evidenceIndex: CanonCandidateEvidenceIndex = {
+      outline: outline.map((node) => node.id),
+      entity: entities.map((entity) => entity.id),
+      fact: facts.map((fact) => fact.id),
+      relation: relationships.map((relationship) => relationship.id),
+      timeline: timeline.map((event) => event.id),
+      foreshadow: foreshadows.map((item) => item.id),
+      document: documents.map((document) => document.id),
+    };
     const packet = {
       task: {
         spread,
@@ -149,6 +172,7 @@ export class CanonCandidateWorkerSuite {
         })),
       },
       recentManuscript: documents,
+      evidenceIndex,
     };
     return {
       artifactKind: "canon-context",
@@ -157,6 +181,7 @@ export class CanonCandidateWorkerSuite {
         instruction,
         baseFingerprint: current.fingerprint,
         current: current.value,
+        evidenceIndex,
         prompt: JSON.stringify(packet),
       } satisfies CanonContextArtifact,
       usage: zeroUsage(),
@@ -186,6 +211,7 @@ export class CanonCandidateWorkerSuite {
               "只有 facts 可以 withdraw，此时 afterJson 为 null；其他 create/update 的 afterJson 必须是一个 JSON 对象序列化后的字符串。",
               `afterJson 只能使用这些字段：${candidateAfterInstructions(context.spread)}。update 只放要改的字段，create 提供完整必填字段。`,
               "引用实体、大纲、因果或依赖时只能使用 supportingIndex 中给出的真实 ID。不得生成数据库 ID。",
+              "每项候选尽量提供 1-3 条 evidence，写出真实来源类型、来源 ID、简短标签和支持该建议的原文片段；只能引用 supportingIndex 或 recentManuscript 中出现的来源。",
               "不要修改锁定策略本身；如果建议触及锁定内容，仍作为候选说明，系统会要求作者二次确认。",
             ],
             en: [
@@ -195,6 +221,7 @@ export class CanonCandidateWorkerSuite {
               "Only facts can be withdrawn, with afterJson null in that case; every other create/update must carry afterJson as a serialized JSON object string.",
               `afterJson accepts only these fields: ${candidateAfterInstructions(context.spread)}. update carries only changed fields; create provides every required field.`,
               "When referencing entities, outline nodes, causes, or dependencies, use only real IDs given in supportingIndex. Never invent database IDs.",
+              "For each candidate, preferably provide 1-3 evidence fragments with a real source type, source id, short label, and the supporting quote; cite only sources present in supportingIndex or recentManuscript.",
               "Do not modify lock policies themselves; when a suggestion touches locked content, still describe it as a candidate and the system will ask the author to confirm again.",
             ],
           },
@@ -209,7 +236,12 @@ export class CanonCandidateWorkerSuite {
       },
       CANON_CANDIDATE_MODEL_CONTRACT,
       canonCandidateModelValidator((value) =>
-        candidateSemanticIssues(context.spread, context.current, value),
+        candidateSemanticIssues(
+          context.spread,
+          context.current,
+          value,
+          context.evidenceIndex,
+        ),
       ),
       signal,
     );
@@ -247,12 +279,14 @@ export class CanonCandidateWorkerSuite {
       projectId: snapshot.run.projectId,
       runId: snapshot.run.id,
       stepId: step.id,
+      ...documentBinding(snapshot.run.policy),
       changes: {
         kind: "canon_spread_revision",
         spread: context.spread,
         instruction: context.instruction,
         summary: generated.summary,
         baseFingerprint: context.baseFingerprint,
+        ...outlineBinding(snapshot.run.policy),
         items,
       },
       status: "candidate",
@@ -270,6 +304,56 @@ export class CanonCandidateWorkerSuite {
   }
 }
 
+function documentBinding(policy: Readonly<Record<string, unknown>>): {
+  sourceDocumentId?: string;
+  sourceDocumentVersionId?: string;
+} {
+  const origin = policy.origin;
+  if (!origin || typeof origin !== "object" || Array.isArray(origin)) {
+    return {};
+  }
+  const value = origin as Record<string, unknown>;
+  const documentId =
+    typeof value.documentId === "string" && value.documentId.trim()
+      ? value.documentId
+      : null;
+  const versionId =
+    typeof value.checkDocumentVersionId === "string" &&
+    value.checkDocumentVersionId.trim()
+      ? value.checkDocumentVersionId
+      : typeof value.versionId === "string" && value.versionId.trim()
+        ? value.versionId
+        : null;
+  return documentId && versionId
+    ? {
+        sourceDocumentId: documentId,
+        sourceDocumentVersionId: versionId,
+      }
+    : {};
+}
+
+function outlineBinding(policy: Readonly<Record<string, unknown>>): {
+  sourceOutlineNodeId?: string;
+  sourceOutlineUpdatedAt?: string;
+} {
+  const origin = policy.origin;
+  if (!origin || typeof origin !== "object" || Array.isArray(origin)) {
+    return {};
+  }
+  const value = origin as Record<string, unknown>;
+  const nodeId =
+    typeof value.outlineNodeId === "string" && value.outlineNodeId.trim()
+      ? value.outlineNodeId
+      : null;
+  const updatedAt =
+    typeof value.outlineUpdatedAt === "string" && value.outlineUpdatedAt.trim()
+      ? value.outlineUpdatedAt
+      : null;
+  return nodeId && updatedAt
+    ? { sourceOutlineNodeId: nodeId, sourceOutlineUpdatedAt: updatedAt }
+    : {};
+}
+
 function canonContextArtifact(
   value: Readonly<Record<string, unknown>>,
 ): CanonContextArtifact {
@@ -283,8 +367,33 @@ function canonContextArtifact(
       isRecord(value.current)
         ? value.current
         : null,
+    evidenceIndex: evidenceIndexValue(value.evidenceIndex),
     prompt: stringField(value, "prompt"),
   };
+}
+
+function evidenceIndexValue(value: unknown): CanonCandidateEvidenceIndex {
+  if (!isRecord(value)) return {};
+  const result: CanonCandidateEvidenceIndex = {};
+  for (const sourceType of [
+    "outline",
+    "entity",
+    "fact",
+    "relation",
+    "timeline",
+    "foreshadow",
+    "document",
+    "profile",
+    "brief",
+  ] as const) {
+    const ids = value[sourceType];
+    if (Array.isArray(ids)) {
+      result[sourceType] = ids.filter(
+        (id): id is string => typeof id === "string" && id.trim().length > 0,
+      );
+    }
+  }
+  return result;
 }
 
 function requiredArtifact(

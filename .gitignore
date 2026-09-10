@@ -21,6 +21,7 @@ test-results/
 
 .data/
 data/
+/data-v1/
 *.db
 *.db-shm
 *.db-wal

@@ -61,8 +61,9 @@ import {
   assistantSkillLabel,
   stopReasonLabel,
 } from "../lib/labels";
-import { projectWorkspacePath } from "../lib/project-route";
+import { chapterFlowProjectPath } from "../lib/project-route";
 import { useServerEvents } from "../lib/sse";
+import { queryKeys } from "../shared/query/keys";
 
 const CONVERSATION_KEY_PREFIX = "narralume:assistant-conversation:";
 const PROJECT_CONTEXT: AssistantContext = {
@@ -118,7 +119,7 @@ export function ProjectAssistant({
   const pendingSendRef = useRef<PendingAssistantSend | null>(null);
   const defaultConversationRequestedRef = useRef(false);
   const conversationsQuery = useQuery({
-    queryKey: ["assistant", projectId, "conversations"],
+    queryKey: queryKeys.assistantConversations(projectId),
     queryFn: ({ signal }) => getAssistantConversations(projectId, signal),
   });
 
@@ -136,7 +137,7 @@ export function ProjectAssistant({
   }, [conversationId, conversationsQuery.data, projectId]);
 
   const detailQuery = useQuery({
-    queryKey: ["assistant", projectId, "conversation", conversationId],
+    queryKey: queryKeys.assistantConversation(projectId, conversationId),
     queryFn: ({ signal }) => getAssistantConversation(conversationId!, signal),
     enabled: Boolean(conversationId),
     refetchInterval: (query) =>
@@ -166,7 +167,7 @@ export function ProjectAssistant({
     onSuccess: (conversation) => {
       pendingSendRef.current = null;
       queryClient.setQueryData<AssistantConversationDto[]>(
-        ["assistant", projectId, "conversations"],
+        queryKeys.assistantConversations(projectId),
         (current = []) => [
           conversation,
           ...current.filter((candidate) => candidate.id !== conversation.id),
@@ -174,7 +175,7 @@ export function ProjectAssistant({
       );
       selectConversation(projectId, conversation.id, setConversationId);
       void queryClient.invalidateQueries({
-        queryKey: ["assistant", projectId, "conversations"],
+        queryKey: queryKeys.assistantConversations(projectId),
       });
     },
     onError: () => {
@@ -204,7 +205,7 @@ export function ProjectAssistant({
       );
       selectConversation(projectId, next?.id ?? null, setConversationId);
       void queryClient.invalidateQueries({
-        queryKey: ["assistant", projectId, "conversations"],
+        queryKey: queryKeys.assistantConversations(projectId),
       });
     },
   });
@@ -216,7 +217,7 @@ export function ProjectAssistant({
     onSuccess: () => {
       setRenamingConversation(false);
       void queryClient.invalidateQueries({
-        queryKey: ["assistant", projectId, "conversations"],
+        queryKey: queryKeys.assistantConversations(projectId),
       });
     },
   });
@@ -234,10 +235,10 @@ export function ProjectAssistant({
       }),
     onSuccess: (conversation) => {
       void queryClient.invalidateQueries({
-        queryKey: ["assistant", projectId, "conversations"],
+        queryKey: queryKeys.assistantConversations(projectId),
       });
       void queryClient.invalidateQueries({
-        queryKey: ["assistant", projectId, "conversation", conversation.id],
+        queryKey: queryKeys.assistantConversation(projectId, conversation.id),
       });
     },
   });
@@ -278,14 +279,11 @@ export function ProjectAssistant({
       setDraft("");
       void queryClient.invalidateQueries({
         queryKey: [
-          "assistant",
-          projectId,
-          "conversation",
-          targetConversationId,
+          ...queryKeys.assistantConversation(projectId, targetConversationId),
         ],
       });
       void queryClient.invalidateQueries({
-        queryKey: ["assistant", projectId, "conversations"],
+        queryKey: queryKeys.assistantConversations(projectId),
       });
     },
   });
@@ -682,17 +680,17 @@ function AssistantModelControls({
   const { t } = useI18n();
   /* 胶囊在关闭状态也要显示当前生效模型名，清单常驻拉取（staleTime 抑制重复）。 */
   const providersQuery = useQuery({
-    queryKey: ["assistant-models", "providers"],
+    queryKey: queryKeys.assistantProviders,
     queryFn: ({ signal }) => listProviders(signal),
     staleTime: 30_000,
   });
   const modelsQuery = useQuery({
-    queryKey: ["assistant-models", "models"],
+    queryKey: queryKeys.assistantModels,
     queryFn: ({ signal }) => listModels(undefined, signal),
     staleTime: 30_000,
   });
   const assignmentsQuery = useQuery({
-    queryKey: ["assistant-models", "assignments"],
+    queryKey: queryKeys.assistantAssignments,
     queryFn: ({ signal }) => listAssignments(signal),
     staleTime: 30_000,
   });
@@ -1137,7 +1135,10 @@ function ActivityEntry({
           ) : null}
         </div>
         {expanded ? (
-          <ActivityTrace projectId={projectId} activity={activity} />
+          <ActivityTrace
+            projectId={projectId}
+            activity={activity}
+          />
         ) : null}
       </div>
     </article>
@@ -1263,20 +1264,24 @@ function artifactHref(
   projectId: string,
   artifact: AssistantActivityDto["artifacts"][number],
 ): string {
+  const path = (workspace: Parameters<typeof chapterFlowProjectPath>[1]) =>
+    chapterFlowProjectPath(projectId, workspace);
   if (artifact.kind === "canon_change_set") {
-    return `${projectWorkspacePath(projectId, "bible")}?focus=${encodeURIComponent(artifact.id)}`;
+    return `${path("studio")}?tab=canon&changeSet=${encodeURIComponent(artifact.id)}`;
   }
-  if (
-    artifact.kind === "edit_proposal" ||
-    artifact.kind === "document_version" ||
-    artifact.kind === "revision_proposal"
-  ) {
-    return `${projectWorkspacePath(projectId, "studio")}?focus=${encodeURIComponent(artifact.id)}`;
+  if (artifact.kind === "edit_proposal") {
+    return `${path("studio")}?tab=ai&proposal=${encodeURIComponent(artifact.id)}`;
+  }
+  if (artifact.kind === "revision_proposal") {
+    return `${path("studio")}?tab=review&proposal=${encodeURIComponent(artifact.id)}`;
+  }
+  if (artifact.kind === "document_version") {
+    return `${path("studio")}?tab=chapter&version=${encodeURIComponent(artifact.id)}`;
   }
   if (artifact.kind === "foundation_candidate_set") {
-    return projectWorkspacePath(projectId, "overview");
+    return path("overview");
   }
-  return projectWorkspacePath(projectId, "runs");
+  return path("runs");
 }
 
 function shortId(id: string): string {
@@ -1357,6 +1362,8 @@ function activityHref(
   projectId: string,
   activity: AssistantActivityDto,
 ): string | null {
+  const path = (workspace: Parameters<typeof chapterFlowProjectPath>[1]) =>
+    chapterFlowProjectPath(projectId, workspace);
   if (activity.sourceType === "run") {
     if (
       activity.availableActions.some((action) =>
@@ -1368,12 +1375,12 @@ function activityHref(
       if (origin?.documentId) params.set("document", origin.documentId);
       else if (origin?.outlineNodeId)
         params.set("outline", origin.outlineNodeId);
-      return `${projectWorkspacePath(projectId, "studio")}?${params.toString()}`;
+      return `/books/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(activity.sourceId)}?${params.toString()}`;
     }
-    return `${projectWorkspacePath(projectId, "runs")}?run=${encodeURIComponent(activity.sourceId)}`;
+    return `/books/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(activity.sourceId)}`;
   }
   if (activity.sourceType === "autopilot") {
-    return `${projectWorkspacePath(projectId, "autopilot")}?session=${encodeURIComponent(activity.sourceId)}`;
+    return `${path("autopilot")}?session=${encodeURIComponent(activity.sourceId)}`;
   }
   return null;
 }
@@ -1491,16 +1498,11 @@ async function invalidateAssistant(
 ): Promise<void> {
   await Promise.all([
     queryClient.invalidateQueries({
-      queryKey: ["assistant", projectId, "conversations"],
+      queryKey: queryKeys.assistantConversations(projectId),
     }),
     conversationId
       ? queryClient.invalidateQueries({
-          queryKey: [
-            "assistant",
-            projectId,
-            "conversation",
-            conversationId,
-          ],
+        queryKey: queryKeys.assistantConversation(projectId, conversationId),
         })
       : Promise.resolve(),
   ]);
@@ -1513,7 +1515,7 @@ async function invalidateAssistantDetail(
 ): Promise<void> {
   if (!conversationId) return;
   await queryClient.invalidateQueries({
-    queryKey: ["assistant", projectId, "conversation", conversationId],
+    queryKey: queryKeys.assistantConversation(projectId, conversationId),
   });
 }
 

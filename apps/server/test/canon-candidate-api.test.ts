@@ -340,6 +340,124 @@ describe("Canon Spread candidate API", () => {
     fixture.verify(bible);
   });
 
+  it("binds outline candidates to the opened node version and blocks stale adoption", async () => {
+    const { app } = await setup({ summary: "候选", items: [] });
+    const projectId = await createProject(app, "章纲版本绑定");
+    const bible = (
+      await app.inject({
+        method: "GET",
+        url: `/api/projects/${projectId}/story-bible`,
+      })
+    ).json() as { outline: { id: string; updatedAt: string }[] };
+    const root = bible.outline[0]!;
+    const staleOrigin = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/canon-spreads/outline/candidates`,
+      payload: {
+        requestId: "f7f0f0e0-13b1-4b65-9320-3d4d6c39f3a1",
+        instruction: "补充第一章",
+        origin: {
+          surface: "outline",
+          documentId: null,
+          outlineNodeId: root.id,
+          outlineUpdatedAt: "stale-outline-version",
+          canonSpread: "outline",
+          selection: null,
+        },
+      },
+    });
+    expect(staleOrigin.statusCode).toBe(409);
+    expect(staleOrigin.json().error.code).toBe(
+      "run.origin.outline_version_conflict",
+    );
+
+    modelValue = {
+      summary: "补充第一章大纲。",
+      items: [
+        {
+          operation: "create",
+          targetId: null,
+          title: "新增第一章",
+          rationale: "把开篇冲突落到章纲中。",
+          impact: ["大纲新增一个章节节点"],
+          evidence: [
+            {
+              sourceType: "outline",
+              sourceId: root.id,
+              label: "当前根节点",
+              quote: "全书已有开篇容器，需要补充第一章冲突。",
+            },
+          ],
+          afterJson: JSON.stringify({
+            parentId: root.id,
+            kind: "chapter",
+            ordinal: 0,
+            title: "新增第一章",
+            summary: "主角收到第一封空白回信。",
+          }),
+        },
+      ],
+    };
+    const started = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/canon-spreads/outline/candidates`,
+      payload: {
+        requestId: "b3c8cc8a-1a5a-4f58-86b6-3b8de9ef5126",
+        instruction: "补充第一章",
+        origin: {
+          surface: "outline",
+          documentId: null,
+          outlineNodeId: root.id,
+          outlineUpdatedAt: root.updatedAt,
+          canonSpread: "outline",
+          selection: null,
+        },
+      },
+    });
+    expect(started.statusCode).toBe(202);
+    const runId = started.json().runId as string;
+    await finishRun(app, projectId, runId);
+    const listed = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/canon-spreads/outline/candidates`,
+    });
+    const set = listed.json()[0] as {
+      id: string;
+      sourceOutlineNodeId: string;
+      sourceOutlineUpdatedAt: string;
+      items: { id: string; evidence: { sourceId: string; quote: string }[] }[];
+    };
+    expect(set).toMatchObject({
+      sourceOutlineNodeId: root.id,
+      sourceOutlineUpdatedAt: root.updatedAt,
+    });
+    expect(set.items[0]?.evidence).toEqual([
+      expect.objectContaining({
+        sourceId: root.id,
+        quote: "全书已有开篇容器，需要补充第一章冲突。",
+      }),
+    ]);
+
+    const changedRoot = await app.inject({
+      method: "PUT",
+      url: `/api/projects/${projectId}/outline/${root.id}`,
+      payload: {
+        title: "全书（作者刚刚调整）",
+        expectedUpdatedAt: root.updatedAt,
+      },
+    });
+    expect(changedRoot.statusCode).toBe(200);
+    const conflict = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/canon-candidates/${set.id}/items/${set.items[0]!.id}/decisions`,
+      payload: { action: "apply" },
+    });
+    expect(conflict.statusCode).toBe(409);
+    expect(conflict.json().error.code).toBe(
+      "canon_candidate.outline_version_conflict",
+    );
+  });
+
   it("rejects stale item application instead of overwriting current canon", async () => {
     const { app } = await setup({
       summary: "更新人物描述。",

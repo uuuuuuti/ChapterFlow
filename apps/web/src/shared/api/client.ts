@@ -23,6 +23,45 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * 判断一次请求是否因为资源不存在而失败。
+ *
+ * 后端不同领域会返回 project.not_found、document.not_found、
+ * run.stream.not_found 等错误码；原生页面统一把它们解释成可恢复的
+ * 404 状态，避免把失效深链静默送回作品库。
+ */
+export function isNotFoundError(error: unknown): error is ApiError {
+  return (
+    error instanceof ApiError &&
+    (error.status === 404 ||
+      error.code === "http.404" ||
+      /(?:^|[._-])not_found$/u.test(error.code))
+  );
+}
+
+/**
+ * 作者写作流程中的并发冲突必须进入显式恢复路径，不能只显示一条普通错误。
+ * 服务端冲突统一用 409 或 *.conflict；本地的草稿保护也会抛出带有正文/草稿
+ * 语义的 Error，因此这里同时识别两类错误，供原生写作台复用。
+ */
+export function isAuthoringConflict(error: unknown): boolean {
+  if (error instanceof ApiError) {
+    return error.status === 409 || /(?:^|[._-])conflict$/u.test(error.code);
+  }
+  if (error && typeof error === "object") {
+    const value = error as { status?: unknown; code?: unknown };
+    if (value.status === 409) return true;
+    if (typeof value.code === "string" && /(?:^|[._-])conflict$/u.test(value.code))
+      return true;
+  }
+  return (
+    error instanceof Error &&
+    /(?:正文|草稿|版本).*(?:变化|修改|更新|冲突|覆盖|刷新)|(?:冲突|覆盖).*(?:正文|草稿|版本)/u.test(
+      error.message,
+    )
+  );
+}
+
 export function apiErrorMessage(error: unknown): string {
   if (error instanceof ApiError) {
     const key = errorLookupKey(`message.${errorCodeKey(error.code)}`);
@@ -64,8 +103,41 @@ export function apiErrorHint(error: unknown): string | null {
         })
       : translate(getLocale(), "errors.hint.requestUnknownField");
   }
+  if (error.code.startsWith("import.") && isImportFailureDetails(error.details)) {
+    const key = {
+      size: "importFailureSize",
+      encoding: "importFailureEncoding",
+      container: "importFailureContainer",
+      structure: "importFailureStructure",
+      empty: "importFailureEmpty",
+      hash: "importFailureHash",
+      unknown: "importFailureUnknown",
+    }[error.details.failureKind] as MessageKey;
+    return translate(getLocale(), `errors.hint.${key}` as MessageKey);
+  }
   const key = errorLookupKey(`hint.${errorCodeKey(error.code)}`);
   return key ? translate(getLocale(), key) : null;
+}
+
+const importFailureHintKeys = {
+  size: true,
+  encoding: true,
+  container: true,
+  structure: true,
+  empty: true,
+  hash: true,
+  unknown: true,
+} as const;
+
+function isImportFailureDetails(
+  details: unknown,
+): details is { failureKind: keyof typeof importFailureHintKeys } {
+  return Boolean(
+    details &&
+      typeof details === "object" &&
+      typeof (details as { failureKind?: unknown }).failureKind === "string" &&
+      (details as { failureKind: string }).failureKind in importFailureHintKeys,
+  );
 }
 
 export function fieldSeparator(): string {
@@ -175,6 +247,7 @@ export async function requestBlob(
   blob: Blob;
   filename: string | null;
   contentType: string | null;
+  exportBatchId: string | null;
 }> {
   const mode = await requireResolvedMode();
   if (mode === "local") {
@@ -202,6 +275,7 @@ export async function requestBlob(
       blob: new Blob([response.body as BlobPart]),
       filename: encodedName ? decodeURIComponent(encodedName) : null,
       contentType: response.headers["content-type"] ?? null,
+      exportBatchId: response.headers["x-export-batch-id"] ?? null,
     };
   }
   const response = await fetch(input, init);
@@ -221,6 +295,7 @@ export async function requestBlob(
     blob: await response.blob(),
     filename: encodedName ? decodeURIComponent(encodedName) : null,
     contentType: response.headers.get("content-type"),
+    exportBatchId: response.headers.get("x-export-batch-id"),
   };
 }
 

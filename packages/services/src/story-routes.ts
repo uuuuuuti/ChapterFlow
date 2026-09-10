@@ -6,9 +6,17 @@ import {
   CanonFactWithdrawalSchema,
   CreateCanonEntityRequestSchema,
   CreateCanonFactRequestSchema,
+  CreateChapterRequestSchema,
+  CreateChapterResultSchema,
   CreateDocumentRequestSchema,
   CreateForeshadowRequestSchema,
   CreateOutlineNodeRequestSchema,
+  OutlineBatchMoveRequestSchema,
+  OutlineCopyRequestSchema,
+  OutlineAssociationsSchema,
+  OutlineOperationSchema,
+  OutlineUndoRequestSchema,
+  MoveOutlineNodeRequestSchema,
   CreateProjectRequestSchema,
   CreateRelationshipRequestSchema,
   CreateTimelineEventRequestSchema,
@@ -27,11 +35,14 @@ import {
   RestoreProjectRequestSchema,
   ReviseCanonFactRequestSchema,
   StoryBibleSnapshotSchema,
+  StoryEvidenceRefSchema,
   StoryResourceRemovalSchema,
+  StoryResourceRemovalImpactSchema,
   TimelineEventSchema,
   UpdateAuthorIntentRequestSchema,
   UpdateCanonEntityRequestSchema,
   UpdateOutlineNodeRequestSchema,
+  UpdateOutlineAssociationsRequestSchema,
   UpdateProjectRequestSchema,
   UpdateForeshadowRequestSchema,
   UpdateTimelineEventRequestSchema,
@@ -44,6 +55,7 @@ import {
   createOutlineNode,
   randomUuid,
 } from "@narralume/domain";
+import type { OutlineNode } from "@narralume/domain";
 import {
   SqliteCanonRepository,
   SqliteDocumentRepository,
@@ -53,6 +65,7 @@ import {
   SqliteProjectRepository,
   SqliteRequestReplayRepository,
   SqliteStoryRepository,
+  OutlineOperationError,
   type NarrativeDatabase,
 } from "@narralume/persistence";
 import { z } from "zod";
@@ -95,12 +108,19 @@ const EntityQuerySchema = z.object({
     .optional(),
   includeRetired: z.coerce.boolean().default(false),
 });
+const FactListQuerySchema = z.object({
+  includeCandidates: z.coerce.boolean().default(true),
+});
 const FactPromotionSchema = z.object({
   authority: z.enum(["inferred", "confirmed", "locked"]),
 });
 const OutlineParamsSchema = z.object({
   projectId: z.string().min(1),
   nodeId: z.string().min(1),
+});
+const OutlineOperationParamsSchema = z.object({
+  projectId: z.string().min(1),
+  operationId: z.string().min(1),
 });
 const EntityParamsSchema = z.object({
   projectId: z.string().min(1),
@@ -183,6 +203,7 @@ export function registerStoryRoutes(
         language: input.language,
         subtitle: input.subtitle ?? null,
         premise: input.premise ?? null,
+        bookProfile: input.bookProfile ?? null,
       });
       const replay = requestReplays.get(scope, input.requestId);
       if (replay) {
@@ -205,6 +226,7 @@ export function registerStoryRoutes(
         subtitle: input.subtitle ?? null,
         premise: input.premise ?? null,
         now,
+        bookProfile: input.bookProfile,
       });
       requestReplays.insert({
         scope,
@@ -368,6 +390,121 @@ export function registerStoryRoutes(
     });
   });
 
+  app.route(
+    "GET",
+    "/api/projects/:projectId/story-evidence",
+    async (request) => {
+      const { projectId } = ProjectParamsSchema.parse(request.params);
+      requireProject(projects, projectId);
+      const outline = story.listOutline(projectId);
+      const entities = canon.listEntities(projectId, { includeRetired: true });
+      const storyDocuments = documents.list(projectId, undefined, true);
+      const documentByOutline = new Map(
+        storyDocuments
+          .filter((document) => document.outlineNodeId)
+          .map((document) => [document.outlineNodeId!, document]),
+      );
+      const refs = [];
+      for (const document of storyDocuments) {
+        const versions = documents.listVersions(projectId, document.id);
+        const versionsById = new Map(
+          versions.map((version) => [version.id, version]),
+        );
+        const current = document.currentVersionId
+          ? (versionsById.get(document.currentVersionId) ?? null)
+          : null;
+        refs.push(
+          StoryEvidenceRefSchema.parse({
+            sourceType: "document",
+            sourceId: document.id,
+            documentId: document.id,
+            outlineNodeId: document.outlineNodeId,
+            title: document.title,
+            versionId: current?.id ?? null,
+            versionCreatedAt: current?.createdAt ?? null,
+            source: current?.source ?? null,
+            excerpt: current ? evidenceExcerpt(current.content) : null,
+            entityIds: current
+              ? evidenceEntityIds(current.content, entities)
+              : [],
+            wordCount: current ? evidenceWordCount(current.content) : 0,
+            updatedAt: document.updatedAt,
+          }),
+        );
+        for (const version of versions) {
+          refs.push(
+            StoryEvidenceRefSchema.parse({
+              sourceType: "document_version",
+              sourceId: version.id,
+              documentId: document.id,
+              outlineNodeId: document.outlineNodeId,
+              title: document.title,
+              versionId: version.id,
+              versionCreatedAt: version.createdAt,
+              source: version.source,
+              excerpt: evidenceExcerpt(version.content),
+              entityIds: evidenceEntityIds(version.content, entities),
+              wordCount: evidenceWordCount(version.content),
+              updatedAt: version.createdAt,
+            }),
+          );
+        }
+      }
+      for (const node of outline) {
+        const document = documentByOutline.get(node.id);
+        const current = document?.currentVersionId
+          ? documents.getVersion(
+              projectId,
+              document.id,
+              document.currentVersionId,
+            )
+          : null;
+        refs.push(
+          StoryEvidenceRefSchema.parse({
+            sourceType: "outline_node",
+            sourceId: node.id,
+            documentId: document?.id ?? null,
+            outlineNodeId: node.id,
+            title: node.title,
+            versionId: current?.id ?? null,
+            versionCreatedAt: current?.createdAt ?? null,
+            source: current?.source ?? "outline",
+            excerpt: current
+              ? evidenceExcerpt(current.content)
+              : evidenceExcerpt(
+                  [node.summary, node.goal, node.conflict, node.outcome]
+                    .filter(Boolean)
+                    .join(" "),
+                ),
+            entityIds: current
+              ? evidenceEntityIds(current.content, entities)
+              : evidenceEntityIds(
+                  [
+                    node.title,
+                    node.summary,
+                    node.goal,
+                    node.conflict,
+                    node.outcome,
+                  ]
+                    .filter(Boolean)
+                    .join(" "),
+                  entities,
+                ),
+            wordCount: current
+              ? evidenceWordCount(current.content)
+              : evidenceWordCount(
+                  [node.summary, node.goal, node.conflict, node.outcome]
+                    .filter(Boolean)
+                    .join(" "),
+                ),
+            updatedAt: node.updatedAt,
+          }),
+        );
+      }
+      return refs;
+    },
+  );
+
   app.route("PUT", "/api/projects/:projectId/intent", async (request) => {
     const { projectId } = ProjectParamsSchema.parse(request.params);
     if (!projects.get(projectId))
@@ -439,6 +576,94 @@ export function registerStoryRoutes(
     };
   });
 
+  app.route("POST", "/api/projects/:projectId/chapters", async (request) => {
+    const { projectId } = ProjectParamsSchema.parse(request.params);
+    const input = CreateChapterRequestSchema.parse(request.body);
+    const result = database.transaction(() => {
+      requireProject(projects, projectId);
+      const scope = `project:${projectId}:chapters:create`;
+      const requestHash = hashRequest({
+        title: input.title,
+        parentId: input.parentId,
+      });
+      const replay = requestReplays.get(scope, input.requestId);
+      if (replay) {
+        if (replay.requestHash !== requestHash) {
+          throw new StoryRouteError(
+            "chapter.create.idempotency_conflict",
+            "The same requestId was already used for a different chapter creation request",
+            409,
+          );
+        }
+        return CreateChapterResultSchema.parse(replay.result);
+      }
+
+      const outline = story.listOutline(projectId);
+      const parent = input.parentId
+        ? story.requireOutlineNode(projectId, input.parentId)
+        : (outline.find((node) => node.kind === "volume") ??
+          outline.find((node) => node.kind === "book") ??
+          null);
+      if (!parent) {
+        throw new StoryRouteError(
+          "chapter.parent.required",
+          "Create a book or volume outline node before creating a chapter",
+          422,
+        );
+      }
+      if (parent.kind !== "book" && parent.kind !== "volume") {
+        throw new StoryRouteError(
+          "chapter.parent.invalid_kind",
+          "A chapter can only be created under the book or a volume",
+          422,
+        );
+      }
+      const ordinal =
+        Math.max(
+          -1,
+          ...outline
+            .filter((node) => node.parentId === parent.id)
+            .map((node) => node.ordinal),
+        ) + 1;
+      const now = new Date().toISOString();
+      const chapter = createOutlineNode({
+        id: randomUuid(),
+        projectId,
+        parent,
+        now,
+        kind: "chapter",
+        ordinal,
+        title: input.title,
+        summary: null,
+        metadata: { createdWith: "chapterflow.chapter.create" },
+      });
+      const document = createDocument({
+        id: randomUuid(),
+        projectId,
+        now,
+        kind: "chapter",
+        title: input.title,
+        outlineNodeId: chapter.id,
+      });
+      const created = {
+        outline: story.insertOutlineNode(chapter),
+        document: documents.insert(document),
+      };
+      requestReplays.insert({
+        scope,
+        requestId: input.requestId,
+        requestHash,
+        result: created,
+        createdAt: now,
+      });
+      return created;
+    });
+    return {
+      status: 201,
+      body: CreateChapterResultSchema.parse(result),
+    };
+  });
+
   app.route(
     "PUT",
     "/api/projects/:projectId/outline/:nodeId",
@@ -488,6 +713,320 @@ export function registerStoryRoutes(
             : details;
         }),
       );
+    },
+  );
+
+  app.route(
+    "PUT",
+    "/api/projects/:projectId/outline/:nodeId/associations",
+    async (request) => {
+      const { projectId, nodeId } = OutlineParamsSchema.parse(request.params);
+      const input = UpdateOutlineAssociationsRequestSchema.parse(request.body);
+      const current = story.requireOutlineNode(projectId, nodeId);
+      if (current.updatedAt !== input.expectedUpdatedAt) {
+        throw new StoryRouteError(
+          "outline.version.conflict",
+          "The outline node was updated by another process; refresh before changing associations",
+          409,
+        );
+      }
+      if (input.povEntityId && !canon.getEntity(projectId, input.povEntityId)) {
+        throw new StoryRouteError(
+          "outline.association.entity_not_found",
+          "The selected point-of-view character no longer exists",
+          404,
+        );
+      }
+      const allForeshadows = state.listForeshadows(projectId);
+      const selectedIds = new Set(input.foreshadowIds);
+      const selectedForeshadows = allForeshadows.filter((item) =>
+        selectedIds.has(item.id),
+      );
+      if (selectedForeshadows.length !== selectedIds.size) {
+        throw new StoryRouteError(
+          "outline.association.foreshadow_not_found",
+          "One or more selected foreshadows no longer exist",
+          404,
+        );
+      }
+      const affectedForeshadows = allForeshadows.filter(
+        (item) =>
+          selectedIds.has(item.id) || item.evidenceNodeIds.includes(nodeId),
+      );
+      for (const item of affectedForeshadows) {
+        const expected = input.expectedForeshadowUpdatedAt[item.id];
+        if (!expected || expected !== item.updatedAt) {
+          throw new StoryRouteError(
+            "outline.association.foreshadow_version.conflict",
+            "A linked foreshadow changed; refresh the outline before saving associations",
+            409,
+          );
+        }
+      }
+      const allTimelines = state.listTimeline(projectId);
+      const selectedTimelineIds = new Set(input.timelineEventIds);
+      if (
+        Array.from(selectedTimelineIds).some(
+          (id) => !allTimelines.some((item) => item.id === id),
+        )
+      ) {
+        throw new StoryRouteError(
+          "outline.association.timeline_not_found",
+          "One or more selected timeline events no longer exist",
+          404,
+        );
+      }
+      const affectedTimelines = allTimelines.filter(
+        (item) =>
+          selectedTimelineIds.has(item.id) || item.outlineNodeId === nodeId,
+      );
+      for (const item of affectedTimelines) {
+        const expected = input.expectedTimelineUpdatedAt[item.id];
+        if (!expected || expected !== item.updatedAt) {
+          throw new StoryRouteError(
+            "outline.association.timeline_version.conflict",
+            "A linked timeline event changed; refresh the outline before saving associations",
+            409,
+          );
+        }
+      }
+      const now = nextUpdatedAt(current.updatedAt);
+      return OutlineAssociationsSchema.parse(
+        database.transaction(() => {
+          const node = story.updateOutlineDetails(
+            projectId,
+            nodeId,
+            { povEntityId: input.povEntityId },
+            now,
+          );
+          for (const item of affectedForeshadows) {
+            const evidenceNodeIds = selectedIds.has(item.id)
+              ? [...new Set([...item.evidenceNodeIds, nodeId])]
+              : item.evidenceNodeIds.filter((id) => id !== nodeId);
+            state.updateForeshadow({
+              ...item,
+              evidenceNodeIds,
+              updatedAt: nextUpdatedAt(item.updatedAt),
+            });
+          }
+          for (const item of affectedTimelines) {
+            state.updateTimelineEvent({
+              ...item,
+              outlineNodeId: selectedTimelineIds.has(item.id) ? nodeId : null,
+              updatedAt: nextUpdatedAt(item.updatedAt),
+            });
+          }
+          return {
+            node,
+            foreshadows: state
+              .listForeshadows(projectId)
+              .filter((item) =>
+                affectedForeshadows.some((entry) => entry.id === item.id),
+              ),
+            timelines: state
+              .listTimeline(projectId)
+              .filter((item) =>
+                affectedTimelines.some((entry) => entry.id === item.id),
+              ),
+          };
+        }),
+      );
+    },
+  );
+
+  app.route(
+    "POST",
+    "/api/projects/:projectId/outline/:nodeId/move",
+    async (request) => {
+      const { projectId, nodeId } = OutlineParamsSchema.parse(request.params);
+      const input = MoveOutlineNodeRequestSchema.parse(request.body);
+      const current = story.requireOutlineNode(projectId, nodeId);
+      if (current.kind === "book") {
+        throw new StoryRouteError(
+          "outline.root.protected",
+          "The book root node cannot be moved",
+          409,
+        );
+      }
+      if (current.updatedAt !== input.expectedUpdatedAt) {
+        throw new StoryRouteError(
+          "outline.version.conflict",
+          "The outline node was updated by another process; refresh before moving it",
+          409,
+        );
+      }
+      const parent = input.parentId
+        ? story.requireOutlineNode(projectId, input.parentId)
+        : null;
+      if (!parent) {
+        throw new StoryRouteError(
+          "outline.parent.required",
+          "A non-root outline node must have a parent",
+          409,
+        );
+      }
+      if (
+        parent.id === current.id ||
+        parent.path.startsWith(`${current.path}/`)
+      ) {
+        throw new StoryRouteError(
+          "outline.parent.invalid",
+          "An outline node cannot be moved inside itself",
+          409,
+        );
+      }
+      const allowedChildren: Record<
+        OutlineNode["kind"],
+        readonly OutlineNode["kind"][]
+      > = {
+        book: ["volume", "arc", "chapter"],
+        volume: ["arc", "chapter"],
+        arc: ["chapter", "scene"],
+        chapter: ["scene", "beat"],
+        scene: ["beat"],
+        beat: [],
+      };
+      if (!allowedChildren[parent.kind].includes(current.kind)) {
+        throw new StoryRouteError(
+          "outline.parent.invalid_kind",
+          `Cannot move ${current.kind} under ${parent.kind}`,
+          409,
+        );
+      }
+      const now = nextUpdatedAt(current.updatedAt);
+      return OutlineNodeSchema.parse(
+        database.transaction(() =>
+          story.moveOutlineNode(
+            projectId,
+            nodeId,
+            input.parentId,
+            input.ordinal,
+            now,
+          ),
+        ),
+      );
+    },
+  );
+
+  app.route(
+    "POST",
+    "/api/projects/:projectId/outline/batch-move",
+    async (request) => {
+      const { projectId } = ProjectParamsSchema.parse(request.params);
+      requireProject(projects, projectId);
+      const input = OutlineBatchMoveRequestSchema.parse(request.body);
+      try {
+        const operation = story.batchMoveOutlineNodes(
+          projectId,
+          input.items,
+          input.parentId,
+          input.ordinal,
+          randomUuid(),
+          new Date().toISOString(),
+        );
+        return {
+          operation: OutlineOperationSchema.parse(operation),
+          nodes: story
+            .listOutline(projectId)
+            .map((node) => OutlineNodeSchema.parse(node)),
+        };
+      } catch (error) {
+        if (error instanceof OutlineOperationError)
+          throw new StoryRouteError(error.code, error.message, 409);
+        throw error;
+      }
+    },
+  );
+
+  app.route(
+    "POST",
+    "/api/projects/:projectId/outline/:nodeId/copy",
+    async (request) => {
+      const { projectId, nodeId } = OutlineParamsSchema.parse(request.params);
+      requireProject(projects, projectId);
+      const input = OutlineCopyRequestSchema.parse(request.body);
+      try {
+        const result = story.copyOutlineSubtree(
+          projectId,
+          nodeId,
+          input.parentId,
+          input.ordinal,
+          input.expectedUpdatedAt,
+          randomUuid(),
+          new Date().toISOString(),
+          randomUuid,
+        );
+        return {
+          status: 201,
+          body: {
+            operation: OutlineOperationSchema.parse(result.operation),
+            root: OutlineNodeSchema.parse(result.root),
+            nodes: story
+              .listOutline(projectId)
+              .map((node) => OutlineNodeSchema.parse(node)),
+          },
+        };
+      } catch (error) {
+        if (error instanceof OutlineOperationError)
+          throw new StoryRouteError(error.code, error.message, 409);
+        throw error;
+      }
+    },
+  );
+
+  app.route(
+    "POST",
+    "/api/projects/:projectId/outline/operations/:operationId/undo",
+    async (request) => {
+      const { projectId, operationId } = OutlineOperationParamsSchema.parse(
+        request.params,
+      );
+      requireProject(projects, projectId);
+      const input = OutlineUndoRequestSchema.parse(request.body ?? {});
+      try {
+        const operation = story.undoOutlineOperation(
+          projectId,
+          operationId,
+          input.expectedUpdatedAtByNode,
+          new Date().toISOString(),
+        );
+        return {
+          operation: OutlineOperationSchema.parse(operation),
+          nodes: story
+            .listOutline(projectId)
+            .map((node) => OutlineNodeSchema.parse(node)),
+        };
+      } catch (error) {
+        if (error instanceof OutlineOperationError)
+          throw new StoryRouteError(error.code, error.message, 409);
+        throw error;
+      }
+    },
+  );
+
+  app.route(
+    "GET",
+    "/api/projects/:projectId/outline/:nodeId/removal-impact",
+    async (request) => {
+      const { projectId, nodeId } = OutlineParamsSchema.parse(request.params);
+      const current = story.requireOutlineNode(projectId, nodeId);
+      const references = story.listOutlineReferences(nodeId);
+      const totalReferences = references.reduce(
+        (total, reference) => total + reference.count,
+        0,
+      );
+      return StoryResourceRemovalImpactSchema.parse({
+        id: current.id,
+        title: current.title,
+        kind: current.kind,
+        references: references.map((reference) => ({
+          ...reference,
+          label: outlineReferenceLabel(reference.table, reference.column),
+        })),
+        totalReferences,
+        canDelete: totalReferences === 0,
+        dispositionIfConfirmed: totalReferences === 0 ? "deleted" : "abandoned",
+      });
     },
   );
 
@@ -568,6 +1107,7 @@ export function registerStoryRoutes(
 
   app.route("GET", "/api/projects/:projectId/entities", async (request) => {
     const { projectId } = ProjectParamsSchema.parse(request.params);
+    requireProject(projects, projectId);
     const query = EntityQuerySchema.parse(request.query);
     const entities = query.q
       ? canon.searchEntities(projectId, query.q)
@@ -576,6 +1116,57 @@ export function registerStoryRoutes(
           includeRetired: query.includeRetired,
         });
     return entities.map((entity) => CanonEntitySchema.parse(entity));
+  });
+
+  app.route("GET", "/api/projects/:projectId/facts", async (request) => {
+    const { projectId } = ProjectParamsSchema.parse(request.params);
+    requireProject(projects, projectId);
+    const query = FactListQuerySchema.parse(request.query);
+    return canon
+      .listEffectiveFacts(projectId, {
+        includeCandidates: query.includeCandidates,
+      })
+      .map((fact) => CanonFactSchema.parse(fact));
+  });
+
+  app.route(
+    "GET",
+    "/api/projects/:projectId/relationships",
+    async (request) => {
+      const { projectId } = ProjectParamsSchema.parse(request.params);
+      requireProject(projects, projectId);
+      return state
+        .listCurrentRelationships(projectId)
+        .map((event) => RelationshipEventSchema.parse(event));
+    },
+  );
+
+  app.route(
+    "GET",
+    "/api/projects/:projectId/relationships/history",
+    async (request) => {
+      const { projectId } = ProjectParamsSchema.parse(request.params);
+      requireProject(projects, projectId);
+      return state
+        .listRelationshipHistory(projectId)
+        .map((event) => RelationshipEventSchema.parse(event));
+    },
+  );
+
+  app.route("GET", "/api/projects/:projectId/timeline", async (request) => {
+    const { projectId } = ProjectParamsSchema.parse(request.params);
+    requireProject(projects, projectId);
+    return state
+      .listTimeline(projectId)
+      .map((event) => TimelineEventSchema.parse(event));
+  });
+
+  app.route("GET", "/api/projects/:projectId/foreshadows", async (request) => {
+    const { projectId } = ProjectParamsSchema.parse(request.params);
+    requireProject(projects, projectId);
+    return state
+      .listForeshadows(projectId)
+      .map((item) => ForeshadowSchema.parse(item));
   });
 
   app.route("POST", "/api/projects/:projectId/entities", async (request) => {
@@ -816,6 +1407,18 @@ export function registerStoryRoutes(
     async (request) => {
       const { projectId } = ProjectParamsSchema.parse(request.params);
       const input = CreateRelationshipRequestSchema.parse(request.body);
+      if (
+        input.supersedesEventId &&
+        !state
+          .listCurrentRelationships(projectId)
+          .some((item) => item.id === input.supersedesEventId)
+      ) {
+        throw new StoryRouteError(
+          "relationship.version.conflict",
+          "The relationship has changed; refresh before editing it",
+          409,
+        );
+      }
       const event = {
         id: randomUuid(),
         projectId,
@@ -1157,6 +1760,22 @@ export function registerStoryRoutes(
   );
 }
 
+function outlineReferenceLabel(table: string, column: string): string {
+  const labels: Record<string, string> = {
+    "documents.outline_node_id": "正文绑定",
+    "runs.target_outline_node_id": "任务目标",
+    "review_reports.document_version_id": "检查报告版本",
+    "revision_proposals.base_document_version_id": "修订候选基线",
+    "canon_facts.valid_from_node_id": "事实生效起点",
+    "canon_facts.valid_to_node_id": "事实生效终点",
+    "timeline_events.outline_node_id": "时间线来源",
+    "foreshadows.target_from_node_id": "伏笔开始章节",
+    "foreshadows.target_to_node_id": "伏笔目标章节",
+    "foreshadows.resolution_node_id": "伏笔回收章节",
+  };
+  return labels[`${table}.${column}`] ?? `${table} · ${column}`;
+}
+
 function requireProject(
   projects: SqliteProjectRepository,
   projectId: string,
@@ -1183,6 +1802,36 @@ function emptyIntent(projectId: string, now: string) {
 
 function nextUpdatedAt(previous: string): string {
   return new Date(Math.max(Date.now(), Date.parse(previous) + 1)).toISOString();
+}
+
+function evidenceExcerpt(content: string): string | null {
+  const normalized = content.replace(/\s+/g, " ").trim();
+  if (!normalized) return null;
+  return normalized.length > 280 ? `${normalized.slice(0, 280)}…` : normalized;
+}
+
+function evidenceWordCount(content: string): number {
+  return Array.from(content.trim()).length;
+}
+
+function evidenceEntityIds(
+  content: string,
+  entities: readonly {
+    id: string;
+    name: string;
+    aliases: readonly string[];
+  }[],
+): string[] {
+  const normalized = content.trim();
+  if (!normalized) return [];
+  return entities
+    .filter((entity) =>
+      [entity.name, ...entity.aliases].some(
+        (candidate) =>
+          candidate.trim().length > 0 && normalized.includes(candidate.trim()),
+      ),
+    )
+    .map((entity) => entity.id);
 }
 
 function documentParams(value: unknown) {

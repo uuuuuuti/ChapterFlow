@@ -1,3 +1,5 @@
+> **2026-09-09 发布范围调整：** 本文保留为长期改造资料。当前先交付 AI 开书与五章连载 V1，执行范围以 [两版本落地计划](refactor/11-two-release-plan.md) 和 [V1 Luna Max Goal 提示词](refactor/12-v1-luna-max-goal.md) 为准；不要将全量 M0—M9 作为 V1 完成条件。
+
 下面这版可以直接作为你 fork `NarraLume` 后的**主重构设计文档 + Codex 开工说明**使用。我把“产品怎么改”和“代码怎么迁”放在了一起，避免最后变成只有 UI 方案、Codex 不知道怎么落地。
 
 # NarraLume 面向番茄网文创作平台重构设计文档

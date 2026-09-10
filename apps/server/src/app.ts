@@ -15,6 +15,7 @@ import {
   AutomationWorkerSuite,
   AssistantWorkerSuite,
   CanonCandidateWorkerSuite,
+  WebNovelCandidateWorkerSuite,
   ChapterWorkerSuite,
   CollaborationWorkerSuite,
   DeliveryWorkerSuite,
@@ -32,6 +33,7 @@ import {
   registerAssistantRoutes,
   registerAutomationRoutes,
   registerCanonCandidateRoutes,
+  registerWebNovelCandidateRoutes,
   registerDeliveryRoutes,
   registerLongNovelRoutes,
   registerProjectCoverRoutes,
@@ -41,6 +43,7 @@ import {
   registerStoryRoutes,
   registerStudioRoutes,
   registerTemplateRoutes,
+  registerWebNovelRoutes,
   seedEnvironmentModelConfig,
   seedHarnessTemplates,
 } from "@narralume/services";
@@ -98,6 +101,7 @@ export async function buildApp(
   const workers = {
     ...new AssistantWorkerSuite(database, modelClient).registry(),
     ...new CanonCandidateWorkerSuite(database, modelClient).registry(),
+    ...new WebNovelCandidateWorkerSuite(database, modelClient).registry(),
     ...new ChapterWorkerSuite(database, modelClient).registry(),
     ...new AutomationWorkerSuite(database, modelClient).registry(),
     ...new CollaborationWorkerSuite(database, modelClient).registry(),
@@ -336,6 +340,7 @@ export async function buildApp(
   });
   registerLongNovelRoutes(routes, database);
   registerTemplateRoutes(routes, database);
+  registerWebNovelRoutes(routes, database);
   registerAutomationRoutes(routes, database, {
     coordinator: autopilotCoordinator,
     runCoordinator: coordinator,
@@ -350,6 +355,11 @@ export async function buildApp(
     environment,
   });
   registerCanonCandidateRoutes(routes, database, {
+    runCoordinator: coordinator,
+    enableBackgroundWorker,
+    environment,
+  });
+  registerWebNovelCandidateRoutes(routes, database, {
     runCoordinator: coordinator,
     enableBackgroundWorker,
     environment,

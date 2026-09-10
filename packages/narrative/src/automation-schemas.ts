@@ -53,12 +53,23 @@ const FoundationEntitySchema = z.object({
   }),
 });
 
-export const FoundationProposalSchema = z.object({
+/** One complete route through the story foundation. Plans deliberately carry
+ * the same source-of-truth fields, making side-by-side comparison honest and
+ * allowing a single author decision to commit one route atomically. */
+export const FoundationPlanSchema = z.object({
+  key: z.string().trim().min(1).max(40),
   title: z.string().min(1),
   rationale: z.string().min(1),
+  angle: z.string().min(1),
+  riskNotes: z.array(z.string().min(1)).max(12),
   intent: IntentProposalSchema,
   compass: CompassProposalSchema,
   entities: z.array(FoundationEntitySchema).min(1).max(20),
+});
+export type FoundationPlan = z.infer<typeof FoundationPlanSchema>;
+
+export const FoundationProposalSchema = z.object({
+  plans: z.array(FoundationPlanSchema).length(3),
 });
 export type FoundationProposal = z.infer<typeof FoundationProposalSchema>;
 
@@ -145,121 +156,147 @@ export const PlanningReviewResultSchema = z.object({
 });
 export type PlanningReviewResult = z.infer<typeof PlanningReviewResultSchema>;
 
+const FOUNDATION_INTENT_JSON = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "promise",
+    "themes",
+    "audience",
+    "tone",
+    "boundaries",
+    "endingDirection",
+    "currentFocus",
+  ],
+  properties: {
+    promise: { type: "string" },
+    themes: { type: "array", items: { type: "string" } },
+    audience: { type: ["string", "null"] },
+    tone: { type: ["string", "null"] },
+    boundaries: { type: "array", items: { type: "string" } },
+    endingDirection: { type: ["string", "null"] },
+    currentFocus: { type: ["string", "null"] },
+  },
+} as const;
+
+const FOUNDATION_COMPASS_JSON = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "corePromise",
+    "endingDirection",
+    "longLines",
+    "themeQuestions",
+    "target",
+    "constraints",
+  ],
+  properties: {
+    corePromise: { type: "string" },
+    endingDirection: { type: ["string", "null"] },
+    longLines: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["title", "promise", "status"],
+        properties: {
+          title: { type: "string" },
+          promise: { type: "string" },
+          status: { type: "string", enum: ["open", "developing", "resolved"] },
+        },
+      },
+    },
+    themeQuestions: { type: "array", items: { type: "string" } },
+    target: {
+      type: "object",
+      additionalProperties: false,
+      required: ["chapters", "wordsPerChapter", "volumes"],
+      properties: {
+        chapters: { type: "integer", minimum: 1, maximum: 500 },
+        wordsPerChapter: { type: "integer", minimum: 1 },
+        volumes: { type: "integer", minimum: 1, maximum: 20 },
+      },
+    },
+    constraints: { type: "array", items: { type: "string" } },
+  },
+} as const;
+
+const FOUNDATION_ENTITY_JSON = {
+  type: "object",
+  additionalProperties: false,
+  required: ["type", "name", "aliases", "description", "attributes"],
+  properties: {
+    type: {
+      type: "string",
+      enum: [
+        "character",
+        "location",
+        "organization",
+        "item",
+        "rule",
+        "concept",
+      ],
+    },
+    name: { type: "string" },
+    aliases: { type: "array", items: { type: "string" } },
+    description: { type: "string" },
+    attributes: {
+      type: "object",
+      additionalProperties: false,
+      required: ["role", "desire", "fear", "secret"],
+      properties: {
+        role: { type: ["string", "null"] },
+        desire: { type: ["string", "null"] },
+        fear: { type: ["string", "null"] },
+        secret: { type: ["string", "null"] },
+      },
+    },
+  },
+} as const;
+
+const FOUNDATION_PLAN_JSON = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "key",
+    "title",
+    "rationale",
+    "angle",
+    "riskNotes",
+    "intent",
+    "compass",
+    "entities",
+  ],
+  properties: {
+    key: { type: "string" },
+    title: { type: "string" },
+    rationale: { type: "string" },
+    angle: { type: "string" },
+    riskNotes: { type: "array", items: { type: "string" } },
+    intent: FOUNDATION_INTENT_JSON,
+    compass: FOUNDATION_COMPASS_JSON,
+    entities: {
+      type: "array",
+      minItems: 1,
+      maxItems: 20,
+      items: FOUNDATION_ENTITY_JSON,
+    },
+  },
+} as const;
+
 export const FOUNDATION_CONTRACT: JsonSchemaContract = {
-  name: "book_foundation_candidates",
+  name: "book_foundation_comparable_plans",
   strict: true,
   schema: {
     type: "object",
     additionalProperties: false,
-    required: ["title", "rationale", "intent", "compass", "entities"],
+    required: ["plans"],
     properties: {
-      title: { type: "string" },
-      rationale: { type: "string" },
-      intent: {
-        type: "object",
-        additionalProperties: false,
-        required: [
-          "promise",
-          "themes",
-          "audience",
-          "tone",
-          "boundaries",
-          "endingDirection",
-          "currentFocus",
-        ],
-        properties: {
-          promise: { type: "string" },
-          themes: { type: "array", items: { type: "string" } },
-          audience: { type: ["string", "null"] },
-          tone: { type: ["string", "null"] },
-          boundaries: { type: "array", items: { type: "string" } },
-          endingDirection: { type: ["string", "null"] },
-          currentFocus: { type: ["string", "null"] },
-        },
-      },
-      compass: {
-        type: "object",
-        additionalProperties: false,
-        required: [
-          "corePromise",
-          "endingDirection",
-          "longLines",
-          "themeQuestions",
-          "target",
-          "constraints",
-        ],
-        properties: {
-          corePromise: { type: "string" },
-          endingDirection: { type: ["string", "null"] },
-          longLines: {
-            type: "array",
-            items: {
-              type: "object",
-              additionalProperties: false,
-              required: ["title", "promise", "status"],
-              properties: {
-                title: { type: "string" },
-                promise: { type: "string" },
-                status: {
-                  type: "string",
-                  enum: ["open", "developing", "resolved"],
-                },
-              },
-            },
-          },
-          themeQuestions: { type: "array", items: { type: "string" } },
-          target: {
-            type: "object",
-            additionalProperties: false,
-            required: ["chapters", "wordsPerChapter", "volumes"],
-            properties: {
-              chapters: { type: "integer", minimum: 1, maximum: 500 },
-              wordsPerChapter: {
-                type: "integer",
-                minimum: 1,
-              },
-              volumes: { type: "integer", minimum: 1, maximum: 20 },
-            },
-          },
-          constraints: { type: "array", items: { type: "string" } },
-        },
-      },
-      entities: {
+      plans: {
         type: "array",
-        minItems: 1,
-        maxItems: 20,
-        items: {
-          type: "object",
-          additionalProperties: false,
-          required: ["type", "name", "aliases", "description", "attributes"],
-          properties: {
-            type: {
-              type: "string",
-              enum: [
-                "character",
-                "location",
-                "organization",
-                "item",
-                "rule",
-                "concept",
-              ],
-            },
-            name: { type: "string" },
-            aliases: { type: "array", items: { type: "string" } },
-            description: { type: "string" },
-            attributes: {
-              type: "object",
-              additionalProperties: false,
-              required: ["role", "desire", "fear", "secret"],
-              properties: {
-                role: { type: ["string", "null"] },
-                desire: { type: ["string", "null"] },
-                fear: { type: ["string", "null"] },
-                secret: { type: ["string", "null"] },
-              },
-            },
-          },
-        },
+        minItems: 3,
+        maxItems: 3,
+        items: FOUNDATION_PLAN_JSON,
       },
     },
   },

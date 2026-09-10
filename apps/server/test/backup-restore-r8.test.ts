@@ -32,7 +32,7 @@ afterEach(async () => {
 
 describe("project backup fidelity (R8)", () => {
   it("restores every author-visible section with matching export/restore counts", async () => {
-    const { app } = await setup();
+    const { app, database } = await setup();
     const project = await request<{ id: string; updatedAt: string }>(
       app,
       "POST",
@@ -287,6 +287,100 @@ describe("project backup fidelity (R8)", () => {
     });
     expect(message.statusCode, message.body).toBe(202);
 
+    // 审阅报告必须带着合法的执行图谱父项进入备份；恢复时会重建惰性父项。
+    const reviewRunId = globalThis.crypto.randomUUID();
+    const reviewStepId = globalThis.crypto.randomUUID();
+    const reviewReportId = globalThis.crypto.randomUUID();
+    const reviewCreatedAt = new Date().toISOString();
+    database.raw
+      .prepare(
+        `INSERT INTO runs(
+          id, project_id, recipe, mode, status, policy_json, current_step_id,
+          started_at, finished_at, created_at, updated_at, recipe_version,
+          target_outline_node_id, budget_used_json,
+          revision_cycle, pause_requested, cancel_requested, lease_owner,
+          lease_expires_at, version
+        ) VALUES (?, ?, 'document-review', 'manual', 'completed', ?, ?, ?, ?, ?, ?, 1, NULL, ?, 0, 0, 0, NULL, NULL, 0)`,
+      )
+      .run(
+        reviewRunId,
+        projectId,
+        JSON.stringify({ restoredFixture: true }),
+        reviewStepId,
+        reviewCreatedAt,
+        reviewCreatedAt,
+        reviewCreatedAt,
+        reviewCreatedAt,
+        JSON.stringify({
+          inputTokens: 0,
+          outputTokens: 0,
+          calls: 0,
+          costUsd: 0,
+          wallTimeMs: 0,
+        }),
+      );
+    database.raw
+      .prepare(
+        `INSERT INTO run_steps(
+          id, run_id, ordinal, kind, status, idempotency_key, input_hash,
+          output_artifact_json, error_json, attempt, started_at, finished_at,
+          created_at, cycle, max_attempts, output_hash, updated_at
+        ) VALUES (?, ?, 0, 'document-review', 'succeeded', ?, NULL, ?, NULL, 1, ?, ?, ?, 0, 1, NULL, ?)`,
+      )
+      .run(
+        reviewStepId,
+        reviewRunId,
+        "backup-review-step",
+        JSON.stringify({ restoredFixture: true }),
+        reviewCreatedAt,
+        reviewCreatedAt,
+        reviewCreatedAt,
+        reviewCreatedAt,
+      );
+    database.raw
+      .prepare(
+        `INSERT INTO run_jobs(
+          run_id, status, priority, available_at, lease_owner,
+          lease_expires_at, last_error_json, created_at, updated_at
+        ) VALUES (?, 'finished', 0, ?, NULL, NULL, NULL, ?, ?)`,
+      )
+      .run(reviewRunId, reviewCreatedAt, reviewCreatedAt, reviewCreatedAt);
+    database.raw
+      .prepare(
+        `INSERT INTO review_reports(
+          id, project_id, run_id, step_id, document_version_id, verdict,
+          summary, score_json, reviewed_content, reviewed_content_hash,
+          created_at
+        ) VALUES (?, ?, ?, ?, ?, 'pass', ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        reviewReportId,
+        projectId,
+        reviewRunId,
+        reviewStepId,
+        version.id,
+        "fixture review passed",
+        JSON.stringify({ continuity: 90 }),
+        version.content,
+        "fixture-review-hash",
+        reviewCreatedAt,
+      );
+    database.raw
+      .prepare(
+        `INSERT INTO review_issues(
+          id, report_id, category, severity, message, evidence_json,
+          suggested_direction, status, created_at
+        ) VALUES (?, ?, 'continuity', 'minor', ?, ?, ?, 'open', ?)`,
+      )
+      .run(
+        globalThis.crypto.randomUUID(),
+        reviewReportId,
+        "fixture warning",
+        JSON.stringify([{ quote: "P1" }]),
+        "fixture direction",
+        reviewCreatedAt,
+      );
+
     const backup = await request<{
       id: string;
       counts: Record<string, number>;
@@ -308,6 +402,8 @@ describe("project backup fidelity (R8)", () => {
       storyTurns: 2,
       assistantConversations: 1,
       assistantMessages: 1,
+      reviews: 1,
+      reviewIssues: 1,
     });
     expect(backup.counts.outline).toBeGreaterThanOrEqual(2);
 
@@ -476,6 +572,41 @@ describe("project backup fidelity (R8)", () => {
     expect(restoredConversation.messages.map((item) => item.content)).toContain(
       "帮我记住这个开场。",
     );
+    const restoredReviewWorkspace = await request<{
+      reports: { issues: { evidence: { quote: string }[] }[] }[];
+    }>(
+      app,
+      "GET",
+      `/api/projects/${restored.projectId}/reviews`,
+      undefined,
+      200,
+    );
+    expect(restoredReviewWorkspace.reports[0]?.issues[0]?.evidence).toEqual([
+      { quote: "P1" },
+    ]);
+    const restoredReview = database.raw
+      .prepare(
+        `SELECT report.run_id AS run_id, report.step_id AS step_id,
+                report.document_version_id AS document_version_id,
+                issue.message AS issue_message
+         FROM review_reports report
+         JOIN review_issues issue ON issue.report_id = report.id
+         WHERE report.project_id = ?`,
+      )
+      .get(restored.projectId) as
+      | {
+          run_id: string;
+          step_id: string;
+          document_version_id: string;
+          issue_message: string;
+        }
+      | undefined;
+    expect(restoredReview).toMatchObject({
+      issue_message: "fixture warning",
+    });
+    expect(restoredReview?.run_id).not.toBe(reviewRunId);
+    expect(restoredReview?.step_id).not.toBe(reviewStepId);
+    expect(restoredReview?.document_version_id).not.toBe(version.id);
   });
 
   it("fails restore atomically when a bundle section is dropped", async () => {

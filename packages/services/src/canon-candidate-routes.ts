@@ -20,6 +20,7 @@ import { z } from "zod";
 import type { RunCoordinator, RouteApp } from "@narralume/services";
 import {
   requireWritingAssignment,
+  validateRunOrigin,
   withRuntimeModelPolicy,
 } from "@narralume/services";
 
@@ -57,9 +58,20 @@ export function registerCanonCandidateRoutes(
       const { projectId, spread } = SpreadParamsSchema.parse(request.params);
       requireProject(projects, projectId);
       const input = CreateCanonCandidateRequestSchema.parse(request.body);
+      const origin = input.origin
+        ? validateRunOrigin(database, projectId, input.origin)
+        : null;
+      if (origin?.canonSpread && origin.canonSpread !== spread) {
+        throw new CanonCandidateRouteError(
+          "canon_candidate.origin_spread_mismatch",
+          "The candidate origin points to a different story spread than the requested route",
+          422,
+        );
+      }
       const requestHash = hashStable({
         spread,
         instruction: input.instruction,
+        origin,
       });
       const runId = deterministicId(
         "canon-spread-candidate",
@@ -106,7 +118,12 @@ export function registerCanonCandidateRoutes(
             canonMaxOutputTokens: 6_000,
             creationRequestId: input.requestId,
             creationRequestHash: requestHash,
-            origin: { surface: "bible", canonSpread: spread },
+            origin: origin ?? {
+              surface: spread === "outline" ? "outline" : "bible",
+              canonSpread: spread,
+              documentId: null,
+              selection: null,
+            },
           },
           options.environment,
         );

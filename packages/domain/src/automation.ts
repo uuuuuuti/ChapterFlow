@@ -1,7 +1,7 @@
 import type { IsoDateTime, ProjectId } from "./index.js";
 import type { RunMode } from "./run.js";
 
-export type FoundationCandidateKind = "intent" | "compass" | "entity";
+export type FoundationCandidateKind = "intent" | "compass" | "entity" | "plan";
 export type FoundationCandidateStatus = "pending" | "adopted" | "discarded";
 
 export interface StoryCompass {
@@ -62,6 +62,10 @@ export interface AutopilotSession {
   id: string;
   projectId: ProjectId;
   mode: Extract<RunMode, "autopilot" | "chapter-gate">;
+  scope: {
+    startOutlineNodeId: string | null;
+    endOutlineNodeId: string | null;
+  };
   status: AutopilotSessionStatus;
   targetChapters: number;
   windowSize: number;

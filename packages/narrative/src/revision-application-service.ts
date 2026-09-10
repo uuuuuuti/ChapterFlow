@@ -1,3 +1,5 @@
+import { sha256Hex } from "@narralume/domain";
+
 import {
   SqliteDocumentRepository,
   SqliteRetrievalRepository,
@@ -66,6 +68,18 @@ export class RevisionApplicationService {
           "revision_proposal.base_stale",
           `Document advanced from ${proposal.baseDocumentVersionId} to ${document.currentVersionId}`,
         );
+      const draft = this.documents.getDraft(input.projectId, document.id);
+      if (
+        draft &&
+        (draft.baseVersionId !== proposal.baseDocumentVersionId ||
+          proposal.baseContent === null ||
+          draft.contentHash !== sha256Hex(proposal.baseContent))
+      ) {
+        throw new RevisionApplicationError(
+          "revision_proposal.draft.conflict",
+          "The manuscript has a newer local draft; save or discard it before applying this revision proposal",
+        );
+      }
       const version = this.documents.appendVersion(
         input.projectId,
         document.id,
@@ -83,6 +97,7 @@ export class RevisionApplicationService {
         proposalId: proposal.id,
         expectedStatus: "proposed",
         status: "accepted",
+        acceptedDocumentVersionId: version.id,
         now,
       });
       const resolvedIssueCount = this.reviews.resolveProposalIssues(

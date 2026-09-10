@@ -15,8 +15,8 @@ import {
 import type { MessageKey } from "../i18n";
 
 /* 主导航收敛为五个创作面：书架 / 项目概览 / 故事 / 写作 / 交付。
-   其余工作区（审稿、自动驾驶、运行账本、长篇推演、模型供给）暂挂「高级工具」组，
-   随写作台合并与设置迁移逐步并入或退役。
+   所有普通导航都使用 ChapterFlow 原生 `/books/*` 路径；旧 `/projects/*` 只由
+   legacy-route 解析器消费，不再由命令面板或导航 helper 生成。
    seal 是左栏顶部「当前工作区印记」的白文单字，随路由切换。
    label / blurb 是 i18n 字典键，展示侧用 t() / translate() 解析。 */
 
@@ -35,7 +35,7 @@ export interface WorkspaceDef {
 export const WORKSPACES: WorkspaceDef[] = [
   {
     id: "shelf",
-    path: "/shelf",
+    path: "/books",
     projectScoped: false,
     label: "shell.nav.shelf",
     en: "STACKS",
@@ -46,7 +46,7 @@ export const WORKSPACES: WorkspaceDef[] = [
   },
   {
     id: "overview",
-    path: "/projects/:projectId/overview",
+    path: "/books/:projectId/dashboard",
     projectScoped: true,
     label: "shell.nav.overview",
     en: "OVERLOOK",
@@ -57,7 +57,7 @@ export const WORKSPACES: WorkspaceDef[] = [
   },
   {
     id: "bible",
-    path: "/projects/:projectId/bible",
+    path: "/books/:projectId/outline",
     projectScoped: true,
     label: "shell.nav.bible",
     en: "CANON",
@@ -68,7 +68,7 @@ export const WORKSPACES: WorkspaceDef[] = [
   },
   {
     id: "studio",
-    path: "/projects/:projectId/studio",
+    path: "/books/:projectId/write",
     projectScoped: true,
     label: "shell.nav.studio",
     en: "DESK",
@@ -79,7 +79,7 @@ export const WORKSPACES: WorkspaceDef[] = [
   },
   {
     id: "delivery",
-    path: "/projects/:projectId/delivery",
+    path: "/books/:projectId/publish",
     projectScoped: true,
     label: "shell.nav.delivery",
     en: "PRESS",
@@ -94,7 +94,7 @@ export const WORKSPACES: WorkspaceDef[] = [
 export const QUICK_WORKSPACES: WorkspaceDef[] = [
   {
     id: "autopilot",
-    path: "/projects/:projectId/autopilot",
+    path: "/books/:projectId/quick-create",
     projectScoped: true,
     label: "shell.nav.autopilot",
     en: "QUICK CREATE",
@@ -109,7 +109,7 @@ export const QUICK_WORKSPACES: WorkspaceDef[] = [
 export const ADVANCED_WORKSPACES: WorkspaceDef[] = [
   {
     id: "runs",
-    path: "/projects/:projectId/runs",
+    path: "/books/:projectId/tasks",
     projectScoped: true,
     label: "shell.nav.runs",
     en: "LEDGER",
@@ -120,7 +120,7 @@ export const ADVANCED_WORKSPACES: WorkspaceDef[] = [
   },
   {
     id: "lab",
-    path: "/projects/:projectId/lab",
+    path: "/books/:projectId/advanced",
     projectScoped: true,
     label: "shell.nav.lab",
     en: "LOOM",
@@ -148,23 +148,36 @@ export function workspaceByPath(pathname: string): WorkspaceDef {
   if (pathname === "/settings" || pathname.startsWith("/settings/")) {
     return ADVANCED_WORKSPACES.find((item) => item.id === "supply")!;
   }
-  const projectWorkspace = /^\/projects\/[^/]+\/([^/]+)/.exec(pathname)?.[1];
+  const nativeWorkspace = /^\/books\/[^/]+\/([^/]+)/.exec(pathname)?.[1];
+  const legacyWorkspace = /^\/projects\/[^/]+\/([^/]+)/.exec(pathname)?.[1];
   const projectlessWorkspace = /^\/([^/]+)\/?$/.exec(pathname)?.[1];
+  const workspace = nativeWorkspace
+    ? nativeWorkspace === "dashboard" ? "overview"
+      : nativeWorkspace === "outline" ? "bible"
+        : nativeWorkspace === "write" ? "studio"
+          : nativeWorkspace === "publish" ? "delivery"
+            : nativeWorkspace === "quick-create" ? "autopilot"
+              : nativeWorkspace === "tasks" ? "runs"
+                : nativeWorkspace === "advanced" ? "lab"
+                  : nativeWorkspace
+    : legacyWorkspace ?? projectlessWorkspace;
   return (
     ALL_WORKSPACES.find(
-      (item) => item.id === (projectWorkspace ?? projectlessWorkspace),
+      (item) => item.id === workspace || item.path === pathname,
     ) ??
     WORKSPACES[0]!
   );
 }
 
 export function projectIdFromPath(pathname: string): string | null {
-  const value = /^\/projects\/([^/]+)(?:\/|$)/.exec(pathname)?.[1];
+  const value =
+    /^\/books\/([^/]+)(?:\/|$)/.exec(pathname)?.[1] ??
+    /^\/projects\/([^/]+)(?:\/|$)/.exec(pathname)?.[1];
   return value ? decodeURIComponent(value) : null;
 }
 
 export function workspacePath(item: WorkspaceDef, projectId: string | null): string {
   if (!item.projectScoped) return item.path;
-  if (!projectId) return `/${item.id}`;
+  if (!projectId) return "/books";
   return item.path.replace(":projectId", encodeURIComponent(projectId));
 }

@@ -24,7 +24,7 @@ import {
 } from "../lib/labels";
 import { useProjectId } from "../lib/project-route";
 import { BibleEditor, type BibleEditorSection } from "./bible/editor";
-import { CanonCandidatePanel } from "./bible/candidate-panel";
+import { CanonCandidatePanel } from "../features/canon/canon-candidate-panel";
 
 export type BibleSectionId = BibleEditorSection;
 

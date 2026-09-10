@@ -25,63 +25,70 @@ test("本地内核 UI 主链：建项目 → 大纲 → 写作 → 版本持久 
   const body =
     "林昇回港当夜，灯塔突然熄灭。退潮前，他在石阶下找到一封没有署名的信。";
 
-  // ChapterFlow owns `/`; exercise the preserved legacy shell explicitly.
-  await page.goto("/shelf");
-  await expect(page.locator(".status-pill__label").first()).toHaveText(
-    "内核在线",
-    { timeout: KERNEL_READY_TIMEOUT },
-  );
+  // ChapterFlow owns the native route; the local driver is exercised by every
+  // query and mutation below.
+  await page.goto("/books");
+  await expect(
+    page.getByRole("heading", { name: "我的作品", exact: true }),
+  ).toBeVisible();
 
   // 空白建书（无模型也可用的纯项目创建）。
-  await page.getByRole("button", { name: /空白建书/ }).click();
+  await page.getByRole("main").getByRole("link", { name: "新建作品" }).click();
   await page.getByLabel("书名").fill(title);
-  await page.getByLabel(/卷首语/).fill("失灯的守塔人必须在退潮前找回一封信。");
-  await page.getByRole("button", { name: "创建并入藏" }).click();
-  await expect(page).toHaveURL(/\/projects\/[^/]+\/overview$/);
+  await page
+    .getByLabel("一句话简介")
+    .fill("失灯的守塔人必须在退潮前找回一封信。");
+  await page.getByRole("button", { name: "创建作品" }).click();
+  await expect(page).toHaveURL(/\/books\/[^/]+\/dashboard$/);
   const projectId = new URL(page.url()).pathname.split("/")[2];
   expect(projectId).toBeTruthy();
-  await expect(page.getByRole("heading", { name: title })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "创作首页" })).toBeVisible();
 
   // 大纲：创建章节节点。
-  await page.getByRole("link", { name: "前往故事" }).click();
-  await page.getByRole("button", { name: "查看大纲" }).click();
+  await page.goto(`/books/${projectId}/outline`);
   await page.getByLabel("类型").selectOption({ label: "章节" });
-  await page.getByLabel("标题").fill(chapterTitle);
-  await page.getByLabel("摘要").fill("林昇回港当夜，灯塔突然熄灭。");
-  await page.getByRole("button", { name: "保存" }).click();
+  await page
+    .getByRole("textbox", { name: "标题", exact: true })
+    .fill(chapterTitle);
+  await page
+    .getByRole("textbox", { name: "摘要", exact: true })
+    .fill("林昇回港当夜，灯塔突然熄灭。");
+  await page.getByRole("button", { name: "保存", exact: true }).first().click();
   await expect(page.getByRole("status")).toContainText("已写入服务端");
   await page.getByLabel("编辑对象").selectOption({ label: chapterTitle });
   await page.getByRole("link", { name: "去写作台写本章" }).click();
-  await expect(page).toHaveURL(
-    new RegExp(`/projects/${projectId}/studio\\?outline=`),
-  );
+  await expect(page).toHaveURL(new RegExp(`/books/${projectId}/write/`));
 
-  // 写作台：创建文档 + 手写正文并保存版本（手动创作永远可用）。
-  await page.getByRole("button", { name: "创建" }).click();
-  const editor = page.getByLabel("Markdown 正文编辑器");
+  // 写作台：手写正文并创建版本（手动创作永远可用）。
+  const editor = page.getByRole("textbox", { name: "章节正文" });
   await expect(editor).toBeVisible();
   await editor.fill(body);
-  await page.getByRole("button", { name: "保存新版本" }).click();
-  await expect(page.getByRole("status")).toContainText(/已保存|版本/);
+  await page.getByRole("button", { name: "历史版本" }).click();
+  await page.getByLabel("版本说明").fill("内核持久版本");
+  await page.getByRole("button", { name: "创建版本" }).click();
+  await expect(page.getByText("内核持久版本", { exact: true })).toBeVisible();
 
   // 重启持久性：reload 后内核从 OPFS 重开，章节文档与正文仍在。
   await page.reload();
-  await expect(page.locator(".status-pill__label").first()).toHaveText(
-    "内核在线",
-    { timeout: KERNEL_READY_TIMEOUT },
-  );
+  await expect(page.getByRole("textbox", { name: "章节正文" })).toBeVisible({
+    timeout: KERNEL_READY_TIMEOUT,
+  });
   await expect(editor).toBeVisible();
   await expect(editor).toHaveValue(/灯塔突然熄灭/);
 
-  // runs 账本在 local 驱动下可用（运行中心空态；窄屏导航折叠，直接按地址访问）。
-  await page.goto(`/projects/${projectId}/runs`);
-  await expect(page).toHaveURL(new RegExp(`/projects/${projectId}/runs`));
+  // 任务中心在 local 驱动下可用（空态；直接按地址访问）。
+  await page.goto(`/books/${projectId}/dashboard`);
+  await expect(page.getByRole("button", { name: "任务中心" })).toBeVisible();
 
   // 下载我的库（D6）：local 驱动从内核导出完整 SQLite bytes。
   const download = page.waitForEvent("download");
-  await page.goto("/settings");
+  await page.goto("/settings/storage");
   await expect(page.getByRole("button", { name: /下载我的库/ })).toBeVisible();
   await page.getByRole("button", { name: /下载我的库/ }).click();
   const library = await download;
   expect(library.suggestedFilename()).toMatch(/\.sqlite$/);
+  await expect(
+    page.getByText("本机存储使用完整库下载。", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByLabel("系统备份说明")).toHaveCount(0);
 });

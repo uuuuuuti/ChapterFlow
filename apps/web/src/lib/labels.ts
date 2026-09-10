@@ -350,6 +350,7 @@ export function foundationCandidateKindLabel(
     intent: "labels.foundationCandidateKind.intent",
     compass: "labels.foundationCandidateKind.compass",
     entity: "labels.foundationCandidateKind.entity",
+    plan: "labels.foundationCandidateKind.plan",
   };
   return translate(getLocale(), keys[kind]);
 }

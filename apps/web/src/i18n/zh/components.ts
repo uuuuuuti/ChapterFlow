@@ -17,7 +17,7 @@ export const components = {
     label: "朱印「{char}」",
   },
   kernel: {
-    lockBusy: "本地内核已被另一个标签页占用，请关闭其他叙灯页面后重试",
+    lockBusy: "本地内核已被另一个标签页占用，请关闭其他文织页面后重试",
     deserializeFailed: "内核消息反序列化失败",
     workerTerminated: "内核 Worker 已终止",
     bootTimeout: "内核启动超时（Worker 可能加载失败或被其他标签页占用）",

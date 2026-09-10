@@ -62,13 +62,17 @@ export type AssistantStepKind =
 export type CanonCandidateStepKind =
   "canon.context" | "canon.candidate" | "canon.stage";
 
+export type WebNovelCandidateStepKind =
+  "webnovel.context" | "webnovel.candidate" | "webnovel.stage";
+
 export type RunStepKind =
   | ChapterStepKind
   | AutomationStepKind
   | CollaborationStepKind
   | DeliveryStepKind
   | AssistantStepKind
-  | CanonCandidateStepKind;
+  | CanonCandidateStepKind
+  | WebNovelCandidateStepKind;
 
 export interface RunBudgetUsage {
   inputTokens: number;

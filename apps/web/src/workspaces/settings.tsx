@@ -65,7 +65,7 @@ import {
   probeStageStatusLabel,
   wireApiLabel,
 } from "../lib/labels";
-import { projectWorkspacePath } from "../lib/project-route";
+import { chapterFlowProjectPath } from "../lib/project-route";
 import { PromptTemplatesSection } from "./settings/prompt-templates";
 import { ProductionTools } from "./delivery/production-tools";
 
@@ -426,8 +426,8 @@ export function SettingsWorkspace() {
             <ErrorNote error={projectsQuery.error} title={t("settings.tools.projectsLoadError")} />
           ) : toolsProject ? (
             <>
-              <Link className="settings__tool-link" to={projectWorkspacePath(toolsProject.id, "runs")}>{t("settings.tools.runsLink", { title: toolsProject.title })}</Link>
-              <Link className="settings__tool-link" to={projectWorkspacePath(toolsProject.id, "lab")}>{t("settings.tools.labLink", { title: toolsProject.title })}</Link>
+              <Link className="settings__tool-link" to={chapterFlowProjectPath(toolsProject.id, "runs")}>{t("settings.tools.runsLink", { title: toolsProject.title })}</Link>
+              <Link className="settings__tool-link" to={chapterFlowProjectPath(toolsProject.id, "lab")}>{t("settings.tools.labLink", { title: toolsProject.title })}</Link>
             </>
           ) : (
             <p className="supply__empty">{t("settings.tools.emptyProjects")}</p>
@@ -1020,9 +1020,9 @@ function modelDisplayName(model: ModelConfigDto | undefined, providers: PublicPr
 }
 
 function safeProjectReturnPath(projectId: string | null, requestedPath: string | null): string {
-  if (!projectId) return "/shelf";
-  const projectRoot = `/projects/${encodeURIComponent(projectId)}/`;
+  if (!projectId) return "/books";
+  const projectRoot = `/books/${encodeURIComponent(projectId)}/`;
   return requestedPath?.startsWith(projectRoot)
     ? requestedPath
-    : `${projectRoot}overview`;
+    : `${projectRoot}dashboard`;
 }

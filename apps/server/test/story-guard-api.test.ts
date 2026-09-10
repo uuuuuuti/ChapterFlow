@@ -349,6 +349,165 @@ describe("canon / compass concurrency guards", () => {
       "候选指南针承诺",
     );
   });
+
+  it("rejects a stale candidate decision token before it can be adopted (CR-61)", async () => {
+    const { app, database } = await setupApp();
+    const projectId = await createProject(app, "候选版本令牌");
+    const automation = new SqliteAutomationRepository(database);
+    const runs = new SqliteRunRepository(database);
+    const now = new Date().toISOString();
+    runs.create({
+      id: `run-candidate-version-${projectId}`,
+      projectId,
+      recipe: "test-source",
+      recipeVersion: 1,
+      mode: "manual",
+      targetOutlineNodeId: null,
+      policy: {},
+      budgetLimit: {
+        maxCalls: 1,
+        maxInputTokens: 1_000,
+        maxOutputTokens: 1_000,
+        maxCostUsd: null,
+        maxWallTimeMs: 1_000,
+      },
+      steps: [],
+      now,
+    });
+    automation.stageCandidateSet({
+      id: "set-version-token",
+      projectId,
+      sourceRunId: `run-candidate-version-${projectId}`,
+      title: "版本令牌候选",
+      candidates: [
+        {
+          id: "candidate-version-token",
+          kind: "entity",
+          label: "灯塔守门人",
+          payload: {
+            type: "character",
+            name: "灯塔守门人",
+            aliases: [],
+            description: "守住潮汐记录",
+            attributes: {},
+          },
+        },
+      ],
+      now,
+    });
+    const candidate = automation.requireCandidate("candidate-version-token");
+    const stale = await app.inject({
+      method: "POST",
+      url: "/api/candidates/candidate-version-token/actions",
+      payload: {
+        action: "adopt",
+        expectedUpdatedAt: "stale-token",
+      },
+    });
+    expect(stale.statusCode, stale.body).toBe(409);
+    expect(stale.json()).toMatchObject({
+      error: { code: "foundation_candidate.version.conflict" },
+    });
+    expect(automation.requireCandidate("candidate-version-token").status).toBe(
+      "pending",
+    );
+
+    const adopted = await app.inject({
+      method: "POST",
+      url: "/api/candidates/candidate-version-token/actions",
+      payload: {
+        action: "adopt",
+        expectedUpdatedAt: candidate.updatedAt,
+      },
+    });
+    expect(adopted.statusCode, adopted.body).toBe(200);
+    expect(adopted.json()).toMatchObject({
+      id: "candidate-version-token",
+      status: "adopted",
+      adoptedRefType: "canon_entity",
+    });
+
+    runs.create({
+      id: `run-candidate-version-bulk-${projectId}`,
+      projectId,
+      recipe: "test-source",
+      recipeVersion: 1,
+      mode: "manual",
+      targetOutlineNodeId: null,
+      policy: {},
+      budgetLimit: {
+        maxCalls: 1,
+        maxInputTokens: 1_000,
+        maxOutputTokens: 1_000,
+        maxCostUsd: null,
+        maxWallTimeMs: 1_000,
+      },
+      steps: [],
+      now,
+    });
+    automation.stageCandidateSet({
+      id: "set-version-token-bulk",
+      projectId,
+      sourceRunId: `run-candidate-version-bulk-${projectId}`,
+      title: "批量版本令牌候选",
+      candidates: [
+        {
+          id: "candidate-version-token-bulk-1",
+          kind: "entity",
+          label: "潮汐记录员",
+          payload: {
+            type: "character",
+            name: "潮汐记录员",
+            aliases: [],
+            description: null,
+            attributes: {},
+          },
+        },
+        {
+          id: "candidate-version-token-bulk-2",
+          kind: "entity",
+          label: "旧港档案馆",
+          payload: {
+            type: "location",
+            name: "旧港档案馆",
+            aliases: [],
+            description: null,
+            attributes: {},
+          },
+        },
+      ],
+      now,
+    });
+    const bulk = automation.requireCandidateSet("set-version-token-bulk");
+    const expectedUpdatedAtByCandidate = Object.fromEntries(
+      bulk.candidates.map((candidate) => [candidate.id, candidate.updatedAt]),
+    );
+    const staleBulk = await app.inject({
+      method: "POST",
+      url: "/api/candidate-sets/set-version-token-bulk/actions",
+      payload: {
+        action: "adopt-all",
+        expectedUpdatedAtByCandidate: {
+          ...expectedUpdatedAtByCandidate,
+          "candidate-version-token-bulk-2": "stale-token",
+        },
+      },
+    });
+    expect(staleBulk.statusCode, staleBulk.body).toBe(409);
+    expect(staleBulk.json()).toMatchObject({
+      error: { code: "foundation_candidate.version.conflict" },
+    });
+    expect(
+      automation.requireCandidate("candidate-version-token-bulk-1").status,
+    ).toBe("pending");
+    const adoptedBulk = await app.inject({
+      method: "POST",
+      url: "/api/candidate-sets/set-version-token-bulk/actions",
+      payload: { action: "adopt-all", expectedUpdatedAtByCandidate },
+    });
+    expect(adoptedBulk.statusCode, adoptedBulk.body).toBe(200);
+    expect(adoptedBulk.json()).toMatchObject({ set: { status: "adopted" } });
+  });
 });
 
 async function setupApp() {

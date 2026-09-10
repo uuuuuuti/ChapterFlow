@@ -832,11 +832,35 @@ export class SqliteCreativeRepository {
     status: DocumentComment["status"],
     now: string,
   ): DocumentComment {
+    return this.updateComment(id, { status }, now);
+  }
+
+  updateComment(
+    id: string,
+    input: {
+      body?: string;
+      status?: DocumentComment["status"];
+      expectedUpdatedAt?: string;
+    },
+    now: string,
+  ): DocumentComment {
+    const current = this.requireComment(id);
+    if (
+      input.expectedUpdatedAt !== undefined &&
+      input.expectedUpdatedAt !== current.updatedAt
+    ) {
+      throw new CreativePersistenceError(
+        "comment.version.conflict",
+        "The comment has changed; refresh before editing it",
+      );
+    }
+    const body = input.body === undefined ? current.body : input.body.trim();
+    requireCreativeText(body, "comment.body.empty", "Comment");
     const result = this.database.raw
       .prepare(
-        "UPDATE document_comments SET status = ?, updated_at = ? WHERE id = ?",
+        "UPDATE document_comments SET body = ?, status = ?, updated_at = ? WHERE id = ?",
       )
-      .run(status, now, id);
+      .run(body, input.status ?? current.status, now, id);
     if (result.changes !== 1)
       throw new PersistenceNotFoundError("document_comment", id);
     return this.requireComment(id);
@@ -1034,6 +1058,7 @@ export class CreativePersistenceError extends Error {
   constructor(
     readonly code: string,
     message: string,
+    readonly details?: unknown,
   ) {
     super(message);
     this.name = "CreativePersistenceError";

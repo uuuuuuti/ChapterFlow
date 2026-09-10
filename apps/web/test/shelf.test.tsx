@@ -82,9 +82,9 @@ function renderShelf(entry = "/shelf") {
       <MemoryRouter initialEntries={[entry]}>
         <Routes>
           <Route path="/shelf" element={<ShelfWorkspace />} />
-          <Route path="/projects/:projectId/overview" element={<p>已入馆：项目概览</p>} />
-          <Route path="/projects/:projectId/autopilot" element={<p>已入馆：自动驾驶</p>} />
-          <Route path="/projects/:projectId/studio" element={<p>已入馆：写作台</p>} />
+          <Route path="/books/:projectId/dashboard" element={<p>已入馆：项目概览</p>} />
+          <Route path="/books/:projectId/quick-create" element={<p>已入馆：自动驾驶</p>} />
+          <Route path="/books/:projectId/write" element={<p>已入馆：写作台</p>} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,

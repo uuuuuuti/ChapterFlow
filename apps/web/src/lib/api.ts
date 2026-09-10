@@ -13,3 +13,4 @@ export * from "../shared/api/collaboration";
 export * from "../shared/api/writing";
 export * from "../shared/api/skills";
 export * from "../shared/api/delivery";
+export * from "../shared/api/web-novel";

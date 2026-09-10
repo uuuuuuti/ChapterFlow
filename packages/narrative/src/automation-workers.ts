@@ -138,7 +138,7 @@ export class AutomationWorkerSuite {
     };
     const planningTarget = {
       chapters: policyNumber(preferences, "targetChapters", 12),
-      wordsPerChapter: policyNumber(preferences, "wordsPerChapter", 3_000),
+      wordsPerChapter: policyNumber(preferences, "wordsPerChapter", 2_500),
       volumes: policyNumber(preferences, "volumes", 1),
     };
     const baseline = {
@@ -165,7 +165,7 @@ export class AutomationWorkerSuite {
               `作者素材：\n${braindump}`,
               `创作偏好：${JSON.stringify(creativePreferences)}`,
               `规划规模（仅写入故事指南针 compass.target）：${JSON.stringify(planningTarget)}`,
-              "给出一组相互协调、但仍可逐条采纳或丢弃的建书候选。",
+              "严格给出恰好三份可以横向比较的完整建书方案。三份方案必须有明确不同的叙事角度、核心承诺和主要风险；每份方案都要包含完整的 intent、compass、entities，作者最终只会选择其中一份。",
             ]
               .filter(Boolean)
               .join("\n\n"),
@@ -185,11 +185,10 @@ export class AutomationWorkerSuite {
     return {
       artifactKind: "foundation-proposal",
       output: {
-        ...result.value,
-        compass: {
-          ...result.value.compass,
-          target: planningTarget,
-        },
+        plans: result.value.plans.map((plan) => ({
+          ...plan,
+          compass: { ...plan.compass, target: planningTarget },
+        })),
         baseline,
         generation: { mode: result.mode, attempts: result.attempts },
       },
@@ -205,41 +204,20 @@ export class AutomationWorkerSuite {
     );
     const setId = `${snapshot.run.id}:foundation-set`;
     const now = this.now().toISOString();
-    const candidates = [
-      {
-        id: `${setId}:intent`,
-        kind: "intent" as const,
-        label: "作者意图",
-        payload: {
-          ...proposal.intent,
-          baseline: {
-            intentUpdatedAt: proposal.baseline.intentUpdatedAt,
-          },
-        },
+    const candidates = proposal.plans.map((plan, index) => ({
+      id: `${setId}:plan:${index}:${plan.key}`,
+      kind: "plan" as const,
+      label: `方案${index + 1} · ${plan.title}`,
+      payload: {
+        ...plan,
+        baseline: proposal.baseline,
       },
-      {
-        id: `${setId}:compass`,
-        kind: "compass" as const,
-        label: "故事指南针",
-        payload: {
-          ...proposal.compass,
-          baseline: {
-            compassVersion: proposal.baseline.compassVersion,
-          },
-        },
-      },
-      ...proposal.entities.map((entity, index) => ({
-        id: `${setId}:entity:${index}`,
-        kind: "entity" as const,
-        label: entity.name,
-        payload: { ...entity },
-      })),
-    ];
+    }));
     const detail = this.automation.stageCandidateSet({
       id: setId,
       projectId: snapshot.run.projectId,
       sourceRunId: snapshot.run.id,
-      title: proposal.title,
+      title: "三案对比 · 选择你的故事路线",
       candidates,
       now,
     });
@@ -248,7 +226,7 @@ export class AutomationWorkerSuite {
       output: {
         candidateSetId: detail.set.id,
         candidateCount: detail.candidates.length,
-        rationale: proposal.rationale,
+        rationale: proposal.plans.map((plan) => plan.rationale).join("\n\n"),
       },
       usage: zeroUsage(),
     };

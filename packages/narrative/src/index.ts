@@ -18,4 +18,6 @@ export * from "./canon-candidate-schemas.js";
 export * from "./canon-candidate-context.js";
 export * from "./canon-candidate-workers.js";
 export * from "./canon-candidate-service.js";
+export * from "./web-novel-candidate-schemas.js";
+export * from "./web-novel-candidate-workers.js";
 export * from "./workers.js";

@@ -51,6 +51,19 @@ describe("delivery API", () => {
       expectedHash: createHash("sha256").update(bytes).digest("hex"),
     });
     expect(upload).toMatchObject({ batchId: null, status: "uploading" });
+    const resumed = await request<typeof upload>(
+      app,
+      "GET",
+      `/api/import-uploads/${upload.id}`,
+      undefined,
+      200,
+    );
+    expect(resumed).toMatchObject({
+      id: upload.id,
+      expectedHash: createHash("sha256").update(bytes).digest("hex"),
+      receivedBytes: 0,
+      receivedChunks: 0,
+    });
 
     for (let offset = 0, index = 0; offset < bytes.length; index += 1) {
       const chunk = bytes.subarray(offset, offset + chunkSize);
@@ -332,6 +345,25 @@ describe("delivery API", () => {
       preview.candidates.filter((item) => item.kind === "document"),
     ).toHaveLength(2);
     expect(preview.batch.status).toBe("previewed");
+
+    const duplicatePreview = await request<ImportDetail>(
+      app,
+      "POST",
+      "/api/imports/preview",
+      {
+        targetProjectId: project.id,
+        filename: "退潮信-副本.md",
+        format: "markdown",
+        contentBase64: Buffer.from(source).toString("base64"),
+      },
+    );
+    expect(duplicatePreview.batch.metadata).toMatchObject({
+      duplicate: {
+        batchId: preview.batch.id,
+        status: "previewed",
+        targetProjectId: project.id,
+      },
+    });
 
     const analysis = await request<{
       run: {
@@ -628,7 +660,14 @@ describe("delivery API", () => {
     });
     expect(malformed.statusCode).toBe(422);
     expect(malformed.json()).toMatchObject({
-      error: { code: "import.bundle.invalid_json" },
+      error: {
+        code: "import.bundle.invalid_json",
+        details: {
+          failureKind: "structure",
+          repairAction: "check_manifest",
+          retryable: true,
+        },
+      },
     });
 
     const zip = new JSZip();
@@ -678,6 +717,58 @@ describe("delivery API", () => {
     expect(invalidHrefResponse.json()).toMatchObject({
       error: { code: "import.epub.invalid_href" },
     });
+  });
+
+  it("detects legacy GB18030 text instead of silently replacing Chinese characters", async () => {
+    const { app } = await setup();
+    // “中文” in GBK/GB18030. The rest of the sample remains ASCII so the
+    // decoder choice is observable in both metadata and candidate content.
+    const bytes = Buffer.from([0x23, 0x20, 0xd6, 0xd0, 0xce, 0xc4, 0x0a, 0x58]);
+    const preview = await request<{
+      batch: { metadata: Record<string, unknown> };
+      candidates: { payload: Record<string, unknown> }[];
+    }>(app, "POST", "/api/imports/preview", {
+      targetProjectId: null,
+      filename: "legacy-gbk.md",
+      format: "markdown",
+      contentBase64: bytes.toString("base64"),
+    });
+    expect(preview.batch.metadata).toMatchObject({ sourceEncoding: "gb18030" });
+    expect(preview.batch.metadata).toMatchObject({
+      sourceBytes: bytes.length,
+      sourceDiagnostics: { encoding: "gb18030", warnings: [] },
+    });
+    expect(preview.candidates.some((item) => item.title === "中文")).toBe(true);
+  });
+
+  it("rejects readable-empty imports before creating a batch", async () => {
+    const { app, database } = await setup();
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/imports/preview",
+      payload: {
+        targetProjectId: null,
+        filename: "blank.md",
+        format: "markdown",
+        contentBase64: Buffer.from("\n  \t\n", "utf8").toString("base64"),
+      },
+    });
+    expect(response.statusCode).toBe(422);
+    expect(response.json()).toMatchObject({
+      error: {
+        code: "import.source.empty",
+        details: {
+          failureKind: "empty",
+          repairAction: "choose_non_empty_file",
+          retryable: true,
+        },
+      },
+    });
+    expect(
+      database.raw
+        .prepare("SELECT COUNT(*) AS count FROM import_batches")
+        .get(),
+    ).toEqual({ count: 0 });
   });
 
   it("reports quality and exports a 200-document manuscript within the delivery budget", async () => {
@@ -1046,6 +1137,196 @@ describe("delivery API", () => {
     expect(markdown.body.indexOf("潮起")).toBeLessThan(
       markdown.body.indexOf("潮落"),
     );
+  });
+
+  it("exports an inclusive chapter range consistently across text and bundle formats", async () => {
+    const { app } = await setup();
+    const project = await request<{ id: string }>(
+      app,
+      "POST",
+      "/api/projects",
+      {
+        requestId: globalThis.crypto.randomUUID(),
+        title: "范围导出样本",
+      },
+    );
+    const bible = await request<{
+      outline: { id: string; kind: string }[];
+    }>(app, "GET", `/api/projects/${project.id}/story-bible`, undefined, 200);
+    const book = bible.outline.find((node) => node.kind === "book");
+    expect(book).toBeDefined();
+    const chapters = [] as { id: string; title: string }[];
+    for (let index = 0; index < 3; index += 1) {
+      chapters.push(
+        await request<{ id: string; title: string }>(
+          app,
+          "POST",
+          `/api/projects/${project.id}/outline`,
+          {
+            parentId: book?.id,
+            kind: "chapter",
+            ordinal: index,
+            title: `第${index + 1}章`,
+            metadata: {},
+          },
+        ),
+      );
+    }
+    for (const [index, chapter] of chapters.entries()) {
+      const document = await request<{ id: string }>(
+        app,
+        "POST",
+        `/api/projects/${project.id}/documents`,
+        {
+          requestId: globalThis.crypto.randomUUID(),
+          kind: "chapter",
+          title: chapter.title,
+          outlineNodeId: chapter.id,
+        },
+      );
+      const firstVersion = await request<{ id: string }>(
+        app,
+        "POST",
+        `/api/projects/${project.id}/documents/${document.id}/versions`,
+        {
+          content: `${chapter.title}正文：版本一。`,
+          source: "manual",
+          expectedCurrentVersionId: null,
+        },
+        201,
+      );
+      if (index === 1) {
+        await request(
+          app,
+          "POST",
+          `/api/projects/${project.id}/documents/${document.id}/versions`,
+          {
+            content: `${chapter.title}正文：版本二。`,
+            source: "manual",
+            expectedCurrentVersionId: firstVersion.id,
+          },
+          201,
+        );
+      }
+    }
+
+    const query = `fromOutlineNodeId=${chapters[1]!.id}&toOutlineNodeId=${chapters[2]!.id}`;
+    const markdown = await app.inject({
+      method: "GET",
+      url: `/api/projects/${project.id}/exports/markdown?${query}`,
+    });
+    expect(markdown.statusCode).toBe(200);
+    expect(markdown.headers["x-export-batch-id"]).toMatch(/^[0-9a-f-]{36}$/u);
+    expect(markdown.body).not.toContain("第一章正文");
+    expect(markdown.body).toContain("第2章正文：版本二");
+    expect(markdown.body).toContain("第3章正文：版本一");
+
+    const batchId = markdown.headers["x-export-batch-id"]!;
+    const batches = await request<
+      Array<{
+        id: string;
+        format: string;
+        versionMode: string;
+        fromOutlineNodeId: string | null;
+        toOutlineNodeId: string | null;
+        byteSize: number;
+        contentHash: string;
+      }>
+    >(app, "GET", `/api/projects/${project.id}/export-batches`, undefined, 200);
+    expect(batches[0]).toMatchObject({
+      id: batchId,
+      format: "markdown",
+      versionMode: "current",
+      fromOutlineNodeId: chapters[1]!.id,
+      toOutlineNodeId: chapters[2]!.id,
+      byteSize: expect.any(Number),
+      contentHash: expect.stringMatching(/^[a-f0-9]{64}$/u),
+    });
+
+    const publish = await request<{
+      exportBatchId: string | null;
+    }>(
+      app,
+      "POST",
+      `/api/projects/${project.id}/publish-records`,
+      {
+        platform: "手工站点",
+        chapter: "第2—3章",
+        publishedAt: "2026-09-09",
+        url: null,
+        status: "draft",
+        exportBatchId: batchId,
+      },
+      200,
+    );
+    expect(publish.exportBatchId).toBe(batchId);
+
+    const bundleResponse = await app.inject({
+      method: "GET",
+      url: `/api/projects/${project.id}/exports/narrative-bundle?versionMode=history&${query}`,
+    });
+    expect(bundleResponse.statusCode).toBe(200);
+    const bundle = JSON.parse(bundleResponse.body) as {
+      manifest: {
+        options?: {
+          versionMode: string;
+          fromOutlineNodeId?: string;
+          toOutlineNodeId?: string;
+        };
+      };
+      outline: { id: string; title: string }[];
+      documents: {
+        document: { title: string };
+        versions: unknown[];
+      }[];
+    };
+    expect(bundle.manifest.options).toMatchObject({
+      versionMode: "history",
+      fromOutlineNodeId: chapters[1]!.id,
+      toOutlineNodeId: chapters[2]!.id,
+    });
+    expect(bundle.documents.map((item) => item.document.title)).toEqual([
+      "第2章",
+      "第3章",
+    ]);
+    expect(bundle.documents[0]?.versions).toHaveLength(2);
+
+    const invalid = await app.inject({
+      method: "GET",
+      url: `/api/projects/${project.id}/exports/markdown?fromOutlineNodeId=${chapters[2]!.id}&toOutlineNodeId=${chapters[0]!.id}`,
+    });
+    expect(invalid.statusCode).toBeGreaterThanOrEqual(400);
+
+    const failedBatches = await request<
+      Array<{
+        id: string;
+        status: string;
+        errorCode: string | null;
+        errorMessage: string | null;
+        retryOfBatchId: string | null;
+        byteSize: number;
+      }>
+    >(app, "GET", `/api/projects/${project.id}/export-batches`, undefined, 200);
+    expect(failedBatches[0]).toMatchObject({
+      status: "failed",
+      errorCode: "export.range.invalid",
+      errorMessage: expect.stringContaining("must not come after"),
+      retryOfBatchId: null,
+      byteSize: 0,
+    });
+
+    const retry = await app.inject({
+      method: "GET",
+      url: `/api/projects/${project.id}/exports/markdown?fromOutlineNodeId=${chapters[1]!.id}&toOutlineNodeId=${chapters[2]!.id}&retryOfBatchId=${failedBatches[0]!.id}`,
+    });
+    expect(retry.statusCode).toBe(200);
+    const retriedBatches = await request<
+      Array<{ status: string; retryOfBatchId: string | null }>
+    >(app, "GET", `/api/projects/${project.id}/export-batches`, undefined, 200);
+    expect(retriedBatches[0]).toMatchObject({
+      status: "completed",
+      retryOfBatchId: failedBatches[0]!.id,
+    });
   });
 });
 

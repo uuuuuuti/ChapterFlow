@@ -27,7 +27,7 @@ export function ProjectRequiredState({
         titleAs="h1"
         description={description}
         action={
-          <Link className="btn btn--primary project-required__back" to="/shelf">
+          <Link className="btn btn--primary project-required__back" to="/books">
             <LibraryBig size={14} strokeWidth={1.5} aria-hidden="true" />
             {t("components.projectRequired.backToShelf")}
           </Link>

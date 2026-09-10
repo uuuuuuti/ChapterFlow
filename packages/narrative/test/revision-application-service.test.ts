@@ -105,7 +105,10 @@ describe("RevisionApplicationService", () => {
     expect(result).toMatchObject({
       documentId: "doc-1",
       documentVersionId: "proposal-1:accepted-version",
-      proposal: { status: "accepted" },
+      proposal: {
+        status: "accepted",
+        acceptedDocumentVersionId: "proposal-1:accepted-version",
+      },
       resolvedIssueCount: 1,
       lessonCount: 1,
     });
@@ -142,6 +145,32 @@ describe("RevisionApplicationService", () => {
       }),
     ).toThrow(RevisionApplicationError);
     expect(reviews.getRevisionProposal("p1", "proposal-2")?.status).toBe(
+      "proposed",
+    );
+  });
+
+  it("refuses to apply over a newer local draft", () => {
+    seedProposal("proposal-3");
+    documents.upsertDraft("p1", "doc-1", {
+      baseVersionId: "version-1",
+      content: "Concurrent author draft",
+      now: "2026-08-10T00:01:00.000Z",
+    });
+
+    expect(() =>
+      new RevisionApplicationService(database).apply({
+        projectId: "p1",
+        proposalId: "proposal-3",
+        now,
+      }),
+    ).toThrowError(
+      expect.objectContaining({ code: "revision_proposal.draft.conflict" }),
+    );
+    expect(documents.get("p1", "doc-1")?.currentVersionId).toBe("version-1");
+    expect(documents.getDraft("p1", "doc-1")?.content).toBe(
+      "Concurrent author draft",
+    );
+    expect(reviews.getRevisionProposal("p1", "proposal-3")?.status).toBe(
       "proposed",
     );
   });

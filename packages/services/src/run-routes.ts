@@ -13,7 +13,9 @@ import {
   RegenerateRunStreamRequestSchema,
   RegenerateRunStreamResponseSchema,
   RequestedRevisionRunCreatedSchema,
+  RunListPageSchema,
   RunActionRequestSchema,
+  RunOriginSchema,
   RunDetailSchema,
   RunSnapshotSchema,
 } from "@narralume/contracts";
@@ -35,6 +37,7 @@ import {
   SqliteRunStreamRepository,
   SqliteStoryRepository,
   SqliteTemplateRepository,
+  SqliteWebNovelRepository,
   type NarrativeDatabase,
   type RunStepSeedInput,
 } from "@narralume/persistence";
@@ -46,11 +49,13 @@ import {
   isRecord,
   isTerminalSessionStatus,
   requireAwaitReason,
+  requireManuscriptAcceptanceSafe,
   requireRunInProject,
   requireViablePartial,
   requireWritingAssignment,
   requestManuscriptRevision,
   runProductProjection,
+  validateRunOrigin,
   withRuntimeModelPolicy,
   extractEffectivePolicy,
 } from "@narralume/services";
@@ -67,6 +72,10 @@ const DocumentParamsSchema = z.object({
 const RunParamsSchema = z.object({ runId: z.string().trim().min(1) });
 const RunProjectQuerySchema = z.object({
   projectId: z.string().trim().min(1),
+});
+const RunListPageQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  cursor: z.string().trim().min(1).optional(),
 });
 
 export interface RegisterRunRouteOptions {
@@ -90,6 +99,7 @@ export function registerRunRoutes(
   const streams = new SqliteRunStreamRepository(database);
   const templates = new SqliteTemplateRepository(database);
   const automation = new SqliteAutomationRepository(database);
+  const webNovel = new SqliteWebNovelRepository(database);
 
   app.route(
     "POST",
@@ -140,6 +150,9 @@ export function registerRunRoutes(
           422,
         );
       }
+      validateRunOrigin(database, projectId, input.origin, {
+        expectedOutlineNodeId: target.id,
+      });
       const activeSession = automation
         .listSessions(projectId)
         .find((session) => !isTerminalSessionStatus(session.status));
@@ -317,6 +330,10 @@ export function registerRunRoutes(
           404,
         );
       }
+      validateRunOrigin(database, projectId, input.origin, {
+        expectedDocumentId: documentId,
+        expectedVersionId: version.id,
+      });
       requireWritingAssignment(database, options.environment);
       const recipe = buildDocumentReviewRecipe(runId);
       const policy = withRuntimeModelPolicy(
@@ -324,7 +341,14 @@ export function registerRunRoutes(
           ...input.policy,
           documentId,
           documentVersionId: version.id,
-          origin: input.origin ?? ({ surface: "writing", documentId } as const),
+          origin:
+            input.origin ??
+            ({
+              surface: "writing",
+              documentId,
+              versionId: version.id,
+              selection: null,
+            } as const),
           creationRequestId: input.requestId,
           creationRequestHash: requestHash,
         },
@@ -364,6 +388,20 @@ export function registerRunRoutes(
       throw new RunRouteError("project.not_found", "Project not found", 404);
     }
     return runs.listRuns(projectId).map((run) => NarrativeRunSchema.parse(run));
+  });
+
+  app.route("GET", "/api/projects/:projectId/runs/page", async (request) => {
+    const { projectId } = ProjectParamsSchema.parse(request.params);
+    if (!projects.get(projectId)) {
+      throw new RunRouteError("project.not_found", "Project not found", 404);
+    }
+    const query = RunListPageQuerySchema.parse(request.query);
+    const cursor = query.cursor ? decodeRunListCursor(query.cursor) : undefined;
+    const page = runs.listRunsPage(projectId, query.limit, cursor);
+    return RunListPageSchema.parse({
+      items: page.runs.map((run) => NarrativeRunSchema.parse(run)),
+      nextCursor: page.nextCursor ? encodeRunListCursor(page.nextCursor) : null,
+    });
   });
 
   app.route("GET", "/api/runs/:runId", async (request) => {
@@ -524,10 +562,21 @@ export function registerRunRoutes(
       const sourceOrigin = isRecord(source.policy.origin)
         ? source.policy.origin
         : { surface: "runs", documentId: null, selection: null };
+      const parsedSourceOrigin = RunOriginSchema.safeParse(sourceOrigin);
+      const retryOrigin = parsedSourceOrigin.success
+        ? parsedSourceOrigin.data
+        : RunOriginSchema.parse({
+            surface: "runs",
+            documentId: null,
+            selection: null,
+          });
+      validateRunOrigin(database, input.projectId, retryOrigin, {
+        expectedOutlineNodeId: target.id,
+      });
       const policy = withRuntimeModelPolicy(
         {
           planningMode: "auto",
-          origin: sourceOrigin,
+          origin: retryOrigin,
           creationRequestId: `${input.requestId}:retry:${runId}`,
           creationRequestHash: hashRequest({
             action: "retry_chapter",
@@ -593,9 +642,12 @@ export function registerRunRoutes(
       runs.resume(runId, now);
     }
     if (input.action === "accept_manuscript") {
-      requireAwaitReason(
-        runs.getSnapshot(runId),
-        "chapter_commit_approval_required",
+      const approvalSnapshot = runs.getSnapshot(runId);
+      requireAwaitReason(approvalSnapshot, "chapter_commit_approval_required");
+      requireManuscriptAcceptanceSafe(database, approvalSnapshot);
+      const openingOrigin = webNovel.getOpeningCheckOrigin(
+        input.projectId,
+        runId,
       );
       runs.mergePolicy(
         runId,
@@ -603,15 +655,49 @@ export function registerRunRoutes(
         now,
       );
       runs.resume(runId, now);
+      if (openingOrigin) {
+        webNovel.insertOpeningCheckAudit({
+          projectId: input.projectId,
+          reportId: openingOrigin.reportId,
+          issueId: openingOrigin.issueId,
+          runId,
+          eventType: "candidate_decided",
+          action: "accept",
+          before: {
+            runStatus: approvalSnapshot.run.status,
+            awaitReason: "chapter_commit_approval_required",
+          },
+          after: { runStatus: "running", manuscriptDecision: "accept" },
+          createdAt: now,
+        });
+      }
     }
     if (input.action === "discard_manuscript") {
-      requireAwaitReason(
-        runs.getSnapshot(runId),
-        "chapter_commit_approval_required",
+      const discardSnapshot = runs.getSnapshot(runId);
+      requireAwaitReason(discardSnapshot, "chapter_commit_approval_required");
+      const openingOrigin = webNovel.getOpeningCheckOrigin(
+        input.projectId,
+        runId,
       );
       database.transaction(() => {
         runs.setRunStatus(runId, "cancelled", now, "manuscript_discarded");
         reviews.supersedeRunRevisionProposals(runId, now);
+        if (openingOrigin) {
+          webNovel.insertOpeningCheckAudit({
+            projectId: input.projectId,
+            reportId: openingOrigin.reportId,
+            issueId: openingOrigin.issueId,
+            runId,
+            eventType: "candidate_decided",
+            action: "reject",
+            before: {
+              runStatus: discardSnapshot.run.status,
+              awaitReason: "chapter_commit_approval_required",
+            },
+            after: { runStatus: "cancelled", manuscriptDecision: "reject" },
+            createdAt: now,
+          });
+        }
       });
     }
     if (input.action === "switch_to_manual") {
@@ -859,6 +945,38 @@ export function registerRunRoutes(
       snapshot: runs.getSnapshot(runId),
     });
   });
+}
+
+function encodeRunListCursor(cursor: {
+  createdAt: string;
+  id: string;
+}): string {
+  return Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
+}
+
+function decodeRunListCursor(raw: string): { createdAt: string; id: string } {
+  try {
+    const parsed: unknown = JSON.parse(
+      Buffer.from(raw, "base64url").toString("utf8"),
+    );
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      typeof (parsed as { createdAt?: unknown }).createdAt === "string" &&
+      typeof (parsed as { id?: unknown }).id === "string" &&
+      (parsed as { createdAt: string }).createdAt.length > 0 &&
+      (parsed as { id: string }).id.length > 0
+    ) {
+      return parsed as { createdAt: string; id: string };
+    }
+  } catch {
+    // Fall through to the same request-invalid response as any malformed query.
+  }
+  throw new RunRouteError(
+    "run.cursor.invalid",
+    "The task list cursor is invalid",
+    400,
+  );
 }
 
 /**

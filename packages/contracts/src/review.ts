@@ -75,6 +75,7 @@ export const ReviewRevisionProposalSchema = z.object({
   diff: JsonObjectSchema,
   addressedIssueIds: z.array(IdSchema),
   status: z.enum(["proposed", "accepted", "rejected", "superseded"]),
+  acceptedDocumentVersionId: IdSchema.nullable(),
   createdAt: TimestampSchema,
   decidedAt: TimestampSchema.nullable(),
 });

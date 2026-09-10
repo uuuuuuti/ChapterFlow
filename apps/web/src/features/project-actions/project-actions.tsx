@@ -11,10 +11,14 @@ import { queryKeys } from "../../shared/query/keys";
 import { Drawer } from "../../shared/ui/drawer";
 import { ErrorNote, ConfirmDialog } from "../../shared/ui";
 import type { Project } from "../../shared/api/types";
+import type { ProjectLanguage } from "@narralume/contracts";
+import { ApiError } from "../../shared/api/client";
 export function ProjectActions({ project: p }: { project: Project }) {
   const [mode, setMode] = useState<"edit" | "delete" | null>(null);
   const [title, setTitle] = useState(p.title);
+  const [subtitle, setSubtitle] = useState(p.subtitle ?? "");
   const [premise, setPremise] = useState(p.premise ?? "");
+  const [language, setLanguage] = useState<ProjectLanguage>(p.language);
   const client = useQueryClient();
   const action = useMutation({
     mutationFn: async (
@@ -35,8 +39,9 @@ export function ProjectActions({ project: p }: { project: Project }) {
       }
       return updateProject(p.id, {
         title: kind === "save" ? title.trim() : p.title,
-        subtitle: p.subtitle,
+        subtitle: kind === "save" ? subtitle.trim() || null : p.subtitle,
         premise: kind === "save" ? premise.trim() || null : p.premise,
+        language: kind === "save" ? language : p.language,
         archived: kind === "archive" ? !p.archivedAt : Boolean(p.archivedAt),
         expectedUpdatedAt: p.updatedAt,
       });
@@ -56,7 +61,9 @@ export function ProjectActions({ project: p }: { project: Project }) {
           <button
             onClick={() => {
               setTitle(p.title);
+              setSubtitle(p.subtitle ?? "");
               setPremise(p.premise ?? "");
+              setLanguage(p.language);
               setMode("edit");
             }}
           >
@@ -84,6 +91,18 @@ export function ProjectActions({ project: p }: { project: Project }) {
         </div>
       </details>
       {action.isError ? <ErrorNote error={action.error} /> : null}
+      {action.isError && isProjectConflict(action.error) ? (
+        <button
+          type="button"
+          className="cf-button"
+          onClick={() => {
+            setMode(null);
+            void client.invalidateQueries({ queryKey: queryKeys.projects });
+          }}
+        >
+          重新读取作品资料
+        </button>
+      ) : null}
       {mode === "edit" ? (
         <Drawer title="作品设置" onClose={() => setMode(null)}>
           <form
@@ -103,12 +122,31 @@ export function ProjectActions({ project: p }: { project: Project }) {
               />
             </label>
             <label>
+              副题
+              <input
+                value={subtitle}
+                onChange={(e) => setSubtitle(e.target.value)}
+                maxLength={300}
+                placeholder="可选的副标题"
+              />
+            </label>
+            <label>
               一句话简介
               <textarea
                 rows={5}
                 value={premise}
                 onChange={(e) => setPremise(e.target.value)}
               />
+            </label>
+            <label>
+              创作语言
+              <select
+                value={language}
+                onChange={(event) => setLanguage(event.target.value as ProjectLanguage)}
+              >
+                <option value="zh-CN">简体中文</option>
+                <option value="en">English</option>
+              </select>
             </label>
             <button
               className="cf-primary"
@@ -130,10 +168,14 @@ export function ProjectActions({ project: p }: { project: Project }) {
         >
           <p>
             《{p.title}
-            》将从作品列表移除。你仍可通过原版作品管理中的回收站恢复。
+            》将从作品列表移除。你可以在作品库的回收站中恢复它。
           </p>
         </ConfirmDialog>
       ) : null}
     </div>
   );
+}
+
+function isProjectConflict(error: unknown): boolean {
+  return error instanceof ApiError && (error.status === 409 || error.code === "project.version.conflict");
 }

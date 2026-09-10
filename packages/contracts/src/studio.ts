@@ -231,9 +231,15 @@ export const CreateDocumentCommentRequestSchema = z.object({
   quote: z.string().min(1).max(100_000),
   body: z.string().trim().min(1).max(30_000),
 });
-export const UpdateDocumentCommentRequestSchema = z.object({
-  status: z.enum(["open", "resolved"]),
-});
+export const UpdateDocumentCommentRequestSchema = z
+  .object({
+    status: z.enum(["open", "resolved"]).optional(),
+    body: z.string().trim().min(1).max(30_000).optional(),
+    expectedUpdatedAt: TimestampSchema.optional(),
+  })
+  .refine((input) => input.status !== undefined || input.body !== undefined, {
+    message: "A comment update must change its body or status",
+  });
 
 export const EditProposalSchema = z.object({
   id: IdSchema,
@@ -261,6 +267,7 @@ export const CreateSelectionEditRequestSchema = z
     selectionEnd: z.number().int().positive(),
     instruction: z.string().trim().min(1).max(20_000),
     policy: ModelExecutionPolicySchema.optional(),
+    origin: RunOriginSchema.nullable().optional(),
   })
   .strict();
 export const DecideEditProposalRequestSchema = z.object({
@@ -286,6 +293,11 @@ export const SaveDocumentDraftRequestSchema = z.object({
 export const SetDocumentArchivedRequestSchema = z.object({
   archived: z.boolean(),
   expectedUpdatedAt: TimestampSchema,
+});
+export const UpdateDocumentTitleRequestSchema = z.object({
+  title: z.string().trim().min(1).max(300),
+  expectedUpdatedAt: TimestampSchema,
+  expectedOutlineUpdatedAt: TimestampSchema.nullable().optional(),
 });
 
 export const StudioDocumentDetailSchema = z.object({

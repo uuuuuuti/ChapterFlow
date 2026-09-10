@@ -803,6 +803,7 @@ function RevisionProposalPanel({ projectId, activeDocumentId }: { projectId: str
           <details className="studio__proposal-base"><summary>{t("studio.revisions.diffSummary")}</summary><pre className="review__proposal-diff">{JSON.stringify(proposal.diff, null, 2)}</pre></details>
         ) : null}
         {proposal.addressedIssueIds.length > 0 ? <small>{t("studio.revisions.addressedIssues", { count: proposal.addressedIssueIds.length })}</small> : null}
+        {proposal.acceptedDocumentVersionId ? <small>已绑定正式版本：{proposal.acceptedDocumentVersionId}</small> : null}
         {proposal.status === "proposed" ? (
           <div className="studio__proposal-actions">
             <button type="button" className="btn btn--primary" disabled={mutation.isPending} onClick={() => mutation.mutate({ proposal, action: "apply" })}>{t("studio.revisions.apply")}</button>

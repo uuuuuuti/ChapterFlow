@@ -45,6 +45,20 @@ export const errors: typeof errorsZh = {
     runStreamNotFound:
       "The corresponding partial stream does not exist; it may have already been processed.",
     routeNotFound: "The API endpoint does not exist.",
+    importFailureSize:
+      "The file exceeds a safety limit or contains too much compressed content. Split or re-export it and try again.",
+    importFailureEncoding:
+      "The file encoding could not be confirmed. Re-export it as UTF-8 and try again.",
+    importFailureContainer:
+      "The file container or required manifest is damaged. Re-export the DOCX/EPUB from its editor and try again.",
+    importFailureStructure:
+      "The file structure or ChapterFlow manifest is incomplete. Check the JSON/manifest and re-export it.",
+    importFailureEmpty:
+      "The file contains no readable manuscript text. Choose a file that contains the manuscript.",
+    importFailureHash:
+      "Upload verification failed; the file may have changed during transfer. Upload it again to retry.",
+    importFailureUnknown:
+      "The file could not be parsed safely. Re-export it in a supported format and try again.",
   },
   message: {
     trialAutopilotChapterLimit:

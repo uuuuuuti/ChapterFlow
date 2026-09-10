@@ -17,6 +17,8 @@ import {
   Routes,
   useLocation,
   useNavigate,
+  useParams,
+  useBlocker,
 } from "react-router";
 import {
   BookOpen,
@@ -27,31 +29,41 @@ import {
   Shield,
   ChartNoAxesCombined,
   Send,
+  ListChecks,
   Search,
   Settings,
   Bell,
+  Brain,
+  WandSparkles,
   Plus,
   Menu,
   X,
+  FileQuestion,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { LibraryPage, BookCreatePage } from "../../pages/library/library-page";
+import { TrashPage } from "../../pages/library/trash-page";
 import { DashboardPage } from "../../pages/dashboard/dashboard-page";
+import { OutlinePage } from "../../pages/outline/outline-page";
+import { KnowledgePage } from "../../pages/knowledge/knowledge-page";
+import { SettingsPage } from "../../pages/settings/settings-page";
+import { TaskPage } from "../../pages/tasks/task-page";
+import { TaskCenterPage } from "../../pages/tasks/task-center-page";
+import { PublishPage } from "../../pages/publish/publish-page";
+import { TemplatesPage } from "../../pages/templates/templates-page";
+import { AnalyticsPage } from "../../pages/analytics/analytics-page";
+import { AdvancedPage } from "../../pages/advanced/advanced-page";
+import { QuickCreatePage } from "../../pages/quick-create/quick-create-page";
+import { ProjectAssistant } from "../project-assistant";
+import type { AssistantContext } from "../../shared/api/types";
 import { getHealth } from "../../shared/api/client";
 import { queryKeys } from "../../shared/query/keys";
 import { Drawer } from "../../shared/ui/drawer";
 import type { FlushDraft } from "../../features/draft-autosave/use-draft-autosave";
+import { legacyRouteTarget } from "../../lib/legacy-route";
 const WritingPage = lazy(() =>
   import("../../pages/writing/writing-page").then((m) => ({
     default: m.WritingPageV2,
-  })),
-);
-const Bible = lazy(() =>
-  import("../../workspaces/bible").then((m) => ({ default: m.BibleWorkspace })),
-);
-const Delivery = lazy(() =>
-  import("../../workspaces/delivery").then((m) => ({
-    default: m.DeliveryWorkspace,
   })),
 );
 const Tasks = lazy(() =>
@@ -71,9 +83,24 @@ export function ChapterFlowShell() {
   const projectId = /^\/books\/([^/]+)\//.exec(location.pathname)?.[1] ?? null;
   const [menu, setMenu] = useState(false);
   const [tasks, setTasks] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(false);
   const [search, setSearch] = useState("");
   const flush = useRef<FlushDraft | null>(null);
   const [notice, setNotice] = useState("");
+  const blocker = useBlocker(() => Boolean(flush.current));
+  useEffect(() => {
+    if (blocker.state !== "blocked") return;
+    let cancelled = false;
+    void (flush.current?.() ?? Promise.resolve(true)).then((ok) => {
+      if (cancelled) return;
+      if (ok) blocker.proceed();
+      else {
+        setNotice("草稿保存失败，请重试保存后再离开。");
+        blocker.reset();
+      }
+    });
+    return () => { cancelled = true; };
+  }, [blocker]);
   const health = useQuery({
     queryKey: queryKeys.health,
     queryFn: ({ signal }) => getHealth(signal),
@@ -89,6 +116,9 @@ export function ChapterFlowShell() {
     { path: "knowledge", label: "作品设定", icon: Shield },
     { path: "analytics", label: "数据", icon: ChartNoAxesCombined },
     { path: "publish", label: "发布", icon: Send },
+    { path: "tasks", label: "任务中心", icon: ListChecks },
+    { path: "quick-create", label: "连续创作", icon: WandSparkles },
+    { path: "advanced", label: "高级工具", icon: Brain },
   ];
   return (
     <NavigationGuard.Provider
@@ -99,32 +129,7 @@ export function ChapterFlowShell() {
         flush: () => flush.current?.() ?? Promise.resolve(true),
       }}
     >
-      <div
-        className="cf-shell"
-        onClickCapture={(e) => {
-          const anchor = (e.target as HTMLElement).closest("a");
-          if (
-            !anchor ||
-            !flush.current ||
-            e.ctrlKey ||
-            e.metaKey ||
-            e.shiftKey ||
-            e.altKey ||
-            anchor.target === "_blank"
-          )
-            return;
-          const url = new URL(anchor.href);
-          if (url.origin !== locationOrigin()) return;
-          e.preventDefault();
-          e.stopPropagation();
-          void flush.current().then((ok) => {
-            if (ok) {
-              setMenu(false);
-              navigate(url.pathname + url.search + url.hash);
-            } else setNotice("草稿保存失败，请重试保存后再离开。");
-          });
-        }}
-      >
+      <div className="cf-shell">
         <aside className={`cf-sidebar ${menu ? "is-open" : ""}`}>
           <Link to="/books" className="cf-brand">
             <BrandMark />
@@ -259,18 +264,13 @@ export function ChapterFlowShell() {
             >
               <Routes>
                 <Route path="/books" element={<LibraryPage />} />
+                <Route path="/books/trash" element={<TrashPage />} />
+                <Route path="/settings" element={<SettingsPage />} />
+                <Route path="/settings/:section" element={<SettingsPage />} />
                 <Route path="/books/new" element={<BookCreatePage />} />
                 <Route
                   path="/books/templates"
-                  element={
-                    <div className="cf-page">
-                      <h1>创作模板</h1>
-                      <p>当前可在设置中管理已有的写作模板。</p>
-                      <Link className="cf-button" to="/settings">
-                        管理创作设置
-                      </Link>
-                    </div>
-                  }
+                  element={<TemplatesPage />}
                 />
                 <Route
                   path="/books/:projectId"
@@ -289,56 +289,48 @@ export function ChapterFlowShell() {
                   element={<WritingPage />}
                 />
                 <Route
-                  path="/books/:projectId/outline"
-                  element={
-                    <div className="cf-legacy-content">
-                      <Bible
-                        key="outline"
-                        initialSection="outline"
-                        productTitle="大纲"
-                      />
-                    </div>
-                  }
+                  path="/books/:projectId/tasks/:taskId"
+                  element={<TaskPage />}
                 />
                 <Route
-                  path="/books/:projectId/knowledge/*"
-                  element={<KnowledgeBridge />}
+                  path="/books/:projectId/tasks"
+                  element={<TaskCenterPage />}
                 />
+                <Route
+                  path="/books/:projectId/outline"
+                  element={<OutlinePage />}
+                />
+                <Route path="/books/:projectId/knowledge/*" element={<KnowledgePage />} />
+                <Route path="/books/:projectId/advanced" element={<AdvancedPage />} />
+                <Route path="/books/:projectId/quick-create" element={<QuickCreatePage />} />
+                <Route path="/books/:projectId/autopilot" element={<QuickCreatePage />} />
+                <Route path="/books/:projectId/overview" element={<BookLegacyAlias workspace="overview" />} />
+                <Route path="/books/:projectId/bible" element={<BookLegacyAlias workspace="bible" />} />
+                <Route path="/books/:projectId/studio" element={<BookLegacyAlias workspace="studio" />} />
+                <Route path="/books/:projectId/runs" element={<BookLegacyAlias workspace="runs" />} />
+                <Route path="/books/:projectId/lab" element={<BookLegacyAlias workspace="lab" />} />
+                <Route path="/books/:projectId/delivery" element={<BookLegacyAlias workspace="delivery" />} />
                 <Route
                   path="/books/:projectId/analytics"
-                  element={
-                    <div className="cf-page">
-                      <h1>数据</h1>
-                      <section className="cf-card cf-empty">
-                        <ChartNoAxesCombined size={40} />
-                        <h2>先写好故事，再看它的回响。</h2>
-                        <p>
-                          平台数据录入与复盘将在后续阶段开放。当前作品字数与章节进度可在创作首页查看。
-                        </p>
-                      </section>
-                    </div>
-                  }
+                  element={<AnalyticsPage />}
                 />
-                <Route
-                  path="/books/:projectId/publish"
-                  element={
-                    <div className="cf-legacy-content">
-                      <div className="cf-page-title">
-                        <div>
-                          <h1>发布</h1>
-                          <p>导出作品后，手动上传至你的发布平台。</p>
-                        </div>
-                      </div>
-                      <Delivery />
-                    </div>
-                  }
-                />
-                <Route path="*" element={<Navigate replace to="/books" />} />
+                <Route path="/books/:projectId/publish" element={<PublishPage />} />
+                <Route path="*" element={<NativeRouteNotFound />} />
               </Routes>
             </Suspense>
           </main>
-        </div>
-        {tasks && projectId ? (
+      </div>
+      {projectId ? (
+        <ProjectAssistant
+          key={projectId}
+          projectId={projectId}
+          context={nativeAssistantContext(location.pathname)}
+          open={assistantOpen}
+          onOpen={() => setAssistantOpen(true)}
+          onClose={() => setAssistantOpen(false)}
+        />
+      ) : null}
+      {tasks && projectId ? (
           <Drawer title="任务中心" onClose={() => setTasks(false)}>
             <Suspense fallback={<p>正在读取任务…</p>}>
               <Tasks projectId={projectId} />
@@ -349,32 +341,52 @@ export function ChapterFlowShell() {
     </NavigationGuard.Provider>
   );
 }
-function locationOrigin() {
-  return window.location.origin;
+
+function nativeAssistantContext(pathname: string): AssistantContext {
+  const documentId = /^\/books\/[^/]+\/write\/([^/]+)/.exec(pathname)?.[1] ?? null;
+  const surface = pathname.includes("/knowledge")
+    ? "bible"
+    : pathname.includes("/quick-create") || pathname.includes("/autopilot")
+      ? "quick-create"
+    : pathname.includes("/write")
+      ? "studio"
+      : pathname.includes("/outline")
+        ? "bible"
+        : pathname.includes("/publish")
+          ? "delivery"
+          : "overview";
+  return { surface, documentId, outlineNodeId: null, canonSpread: null, selection: null };
 }
+
+function NativeRouteNotFound() {
+  const location = useLocation();
+  return (
+    <section className="cf-page cf-empty cf-resource-error" role="alert">
+      <FileQuestion size={44} aria-hidden="true" />
+      <h1>页面不存在</h1>
+      <p>这条地址没有对应的 ChapterFlow 工作面，旧工作区也不会接管它。</p>
+      <p className="cf-resource-error__detail">
+        {location.pathname}{location.search}
+      </p>
+      <Link className="cf-primary" to="/books">
+        回到作品库
+      </Link>
+    </section>
+  );
+}
+
 function BookHomeRedirect() {
   const location = useLocation();
   return <Navigate replace to={`${location.pathname}/dashboard`} />;
 }
 
-function KnowledgeBridge() {
+function BookLegacyAlias({ workspace }: { workspace: "overview" | "bible" | "studio" | "runs" | "lab" | "delivery" }) {
+  const { projectId = "" } = useParams();
   const location = useLocation();
-  const section = location.pathname.endsWith("/characters")
-    ? "entities"
-    : location.pathname.endsWith("/world")
-      ? "facts"
-      : location.pathname.endsWith("/timeline")
-        ? "timeline"
-        : location.pathname.endsWith("/foreshadow")
-          ? "foreshadows"
-          : "intent";
-  return (
-    <div className="cf-legacy-content">
-      <Bible
-        key={location.pathname}
-        initialSection={section}
-        productTitle="作品设定"
-      />
-    </div>
+  const target = legacyRouteTarget(
+    `/projects/${encodeURIComponent(projectId)}/${workspace}`,
+    location.search,
+    location.hash,
   );
+  return <Navigate replace to={target ?? `/books/${encodeURIComponent(projectId)}/dashboard`} />;
 }

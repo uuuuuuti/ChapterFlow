@@ -40,6 +40,9 @@ export const ModelExecutionPolicySchema = z
       .optional(),
     planningMaxOutputTokens: z.number().int().min(500).max(100_000).optional(),
     minChapterCharacters: z.number().int().min(100).max(100_000).optional(),
+    maxChapterCharacters: z.number().int().min(100).max(100_000).optional(),
+    /** Session-level mode used by the normal quick-create planning flow. */
+    planningOnly: z.boolean().optional(),
   })
   .strict();
 export type ModelExecutionPolicy = z.infer<typeof ModelExecutionPolicySchema>;
@@ -122,6 +125,7 @@ export const EffectivePolicySchema = z.object({
   settlementMaxOutputTokens: z.number().int().positive(),
   planningMaxOutputTokens: z.number().int().positive(),
   minChapterCharacters: z.number().int().positive(),
+  maxChapterCharacters: z.number().int().positive(),
 });
 export type EffectivePolicy = z.infer<typeof EffectivePolicySchema>;
 
@@ -150,11 +154,13 @@ const BUILT_IN_DEFAULTS = {
   logicalCallDeadlineMs: 360_000,
   stepDeadlineMs: 480_000,
   runDeadlineMs: 600_000,
-  // 每步最多 1+4=5 次尝试，与配方里的 maxAttempts=5 对齐。
+  // 每步最多 1+4=5 次尝试，与配方里的 maxAttempts=5 对齐；V1 连续创作
+  // 会在请求策略中显式收紧到 2 次重试。
   maxRetries: 4,
   retryBaseDelayMs: 1_000,
   maxRepairAttempts: 1,
-  minChapterCharacters: 1_200,
+  minChapterCharacters: 2_000,
+  maxChapterCharacters: 3_500,
 } as const;
 
 /**

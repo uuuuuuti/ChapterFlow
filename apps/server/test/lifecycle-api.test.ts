@@ -56,6 +56,14 @@ describe("product lifecycle API", () => {
     });
     expect(version.statusCode).toBe(201);
 
+    const openingCheck = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/web-novel/checks/opening-three`,
+      payload: {},
+    });
+    expect(openingCheck.statusCode).toBe(200);
+    expect(openingCheck.json().id).toEqual(expect.any(String));
+
     const duplicated = await app.inject({
       method: "POST",
       url: `/api/projects/${project.id}/duplicate`,
@@ -63,6 +71,21 @@ describe("product lifecycle API", () => {
     });
     expect(duplicated.statusCode).toBe(201);
     expect(duplicated.json().id).not.toBe(project.id);
+    const duplicatedHistory = await app.inject({
+      method: "GET",
+      url: `/api/projects/${duplicated.json().id}/web-novel/checks/opening-three/history`,
+    });
+    expect(duplicatedHistory.statusCode).toBe(200);
+    expect(duplicatedHistory.json()).toHaveLength(1);
+    const duplicatedAudit = await app.inject({
+      method: "GET",
+      url:
+        "/api/projects/" +
+        duplicated.json().id +
+        "/web-novel/checks/opening-three/audit",
+    });
+    expect(duplicatedAudit.statusCode).toBe(200);
+    expect(duplicatedAudit.json()).toHaveLength(1);
 
     const docx = await app.inject({
       method: "GET",
@@ -96,6 +119,10 @@ describe("product lifecycle API", () => {
       includeAnnotations: true,
       includeRuns: true,
     });
+    expect(auditBundle.json().manifest.counts.openingCheckReports).toBe(1);
+    expect(auditBundle.json().openingCheckReports).toHaveLength(1);
+    expect(auditBundle.json().manifest.counts.openingCheckAudits).toBe(1);
+    expect(auditBundle.json().openingCheckAudits).toHaveLength(1);
     expect(auditBundle.json().documents[0].versions).toHaveLength(1);
 
     const html = Buffer.from(
@@ -295,7 +322,7 @@ describe("product lifecycle API", () => {
     });
     const restoredDatabase = new NodeNarrativeDatabase(receipt.databasePath);
     try {
-      expect(restoredDatabase.currentMigration()).toBe(41);
+      expect(restoredDatabase.currentMigration()).toBe(62);
       expect(
         Number(
           (

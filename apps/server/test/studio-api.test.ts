@@ -301,6 +301,28 @@ describe("studio API", () => {
       undefined,
       200,
     );
+    const renamed = await request<{ id: string; title: string }>(
+      app,
+      "PUT",
+      `/api/projects/${project.id}/studio/documents/${adoption.documentId}`,
+      {
+        title: "灯下潮痕（修订）",
+        expectedUpdatedAt: document.document.updatedAt,
+      },
+      200,
+    );
+    expect(renamed).toMatchObject({
+      id: adoption.documentId,
+      title: "灯下潮痕（修订）",
+    });
+    document = await request<StudioDocument>(
+      app,
+      "GET",
+      `/api/projects/${project.id}/studio/documents/${adoption.documentId}`,
+      undefined,
+      200,
+    );
+    expect(document.document.title).toBe("灯下潮痕（修订）");
     expect(document.currentVersion?.content).toContain("盐粒");
     const autosavedDraft = await request<{
       baseVersionId: string | null;
@@ -332,7 +354,12 @@ describe("studio API", () => {
     expect(document.versions).toHaveLength(1);
     const selectionStart = autosavedDraft.content.indexOf("盐粒");
     const selectionEnd = selectionStart + 2;
-    const comment = await request<{ id: string; status: string }>(
+    const comment = await request<{
+      id: string;
+      status: string;
+      body: string;
+      updatedAt: string;
+    }>(
       app,
       "POST",
       `/api/projects/${project.id}/studio/documents/${adoption.documentId}/comments`,
@@ -346,12 +373,32 @@ describe("studio API", () => {
       201,
     );
     expect(comment.status).toBe("open");
+    const editedComment = await request<{
+      id: string;
+      status: string;
+      body: string;
+      updatedAt: string;
+    }>(
+      app,
+      "PUT",
+      `/api/studio/comments/${comment.id}`,
+      {
+        body: "把触感和灯光的关系写得更清楚。",
+        expectedUpdatedAt: comment.updatedAt,
+      },
+      200,
+    );
+    expect(editedComment).toMatchObject({
+      id: comment.id,
+      status: "open",
+      body: "把触感和灯光的关系写得更清楚。",
+    });
     expect(
       await request<{ status: string }>(
         app,
         "PUT",
         `/api/studio/comments/${comment.id}`,
-        { status: "resolved" },
+        { status: "resolved", expectedUpdatedAt: editedComment.updatedAt },
         200,
       ),
     ).toMatchObject({ status: "resolved" });
@@ -384,6 +431,7 @@ describe("studio API", () => {
     expect(editRun.origin).toEqual({
       surface: "writing",
       documentId: adoption.documentId,
+      versionId: editRun.run.policy.baseVersionId,
       selection: { start: selectionStart, end: selectionEnd },
     });
     expect(await finishRun(app, project.id, editRun.run.id)).toBe("completed");
@@ -405,6 +453,60 @@ describe("studio API", () => {
       200,
     );
     expect(document.proposals[0]).toMatchObject({ status: "proposed" });
+    const newerDraft = await request<{
+      updatedAt: string;
+      content: string;
+    }>(
+      app,
+      "PUT",
+      `/api/projects/${project.id}/studio/documents/${adoption.documentId}/draft`,
+      {
+        baseVersionId: document.currentVersion!.id,
+        expectedDraftUpdatedAt: null,
+        content: `${document.currentVersion!.content}\n作者在候选完成后补写的新稿。`,
+      },
+      200,
+    );
+    expect(newerDraft.content).toContain("作者在候选完成后补写的新稿。");
+    const beforeStaleAcceptance = await request<StudioDocument>(
+      app,
+      "GET",
+      `/api/projects/${project.id}/studio/documents/${adoption.documentId}`,
+      undefined,
+      200,
+    );
+    expect(beforeStaleAcceptance.draft?.content).toBe(newerDraft.content);
+    const staleAcceptance = await app.inject({
+      method: "POST",
+      url: `/api/studio/edit-proposals/${document.proposals[0]!.id}/actions`,
+      payload: {
+        action: "accept",
+        requestId: `${document.proposals[0]!.id}:accept-with-newer-draft`,
+      },
+    });
+    expect(staleAcceptance.statusCode, staleAcceptance.body).toBe(409);
+    expect(staleAcceptance.json()).toMatchObject({
+      error: { code: "edit.draft.conflict" },
+    });
+    const afterConflict = await request<StudioDocument>(
+      app,
+      "GET",
+      `/api/projects/${project.id}/studio/documents/${adoption.documentId}`,
+      undefined,
+      200,
+    );
+    expect(afterConflict.currentVersion?.id).toBe(document.currentVersion?.id);
+    expect(afterConflict.draft?.content).toBe(newerDraft.content);
+    const clearNewerDraft = await app.inject({
+      method: "PUT",
+      url: `/api/projects/${project.id}/studio/documents/${adoption.documentId}/draft`,
+      payload: {
+        baseVersionId: document.currentVersion!.id,
+        expectedDraftUpdatedAt: newerDraft.updatedAt,
+        content: document.currentVersion!.content,
+      },
+    });
+    expect(clearNewerDraft.statusCode, clearNewerDraft.body).toBe(200);
     const accepted = await request<{
       status: string;
       acceptedVersionId: string;
@@ -599,6 +701,7 @@ interface SessionDetail {
 }
 
 interface StudioDocument {
+  document: { id: string; title: string; updatedAt: string };
   currentVersion: { id: string; content: string } | null;
   draft: { content: string; baseVersionId: string | null } | null;
   versions: unknown[];

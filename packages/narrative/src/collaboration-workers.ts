@@ -884,6 +884,8 @@ export class CollaborationWorkerSuite {
         projectId: session.projectId,
         runId: snapshot.run.id,
         stepId: step.id,
+        sourceDocumentId: document.id,
+        sourceDocumentVersionId: version.id,
         changes: {
           source: "cocreate-adoption",
           summary: draft.summary,

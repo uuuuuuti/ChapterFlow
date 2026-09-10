@@ -18,6 +18,7 @@ import {
   ImportedAgentSkillVersionConflictError,
   LongNovelPersistenceError,
   NarrativeStateError,
+  OutlineOperationError,
   PersistenceNotFoundError,
   RunPersistenceError,
   TemplatePersistenceError,
@@ -29,8 +30,10 @@ import {
   AssistantToolExecutionError,
   AutomationRouteError,
   CanonCandidateRouteError,
+  WebNovelCandidateRouteError,
   DeliveryRouteError,
   DeliveryServiceError,
+  deliveryErrorDetails,
   LongGoalError,
   ProviderRouteError,
   ReviewRouteError,
@@ -115,6 +118,7 @@ export function mapRouteError(
     error instanceof AssistantToolExecutionError ||
     error instanceof LongGoalError ||
     error instanceof CanonCandidateRouteError ||
+    error instanceof WebNovelCandidateRouteError ||
     error instanceof AssistantPersistenceError ||
     error instanceof StoryRouteError ||
     error instanceof ServiceError || // 覆盖 RouteError 与 *ServiceError 两层
@@ -162,6 +166,9 @@ export function mapRouteError(
   if (error instanceof NarrativeStateError) {
     return { status: 422, code: error.code, message: error.message };
   }
+  if (error instanceof OutlineOperationError) {
+    return { status: 409, code: error.code, message: error.message };
+  }
   if (
     error instanceof AutomationPersistenceError ||
     error instanceof CreativePersistenceError ||
@@ -171,18 +178,29 @@ export function mapRouteError(
     error instanceof RunPersistenceError ||
     error instanceof TemplatePersistenceError
   ) {
-    const shaped = error as { code: string; message: string };
-    return { status: 409, code: shaped.code, message: shaped.message };
+    const shaped = error as {
+      code: string;
+      message: string;
+      details?: unknown;
+    };
+    return {
+      status: 409,
+      code: shaped.code,
+      message: shaped.message,
+      ...(shaped.details === undefined ? {} : { details: shaped.details }),
+    };
   }
   if (error instanceof AgentSkillImportError) {
     const status = error.code === "agent_skill.not_found" ? 404 : 422;
     return { status, code: error.code, message: error.message };
   }
   if (error instanceof DeliveryServiceError) {
+    const details = deliveryErrorDetails(error.code);
     return {
       status: deliveryErrorStatus(error),
       code: error.code,
       message: error.message,
+      ...(details ? { details } : {}),
     };
   }
   if (error instanceof PersistenceNotFoundError) {

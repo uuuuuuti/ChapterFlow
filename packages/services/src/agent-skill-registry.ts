@@ -80,9 +80,9 @@ export const AGENT_SKILL_REGISTRY: readonly AgentSkillDto[] = [
   },
   {
     id: "canon.edit",
-    label: "Canon 编辑",
+    label: "设定编辑",
     description: "为指定故事板块生成结构化候选修改；采纳仍逐项裁定。",
-    triggerDescription: "明确要求修改人物、正典、时间线、伏笔等故事板块。",
+    triggerDescription: "明确要求修改人物、故事事实、时间线、伏笔等故事板块。",
     requiredContext: ["project", "canonSpread"],
     allowedCapabilities: ["canon.candidate.start"],
     outputKind: "candidate",

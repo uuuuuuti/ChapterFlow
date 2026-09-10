@@ -178,7 +178,7 @@ describe("写作台", () => {
 
     expect(await screen.findByText("稿纸还未开卷")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "新建第一件稿件" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "去故事页规划章节" })).toHaveAttribute("href", "/projects/p-1/bible");
+    expect(screen.getByRole("link", { name: "去故事页规划章节" })).toHaveAttribute("href", "/books/p-1/outline");
   });
 
   it("场景稿只开放局部 AI 编辑，不显示章节生产入口", async () => {
@@ -607,7 +607,7 @@ describe("写作台", () => {
     expect(await screen.findByText(/最近一次变化提取失败/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /查看任务详情/ })).toHaveAttribute(
       "href",
-      "/projects/p-1/runs?run=run-settle-failed",
+      "/books/p-1/tasks?run=run-settle-failed",
     );
   });
 
@@ -1271,7 +1271,7 @@ it("交给 AI 发起单章 chapter run，并在失败重试时复用 requestId",
     // 普通用户留在写作台；任务详情仍可按需进入。
   expect(
     screen.getByRole("link", { name: /查看任务详情/ }),
-  ).toHaveAttribute("href", "/projects/p-1/runs?run=run-ai-1");
+  ).toHaveAttribute("href", "/books/p-1/tasks?run=run-ai-1");
 });
 
 it("从任务深链在写作台展示候选正文、轻量审稿并完成采纳", async () => {

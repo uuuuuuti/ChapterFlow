@@ -16,6 +16,7 @@ import {
 } from "@narralume/domain";
 import {
   SqliteCanonRepository,
+  SqliteDocumentRepository,
   SqliteNarrativeStateRepository,
   SqliteReviewRepository,
   SqliteStoryRepository,
@@ -31,6 +32,7 @@ import {
 
 export class CanonCandidateService {
   private readonly canon: SqliteCanonRepository;
+  private readonly documents: SqliteDocumentRepository;
   private readonly reviews: SqliteReviewRepository;
   private readonly state: SqliteNarrativeStateRepository;
   private readonly story: SqliteStoryRepository;
@@ -40,6 +42,7 @@ export class CanonCandidateService {
     private readonly now: () => Date = () => new Date(),
   ) {
     this.canon = new SqliteCanonRepository(database);
+    this.documents = new SqliteDocumentRepository(database);
     this.reviews = new SqliteReviewRepository(database);
     this.story = new SqliteStoryRepository(database);
     this.state = new SqliteNarrativeStateRepository(
@@ -135,7 +138,16 @@ export class CanonCandidateService {
       const now = this.now().toISOString();
       const result =
         input.action === "apply"
-          ? this.applyItem(input.projectId, changeSet, changes.data, item, now)
+          ? (() => {
+              this.assertSourceVersionCurrent(changeSet, changes.data);
+              return this.applyItem(
+                input.projectId,
+                changeSet,
+                changes.data,
+                item,
+                now,
+              );
+            })()
           : { rejected: true };
       this.reviews.insertCanonItemDecision({
         changeSetId: changeSet.id,
@@ -147,6 +159,46 @@ export class CanonCandidateService {
       this.syncStatus(input.projectId, changeSet.id, changes.data, now);
     });
     return this.resultFor(input.projectId, changeSet.id, item.id);
+  }
+
+  private assertSourceVersionCurrent(
+    changeSet: CanonChangeSetView,
+    changes: CanonCandidateChanges,
+  ): void {
+    if (changeSet.sourceDocumentId && changeSet.sourceDocumentVersionId) {
+      const document = this.documents.get(
+        changeSet.projectId,
+        changeSet.sourceDocumentId,
+      );
+      if (
+        !document ||
+        document.currentVersionId !== changeSet.sourceDocumentVersionId
+      ) {
+        throw new CanonCandidateError(
+          "canon_candidate.source_version_conflict",
+          "The manuscript changed after this story-change candidate was generated; review the latest manuscript and regenerate the candidate",
+          409,
+        );
+      }
+    }
+    // Outline candidates can create nodes, so checking only an individual
+    // target is insufficient. The full spread fingerprint is the optimistic
+    // version token for the planning surface and prevents an old suggestion
+    // from silently appending to a changed outline.
+    if (
+      changes.spread === "outline" &&
+      !this.reviews
+        .listCanonItemDecisions(changeSet.id)
+        .some((decision) => decision.action === "apply") &&
+      readCanonSpread(this.database, changeSet.projectId, "outline")
+        .fingerprint !== changes.baseFingerprint
+    ) {
+      throw new CanonCandidateError(
+        "canon_candidate.outline_version_conflict",
+        "The outline changed after this candidate was generated; refresh the outline and regenerate the candidate",
+        409,
+      );
+    }
   }
 
   private view(
@@ -168,6 +220,10 @@ export class CanonCandidateService {
       projectId: changeSet.projectId,
       runId: changeSet.runId,
       stepId: changeSet.stepId,
+      sourceDocumentId: changeSet.sourceDocumentId,
+      sourceDocumentVersionId: changeSet.sourceDocumentVersionId,
+      sourceOutlineNodeId: changes.sourceOutlineNodeId ?? null,
+      sourceOutlineUpdatedAt: changes.sourceOutlineUpdatedAt ?? null,
       spread: changes.spread,
       instruction: changes.instruction,
       summary: changes.summary,

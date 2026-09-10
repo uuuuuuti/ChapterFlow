@@ -210,7 +210,7 @@ describe("运行中心", () => {
 
     expect(await screen.findByRole("link", { name: "返回快速创作任务" })).toHaveAttribute(
       "href",
-      "/projects/p-1/autopilot?session=session-1",
+      "/books/p-1/quick-create?session=session-1",
     );
     expect(screen.queryByRole("button", { name: "重试本章" })).not.toBeInTheDocument();
   });

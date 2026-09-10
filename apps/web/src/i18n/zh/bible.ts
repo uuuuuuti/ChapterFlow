@@ -208,7 +208,7 @@ export const bible = {
     ariaLabel: "AI 候选修改",
     title: "候选修改",
     intro: "说明你想补充或调整什么。AI 只会提出逐项候选，采纳前不会改变故事圣经。",
-    instructionLabel: "Canon 修改指示",
+    instructionLabel: "设定修改说明",
     generate: "生成候选修改",
     generating: "正在交付…",
     startError: "候选任务未能开始",

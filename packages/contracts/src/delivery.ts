@@ -247,6 +247,17 @@ export const BundleCountsSchema = z.object({
   assistantActivities: z.number().int().nonnegative(),
   assistantLongGoals: z.number().int().nonnegative(),
   runs: z.number().int().nonnegative(),
+  /** Optional sections introduced by the ChapterFlow export extension. */
+  chapterBriefs: z.number().int().nonnegative().default(0),
+  chapterBriefHistory: z.number().int().nonnegative().default(0),
+  creativePresets: z.number().int().nonnegative().default(0),
+  creativePresetHistory: z.number().int().nonnegative().default(0),
+  bookProfileHistory: z.number().int().nonnegative().default(0),
+  platformMetrics: z.number().int().nonnegative().default(0),
+  publishRecords: z.number().int().nonnegative().default(0),
+  exportBatches: z.number().int().nonnegative().default(0),
+  openingCheckReports: z.number().int().nonnegative().default(0),
+  openingCheckAudits: z.number().int().nonnegative().default(0),
 });
 export type BundleCounts = z.infer<typeof BundleCountsSchema>;
 
@@ -259,6 +270,37 @@ export const ProjectBackupSchema = z.object({
   createdAt: TimestampSchema,
   restoredProjectId: IdSchema.nullable(),
   counts: BundleCountsSchema.optional(),
+});
+
+export const ExportBatchFormatSchema = z.enum([
+  "markdown",
+  "text",
+  "docx",
+  "epub",
+  "narrative-bundle",
+]);
+export const ExportBatchStatusSchema = z.enum(["completed", "failed"]);
+export const ExportBatchSchema = z.object({
+  id: IdSchema,
+  projectId: IdSchema,
+  format: ExportBatchFormatSchema,
+  status: ExportBatchStatusSchema,
+  versionMode: z.enum(["current", "history"]),
+  includeAnnotations: z.boolean(),
+  includeRuns: z.boolean(),
+  fromOutlineNodeId: IdSchema.nullable(),
+  toOutlineNodeId: IdSchema.nullable(),
+  filename: z.string().min(1),
+  byteSize: z.number().int().nonnegative(),
+  contentHash: z.string().regex(/^[a-f0-9]{64}$/u),
+  errorCode: z.string().nullable(),
+  errorMessage: z.string().nullable(),
+  retryOfBatchId: IdSchema.nullable(),
+  createdAt: TimestampSchema,
+});
+export type ExportBatchDto = z.infer<typeof ExportBatchSchema>;
+export const ListExportBatchQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(200).default(50),
 });
 export const CreateBackupRequestSchema = z.object({
   label: z.string().trim().min(1).max(300),

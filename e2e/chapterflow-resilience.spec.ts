@@ -12,6 +12,15 @@ async function openChapter(page: Page, title: string) {
   await page.getByLabel("章节标题").fill("第1章 风起之时");
   await page.getByRole("button", { name: "创建章节", exact: true }).click();
   await expect(page.getByRole("textbox", { name: "章节正文" })).toBeVisible();
+  const quickCreateHref = await page
+    .locator(".cf-tree-quick-link")
+    .getAttribute("href");
+  expect(quickCreateHref).toMatch(
+    /\/books\/[^/]+\/quick-create(?:\?fromOutline=[^&]+)?$/,
+  );
+  expect(
+    new URL(quickCreateHref!, page.url()).searchParams.get("fromOutline"),
+  ).toBeTruthy();
 }
 
 test("V2 保存失败时保留正文，重试成功后才能离页", async ({ page }, info) => {
@@ -50,6 +59,48 @@ test("V2 保存失败时保留正文，重试成功后才能离页", async ({ pa
     .click();
   await expect(page).toHaveURL(/\/books$/);
   await page.goto(url);
+  await expect(editor).toHaveValue(text);
+});
+
+test("V2 浏览器后退保存失败时留在章节，恢复后可后退", async ({
+  page,
+}, info) => {
+  await openChapter(page, `后退保护-${info.project.name}-${Date.now()}`);
+  const chapterUrl = page.url();
+  const editor = page.getByRole("textbox", { name: "章节正文" });
+  let offline = true;
+  await page.route("**/studio/documents/*/draft", async (route) => {
+    if (offline && route.request().method() === "PUT")
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({
+          error: { code: "test.offline", message: "暂时无法保存" },
+        }),
+      });
+    else await route.continue();
+  });
+  const text = "浏览器后退也必须保护这份稿件。";
+  await editor.fill(text);
+  await page.evaluate(() => history.back());
+  await expect(
+    page.getByText("草稿保存失败，请重试保存后再离开。", { exact: true }),
+  ).toBeVisible();
+  await expect(page).toHaveURL(chapterUrl);
+  await expect(editor).toHaveValue(text);
+  offline = false;
+  await page.getByRole("button", { name: "重试保存", exact: true }).click();
+  await expect(page.locator(".cf-paper footer")).toContainText("已保存");
+  // The chapter creation flow leaves `/write` immediately before the chapter.
+  // That route intentionally reselects the current chapter, so seed an
+  // unambiguous previous destination before asserting browser back.
+  const dashboardUrl = chapterUrl.replace(/\/write\/[^/]+$/, "/dashboard");
+  await page.goto(dashboardUrl);
+  await page.goto(chapterUrl);
+  await expect(editor).toHaveValue(text);
+  await page.evaluate(() => history.back());
+  await expect(page).not.toHaveURL(chapterUrl);
+  await page.goto(chapterUrl);
   await expect(editor).toHaveValue(text);
 });
 
@@ -118,6 +169,13 @@ test("V2 后台刷新不能让未保存草稿覆盖另一页面的更新", async
   expect((await rejected).status()).toBe(409);
   await expect(page.locator(".cf-paper footer")).toContainText("保存失败");
   await expect(editor).toHaveValue("第一页尚未保存的修改。");
+  await expect(
+    page.getByRole("button", { name: "刷新远端并放弃本地稿", exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "刷新远端并放弃本地稿", exact: true })
+    .click();
+  await expect(editor).toHaveValue("第二页已经保存的修改。");
   await other.reload();
   await expect(otherEditor).toHaveValue("第二页已经保存的修改。");
   await other.close();

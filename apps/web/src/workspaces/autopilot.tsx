@@ -321,8 +321,8 @@ export function AutopilotWorkspace() {
             foundationRun={foundationRun}
             projectId={projectId}
             onGenerate={(value) => foundationMutation.mutate(value)}
-            onCandidate={(candidate, action, payload) => candidateMutation.mutate(() => resolveFoundationCandidate(candidate.id, action, payload))}
-            onSet={(set, action) => candidateMutation.mutate(() => resolveFoundationCandidateSet(set.set.id, action))}
+            onCandidate={(candidate, action, payload) => candidateMutation.mutate(() => resolveFoundationCandidate(candidate.id, action, payload, candidate.updatedAt))}
+            onSet={(set, action) => candidateMutation.mutate(() => resolveFoundationCandidateSet(set.set.id, action, Object.fromEntries(set.candidates.filter((candidate) => candidate.status === "pending").map((candidate) => [candidate.id, candidate.updatedAt]))))}
           />
           {compassQuery.isError ? (
             <section className="autopilot__setup-card">
@@ -412,7 +412,8 @@ function foundationBraindump(run: NarrativeRun | null): string {
 
 function CandidateSet({ value, pending, onCandidate, onSet }: { value: FoundationCandidateSet; pending: boolean; onCandidate: (candidate: FoundationCandidate, action: "adopt" | "discard", payload?: Record<string, unknown>) => void; onSet: (set: FoundationCandidateSet, action: "adopt-all" | "discard-all") => void }) {
   const { t } = useI18n();
-  return <div className="autopilot__candidate-set"><h3>{value.set.title}</h3>{value.candidates.map((candidate) => <CandidateCard key={candidate.id} candidate={candidate} pending={pending} onAction={onCandidate} />)}<div className="autopilot__setup-actions"><button type="button" className="btn" disabled={pending} onClick={() => onSet(value, "adopt-all")}>{t("autopilot.foundation.adoptAll")}</button><button type="button" className="btn" disabled={pending} onClick={() => onSet(value, "discard-all")}>{t("autopilot.foundation.discardAll")}</button></div></div>;
+  const isPlanSet = value.candidates.some((candidate) => candidate.kind === "plan");
+  return <div className="autopilot__candidate-set"><h3>{value.set.title}</h3>{isPlanSet ? <p className="autopilot__setup-hint">三份路线互斥，请从下方选择一份方案。</p> : null}{value.candidates.map((candidate) => <CandidateCard key={candidate.id} candidate={candidate} pending={pending} onAction={onCandidate} />)}<div className="autopilot__setup-actions">{!isPlanSet ? <button type="button" className="btn" disabled={pending} onClick={() => onSet(value, "adopt-all")}>{t("autopilot.foundation.adoptAll")}</button> : null}<button type="button" className="btn" disabled={pending} onClick={() => onSet(value, "discard-all")}>{t("autopilot.foundation.discardAll")}</button></div></div>;
 }
 function CandidateCard({ candidate, pending, onAction }: { candidate: FoundationCandidate; pending: boolean; onAction: (candidate: FoundationCandidate, action: "adopt" | "discard", payload?: Record<string, unknown>) => void }) {
   const { t } = useI18n();
@@ -926,6 +927,19 @@ function foundationSummary(
       { label: translate(getLocale(), "autopilot.foundation.summary.endingDirection"), value: text("endingDirection") },
       { label: translate(getLocale(), "autopilot.foundation.summary.themeQuestions"), value: lines("themeQuestions") },
       { label: translate(getLocale(), "autopilot.foundation.summary.length"), value: typeof target.chapters === "number" ? translate(getLocale(), "autopilot.foundation.summary.lengthValue", { chapters: target.chapters, words: String(target.wordsPerChapter ?? "—") }) : "" },
+      ].filter((item) => item.value);
+  }
+  if (kind === "plan") {
+    const intent = payload.intent && typeof payload.intent === "object" ? payload.intent as Record<string, unknown> : {};
+    const compass = payload.compass && typeof payload.compass === "object" ? payload.compass as Record<string, unknown> : {};
+    const entities = Array.isArray(payload.entities)
+      ? payload.entities.map((value) => value && typeof value === "object" ? (value as Record<string, unknown>).name : null).filter((value): value is string => typeof value === "string").join("、")
+      : "";
+    return [
+      { label: "叙事角度", value: text("angle") },
+      { label: "读者承诺", value: typeof intent.promise === "string" ? intent.promise : "" },
+      { label: "故事主线", value: typeof compass.corePromise === "string" ? compass.corePromise : "" },
+      { label: "关键设定", value: entities },
     ].filter((item) => item.value);
   }
   const attributes = payload.attributes && typeof payload.attributes === "object"
@@ -1001,4 +1015,3 @@ function legOutcomeLabel(outcome: string | null): string {
   )[outcome ?? ""];
   return key ? translate(getLocale(), key) : translate(getLocale(), "autopilot.legOutcome.pending");
 }
-

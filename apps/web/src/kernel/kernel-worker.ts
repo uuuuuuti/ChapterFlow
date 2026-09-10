@@ -44,6 +44,7 @@ import {
   registerStoryRoutes,
   registerStudioRoutes,
   registerTemplateRoutes,
+  registerWebNovelRoutes,
   seedDemoRelayProvider,
   seedEnvironmentModelConfig,
   seedHarnessTemplates,
@@ -263,6 +264,7 @@ async function boot(): Promise<void> {
   });
   registerLongNovelRoutes(table, database);
   registerTemplateRoutes(table, database);
+  registerWebNovelRoutes(table, database);
   registerAutomationRoutes(table, database, {
     coordinator: autopilotCoordinator,
     runCoordinator: coordinator,

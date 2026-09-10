@@ -8,6 +8,7 @@ import {
   BackgroundRunCreatedSchema,
   NarrativeRunSchema,
   ReviewReportViewSchema,
+  RunActionAvailabilitySchema,
   RunModeSchema,
   RunOriginSchema,
 } from "./run.js";
@@ -26,7 +27,7 @@ export const AUTOMATION_LIMITS = {
 
 export const AUTOMATION_DEFAULTS = {
   targetChapters: 12,
-  wordsPerChapter: 3_000,
+  wordsPerChapter: 2_500,
   volumes: 1,
 } as const;
 
@@ -106,7 +107,7 @@ export const FoundationCandidateSchema = z.object({
   id: IdSchema,
   setId: IdSchema,
   projectId: IdSchema,
-  kind: z.enum(["intent", "compass", "entity"]),
+  kind: z.enum(["intent", "compass", "entity", "plan"]),
   label: z.string(),
   payload: JsonObjectSchema,
   editedPayload: JsonObjectSchema.nullable(),
@@ -133,10 +134,14 @@ export const FoundationCandidateSetSchema = z.object({
 export const CandidateActionRequestSchema = z.object({
   action: z.enum(["adopt", "discard"]),
   payload: JsonObjectSchema.optional(),
+  /** Native review surfaces send the candidate token they rendered. */
+  expectedUpdatedAt: TimestampSchema.optional(),
 });
 
 export const CandidateSetActionRequestSchema = z.object({
   action: z.enum(["adopt-all", "discard-all"]),
+  /** One token per candidate keeps bulk actions safe across two tabs. */
+  expectedUpdatedAtByCandidate: z.record(IdSchema, TimestampSchema).optional(),
 });
 
 export const UpdateCompassRequestSchema = StoryCompassSchema.omit({
@@ -161,11 +166,18 @@ export const AutopilotSessionStatusSchema = z.enum([
   "completed",
 ]);
 
+export const AutopilotScopeSchema = z.object({
+  startOutlineNodeId: IdSchema.nullable(),
+  endOutlineNodeId: IdSchema.nullable(),
+});
+export type AutopilotScope = z.infer<typeof AutopilotScopeSchema>;
+
 export const AutopilotSessionSchema = z.object({
   id: IdSchema,
   projectId: IdSchema,
   mode: RunModeSchema.extract(["autopilot", "chapter-gate"]),
   approvalMode: z.enum(["continuous", "per_chapter"]),
+  scope: AutopilotScopeSchema,
   origin: RunOriginSchema.nullable(),
   status: AutopilotSessionStatusSchema,
   targetChapters: z.number().int().positive(),
@@ -195,6 +207,10 @@ export const CreateAutopilotSessionRequestSchema = z
     approvalMode: z.enum(["continuous", "per_chapter"]).default("continuous"),
     planningMode: z.enum(["auto", "confirm"]).default("auto"),
     origin: RunOriginSchema.nullable().default(null),
+    scope: AutopilotScopeSchema.default({
+      startOutlineNodeId: null,
+      endOutlineNodeId: null,
+    }),
     targetChapters: z
       .number()
       .int()
@@ -231,6 +247,31 @@ export const AutopilotRunLinkSchema = z.object({
   processedAt: TimestampSchema.nullable(),
   outcome: z.string().nullable(),
 });
+
+/**
+ * Stable, product-facing summary for one chapter inside a continuous
+ * creation session. The values are derived from persisted run artifacts so
+ * the batch page can show useful evidence without opening every task.
+ */
+export const AutopilotChapterResultSchema = z.object({
+  runId: IdSchema,
+  outlineNodeId: IdSchema.nullable(),
+  sequence: z.number().int().nonnegative(),
+  status: z.string().trim().min(1),
+  targetWords: z.number().int().positive().nullable(),
+  actualWords: z.number().int().nonnegative().nullable(),
+  checkScore: z.number().min(0).max(100).nullable(),
+  qualityVerdict: z.enum(["pass", "revise", "block"]).nullable(),
+  retryCount: z.number().int().nonnegative(),
+  error: JsonObjectSchema.nullable(),
+  /** Actions that are valid for this chapter's child run.  The parent
+   * session actions remain separate because a batch may be waiting on one
+   * chapter while its other results are already terminal. */
+  actionAvailability: z.array(RunActionAvailabilitySchema).default([]),
+});
+export type AutopilotChapterResult = z.infer<
+  typeof AutopilotChapterResultSchema
+>;
 
 export const StorySteerSchema = z.object({
   id: IdSchema,
@@ -329,6 +370,7 @@ export const AutopilotSessionDetailSchema = z.object({
   session: AutopilotSessionSchema,
   links: z.array(AutopilotRunLinkSchema),
   runs: z.array(NarrativeRunSchema),
+  chapterResults: z.array(AutopilotChapterResultSchema),
   steers: z.array(StorySteerSchema),
   reviews: z.array(PlanningReviewSchema),
   origin: RunOriginSchema.nullable(),

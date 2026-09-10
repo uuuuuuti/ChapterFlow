@@ -1,11 +1,13 @@
 import {
   createOutlineNode,
   createProject,
+  type BookProfileSnapshot,
   type Project,
 } from "@narralume/domain";
 import {
   SqliteProjectRepository,
   SqliteStoryRepository,
+  SqliteWebNovelRepository,
   type NarrativeDatabase,
 } from "@narralume/persistence";
 
@@ -17,6 +19,7 @@ export interface ProjectBootstrapInput {
   premise: string | null;
   language: string;
   now: string;
+  bookProfile?: Partial<BookProfileSnapshot> | undefined;
 }
 
 export function bootstrapProject(
@@ -25,6 +28,7 @@ export function bootstrapProject(
 ): Project {
   const projects = new SqliteProjectRepository(database);
   const story = new SqliteStoryRepository(database);
+  const webNovel = new SqliteWebNovelRepository(database);
   const project = createProject({
     id: input.projectId,
     now: input.now,
@@ -48,6 +52,7 @@ export function bootstrapProject(
       }),
     );
     story.upsertAuthorIntent(emptyIntent(project.id, input.now));
+    webNovel.ensureBookProfile(project.id, input.now, input.bookProfile);
     return project;
   });
 }

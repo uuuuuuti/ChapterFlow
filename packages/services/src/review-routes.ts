@@ -15,11 +15,13 @@ import {
   RevisionProposalDecisionConflictError,
   RevisionProposalNotFoundError,
   SqliteAutomationRepository,
+  SqliteDocumentRepository,
   SqliteProjectRepository,
   SqliteRequestReplayRepository,
   SqliteReviewRepository,
   SqliteRunRepository,
   SqliteStoryRepository,
+  SqliteWebNovelRepository,
   type NarrativeDatabase,
 } from "@narralume/persistence";
 import {
@@ -57,12 +59,14 @@ export function registerReviewRoutes(
 ): void {
   const projects = new SqliteProjectRepository(database);
   const reviews = new SqliteReviewRepository(database);
+  const documents = new SqliteDocumentRepository(database);
   const requestReplays = new SqliteRequestReplayRepository(database);
   const settlementApplication = new SettlementApplicationService(database);
   const revisionApplication = new RevisionApplicationService(database);
   const runs = new SqliteRunRepository(database);
   const story = new SqliteStoryRepository(database);
   const automation = new SqliteAutomationRepository(database);
+  const webNovel = new SqliteWebNovelRepository(database);
 
   app.route("GET", "/api/projects/:projectId/reviews", async (request) => {
     const { projectId } = ProjectParamsSchema.parse(request.params);
@@ -101,6 +105,27 @@ export function registerReviewRoutes(
               );
             }
             return ReviewIssueDecisionSchema.parse(replay.result);
+          }
+
+          const context = reviews.getIssueReportContext(projectId, issueId);
+          if (context?.documentId && context.documentVersionId) {
+            const document = documents.get(projectId, context.documentId);
+            if (
+              document &&
+              document.currentVersionId !== context.documentVersionId
+            ) {
+              throw new ReviewRouteError(
+                "review.report.stale",
+                "This review report belongs to an older document version; run the review again before deciding the issue",
+                409,
+                {
+                  reportId: context.reportId,
+                  documentId: context.documentId,
+                  reportDocumentVersionId: context.documentVersionId,
+                  currentDocumentVersionId: document.currentVersionId,
+                },
+              );
+            }
           }
 
           const existing = reviews.getLatestIssueDecision(projectId, issueId);
@@ -306,7 +331,11 @@ export function registerReviewRoutes(
             },
           );
         if (error instanceof SettlementApplicationError)
-          throw new ReviewRouteError(error.code, error.message, 422);
+          throw new ReviewRouteError(
+            error.code,
+            error.message,
+            error.code === "settlement.source_version_conflict" ? 409 : 422,
+          );
         throw error;
       }
     },
@@ -375,6 +404,35 @@ export function registerReviewRoutes(
                     proposalId,
                   }),
                 };
+          const origin = current
+            ? webNovel.getOpeningCheckOrigin(projectId, current.runId)
+            : null;
+          if (origin) {
+            webNovel.insertOpeningCheckAudit({
+              projectId,
+              reportId: origin.reportId,
+              issueId: origin.issueId,
+              proposalId,
+              runId: current?.runId ?? null,
+              eventType: "candidate_decided",
+              action: decision.action === "apply" ? "accept" : "reject",
+              before: {
+                status: current?.status ?? "proposed",
+                addressedIssueIds: current?.addressedIssueIds ?? [],
+              },
+              after: {
+                status: result.proposal.status,
+                addressedIssueIds: result.proposal.addressedIssueIds,
+                acceptedDocumentVersionId:
+                  result.proposal.acceptedDocumentVersionId,
+                documentId: "documentId" in result ? result.documentId : null,
+                contentHash:
+                  "contentHash" in result ? result.contentHash : null,
+                decidedAt: result.proposal.decidedAt,
+              },
+              createdAt: new Date().toISOString(),
+            });
+          }
           requestReplays.insert({
             scope,
             requestId: decision.requestId,

@@ -42,6 +42,27 @@ import { migration038 } from "./migrations/038-drop-run-budget-limits.js";
 import { migration039 } from "./migrations/039-resource-lifecycle.js";
 import { migration040 } from "./migrations/040-project-write-guard.js";
 import { migration041 } from "./migrations/041-review-author-decisions.js";
+import { migration042 } from "./migrations/042-web-novel-planning.js";
+import { migration043 } from "./migrations/043-platform-metrics.js";
+import { migration044 } from "./migrations/044-publish-records.js";
+import { migration045 } from "./migrations/045-book-profile-backfill.js";
+import { migration046 } from "./migrations/046-autopilot-scope.js";
+import { migration047 } from "./migrations/047-opening-check-issue-states.js";
+import { migration048 } from "./migrations/048-export-batches.js";
+import { migration049 } from "./migrations/049-book-profile-history.js";
+import { migration050 } from "./migrations/050-outline-operations.js";
+import { migration051 } from "./migrations/051-foundation-plans.js";
+import { migration052 } from "./migrations/052-chapter-brief-document-binding.js";
+import { migration053 } from "./migrations/053-platform-metric-import-audit.js";
+import { migration054 } from "./migrations/054-opening-check-reports.js";
+import { migration055 } from "./migrations/055-opening-check-audits.js";
+import { migration056 } from "./migrations/056-revision-proposal-accepted-version.js";
+import { migration057 } from "./migrations/057-chapter-brief-history.js";
+import { migration058 } from "./migrations/058-creative-preset-history.js";
+import { migration059 } from "./migrations/059-canon-change-set-source-version.js";
+import { migration060 } from "./migrations/060-platform-metric-duplicate-audit.js";
+import { migration061 } from "./migrations/061-web-novel-candidates.js";
+import { migration062 } from "./migrations/062-export-batch-outcomes.js";
 
 export interface Migration {
   readonly version: number;
@@ -105,6 +126,27 @@ const MIGRATIONS: readonly Migration[] = [
   migration039,
   migration040,
   migration041,
+  migration042,
+  migration043,
+  migration044,
+  migration045,
+  migration046,
+  migration047,
+  migration048,
+  migration049,
+  migration050,
+  migration051,
+  migration052,
+  migration053,
+  migration054,
+  migration055,
+  migration056,
+  migration057,
+  migration058,
+  migration059,
+  migration060,
+  migration061,
+  migration062,
 ];
 
 interface MigrationRow {

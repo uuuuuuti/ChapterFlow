@@ -276,7 +276,7 @@ describe("故事圣经", () => {
     fireEvent.change(screen.getByRole("combobox", { name: "编辑对象" }), { target: { value: "n-ch-1" } });
     expect(await screen.findByRole("link", { name: /去写作台写本章/ })).toHaveAttribute(
       "href",
-      "/projects/p-1-tides/studio?outline=n-ch-1",
+      "/books/p-1-tides/write?outline=n-ch-1",
     );
     expect(screen.queryByRole("button", { name: /生成本章/ })).not.toBeInTheDocument();
 

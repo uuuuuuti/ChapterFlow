@@ -213,7 +213,7 @@ export const bible: typeof bibleZh = {
     title: "Candidate changes",
     intro:
       "Describe what you want to add or adjust. The AI only proposes itemized candidates and will not change the story bible before you adopt them.",
-    instructionLabel: "Canon edit instruction",
+    instructionLabel: "Story bible edit instruction",
     generate: "Generate candidate changes",
     generating: "Submitting…",
     startError: "The candidate task could not start",

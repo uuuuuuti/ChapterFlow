@@ -916,7 +916,7 @@ describe("自动驾驶", () => {
     renderAutopilot("/missing");
 
     expect(screen.getByRole("heading", { name: "AI 快速创作" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "返回藏书室" })).toHaveAttribute("href", "/shelf");
+    expect(screen.getByRole("link", { name: "返回藏书室" })).toHaveAttribute("href", "/books");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

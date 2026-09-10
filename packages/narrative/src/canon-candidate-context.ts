@@ -1,6 +1,10 @@
 import { sha256Hex } from "@narralume/domain";
 
-import type { CanonCandidateItemDto, CanonSpread } from "@narralume/contracts";
+import type {
+  CanonCandidateEvidence,
+  CanonCandidateItemDto,
+  CanonSpread,
+} from "@narralume/contracts";
 import {
   SqliteCanonRepository,
   SqliteNarrativeStateRepository,
@@ -149,6 +153,10 @@ export interface CanonSpreadState {
   fingerprint: string;
 }
 
+export type CanonCandidateEvidenceIndex = Partial<
+  Record<CanonCandidateEvidence["sourceType"], readonly string[]>
+>;
+
 export function readCanonSpread(
   database: NarrativeDatabase,
   projectId: string,
@@ -175,11 +183,20 @@ export function candidateSemanticIssues(
   spread: CanonSpread,
   current: CanonSpreadState["value"],
   result: CanonCandidateModelResult,
+  evidenceIndex: CanonCandidateEvidenceIndex = {},
 ): string[] {
   const issues: string[] = [];
   const touched = new Set<string>();
   result.items.forEach((item, index) => {
     const path = `items.${index}`;
+    item.evidence.forEach((evidence, evidenceIndexPosition) => {
+      const knownIds = evidenceIndex[evidence.sourceType];
+      if (knownIds && !knownIds.includes(evidence.sourceId)) {
+        issues.push(
+          `${path}.evidence.${evidenceIndexPosition}: ${evidence.sourceType} 来源 ID 不在当前作品上下文中`,
+        );
+      }
+    });
     if (spread === "intent") {
       if (item.operation !== "update" || item.targetId !== "intent")
         issues.push(`${path}: 作者意图只能 update，targetId 必须为 intent`);
@@ -245,6 +262,7 @@ export function materializeCandidateItems(
       title: item.title,
       rationale: item.rationale,
       impact: item.impact,
+      evidence: item.evidence,
       before,
       after,
       diff: fieldDiff(before, after, item.operation),

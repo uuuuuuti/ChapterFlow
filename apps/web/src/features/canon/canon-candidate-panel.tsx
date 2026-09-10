@@ -1,4 +1,5 @@
 import { queryKeys } from "../../shared/query/keys";
+import type { RunOrigin } from "@narralume/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowUpRight,
@@ -23,12 +24,12 @@ import {
   type CanonSpread,
   type NarrativeRun,
 } from "../../lib/api";
-import { projectWorkspacePath } from "../../lib/project-route";
 import { useServerEvents } from "../../lib/sse";
 
 interface CanonCandidatePanelProps {
   projectId: string;
   spread: CanonSpread;
+  origin?: RunOrigin | null;
 }
 
 const TERMINAL = new Set(["completed", "failed", "cancelled"]);
@@ -41,6 +42,7 @@ export function CanonCandidatePanel(props: CanonCandidatePanelProps) {
 function CanonCandidatePanelView({
   projectId,
   spread,
+  origin,
 }: CanonCandidatePanelProps) {
   const queryClient = useQueryClient();
   const { t } = useI18n();
@@ -51,7 +53,7 @@ function CanonCandidatePanelView({
     requestId: string;
   } | null>(null);
   const candidatesQuery = useQuery({
-    queryKey: ["project", projectId, "canon-candidates", spread],
+    queryKey: queryKeys.canonCandidates(projectId, spread),
     queryFn: ({ signal }) => getCanonCandidates(projectId, spread, signal),
   });
   const runsQuery = useQuery({
@@ -86,7 +88,7 @@ function CanonCandidatePanelView({
       queryKey: queryKeys.runs(projectId),
     });
     void queryClient.invalidateQueries({
-      queryKey: ["project", projectId, "canon-candidates", spread],
+      queryKey: queryKeys.canonCandidates(projectId, spread),
     });
   };
   useServerEvents({
@@ -105,7 +107,7 @@ function CanonCandidatePanelView({
 
   const createMutation = useMutation({
     mutationFn: (text: string) => {
-      const identity = JSON.stringify({ spread, instruction: text });
+      const identity = JSON.stringify({ spread, instruction: text, origin });
       if (createRequestRef.current?.identity !== identity) {
         createRequestRef.current = {
           identity,
@@ -115,6 +117,7 @@ function CanonCandidatePanelView({
       return startCanonCandidate(projectId, spread, {
         requestId: createRequestRef.current.requestId,
         instruction: text,
+        ...(origin ? { origin } : {}),
       });
     },
     onSuccess: (accepted) => {
@@ -141,7 +144,9 @@ function CanonCandidatePanelView({
           <Sparkles size={15} strokeWidth={1.45} />
         </span>
         <div>
-          <p className="bible-ai__eyebrow mono">AI · CANDIDATE DESK</p>
+          <p className="bible-ai__eyebrow mono">
+            {spread === "outline" ? "AI · 章纲助手" : "AI · 设定助手"}
+          </p>
           <h3>{t("bible.candidates.title")}</h3>
         </div>
       </header>
@@ -196,10 +201,63 @@ function CanonCandidatePanelView({
       ) : null}
 
       <div className="bible-ai__sets">
+        {spread === "outline" && visibleSets.length > 1 ? (
+          <OutlineCandidateComparison sets={visibleSets.slice(0, 3)} />
+        ) : null}
         {visibleSets.map((set) => (
           <CandidateSet key={set.id} projectId={projectId} value={set} />
         ))}
       </div>
+    </section>
+  );
+}
+
+function OutlineCandidateComparison({
+  sets,
+}: {
+  sets: CanonCandidateSetDto[];
+}) {
+  const rows = useMemo(() => {
+    const byTitle = new Map<string, string[]>();
+    for (const set of sets) {
+      for (const item of set.items) {
+        const values = byTitle.get(item.title) ?? [];
+        values.push(`${operationLabel(item.operation)} · ${item.impact[0] ?? "暂无影响说明"}`);
+        byTitle.set(item.title, values);
+      }
+    }
+    return [...byTitle.entries()].slice(0, 12);
+  }, [sets]);
+  return (
+    <section className="bible-ai__comparison" aria-label="章纲候选横向比较">
+      <header>
+        <div>
+          <span className="mono">AI · 方案比较</span>
+          <h4>最多三组章纲候选</h4>
+        </div>
+        <span>{sets.length} 组</span>
+      </header>
+      <div className="bible-ai__comparison-grid">
+        {sets.map((set) => (
+          <article key={set.id}>
+            <strong>{set.summary}</strong>
+            <span>{candidateStatus(set.status)} · {set.items.length} 项</span>
+            {set.sourceOutlineNodeId ? <small>来源节点 {shortId(set.sourceOutlineNodeId)}</small> : null}
+          </article>
+        ))}
+      </div>
+      {rows.length ? (
+        <dl className="bible-ai__comparison-diffs">
+          {rows.map(([title, values]) => (
+            <div key={title}>
+              <dt>{title}</dt>
+              <dd>{values.join(" ｜ ")}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : (
+        <p>候选组尚未生成可比较的条目。</p>
+      )}
     </section>
   );
 }
@@ -220,7 +278,7 @@ function RunNotice({
         <span>{runStage(run)}</span>
       </div>
       <Link
-        to={`${projectWorkspacePath(projectId, "runs")}?run=${encodeURIComponent(run.id)}`}
+        to={`/books/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(run.id)}`}
         aria-label={t("bible.candidates.viewProgress")}
       >
         <ArrowUpRight size={14} />
@@ -249,7 +307,7 @@ function CandidateSet({
           <h4>{value.summary}</h4>
         </div>
         <Link
-          to={`${projectWorkspacePath(projectId, "runs")}?run=${encodeURIComponent(value.runId)}`}
+          to={`/books/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(value.runId)}`}
           aria-label={t("bible.candidates.viewRecord")}
         >
           <ArrowUpRight size={14} />
@@ -259,6 +317,28 @@ function CandidateSet({
         <p className="bible-ai__stale">
           <CircleAlert size={13} aria-hidden="true" />
           {t("bible.candidates.stale")}
+        </p>
+      ) : null}
+      {value.sourceDocumentVersionId ? (
+        <p className="bible-ai__lineage">
+          基于正文版本 {shortId(value.sourceDocumentVersionId)} 生成；正文更新后需要重新生成。
+          {value.sourceDocumentId ? (
+            <Link
+              to={`/books/${encodeURIComponent(projectId)}/write/${encodeURIComponent(value.sourceDocumentId)}?returnTo=${encodeURIComponent(`/books/${projectId}/outline`)}`}
+            >
+              打开正文
+            </Link>
+          ) : null}
+        </p>
+      ) : null}
+      {value.sourceOutlineNodeId ? (
+        <p className="bible-ai__lineage">
+          基于大纲节点 {shortId(value.sourceOutlineNodeId)} 的版本生成；大纲发生变化后需要重新生成。
+          <Link
+            to={`/books/${encodeURIComponent(projectId)}/outline?node=${encodeURIComponent(value.sourceOutlineNodeId)}`}
+          >
+            打开大纲
+          </Link>
         </p>
       ) : null}
       <p className="bible-ai__instruction">“{value.instruction}”</p>
@@ -293,7 +373,7 @@ function CandidateItem({
       decideCanonCandidateItem(projectId, set.id, item.id, input),
     onSuccess: () => {
       void queryClient.invalidateQueries({
-        queryKey: ["project", projectId, "canon-candidates", set.spread],
+        queryKey: queryKeys.canonCandidates(projectId, set.spread),
       });
       void queryClient.invalidateQueries({
         queryKey: queryKeys.story(projectId),
@@ -307,6 +387,7 @@ function CandidateItem({
     }
     decisionMutation.mutate({ action: "apply", confirmLocked });
   };
+  const evidence = item.evidence ?? [];
 
   return (
     <section className="bible-ai__item" data-decided={item.decision ? "true" : undefined}>
@@ -315,6 +396,23 @@ function CandidateItem({
         <h5>{item.title}</h5>
       </div>
       <p>{item.rationale}</p>
+      {evidence.length ? (
+        <ul className="bible-ai__evidence" aria-label="候选依据">
+          {evidence.map((entry, index) => {
+            const href = evidenceHref(projectId, entry.sourceType, entry.sourceId);
+            return (
+              <li key={`${entry.sourceType}-${entry.sourceId}-${index}`}>
+                <div>
+                  <strong>{entry.label}</strong>
+                  <span className="mono">{entry.sourceType} · {shortId(entry.sourceId)}</span>
+                </div>
+                <blockquote>“{entry.quote}”</blockquote>
+                {href ? <Link to={href}>打开来源</Link> : null}
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
       {item.diff.length ? (
         <dl className="bible-ai__diff">
           {item.diff.map((field) => (
@@ -390,6 +488,10 @@ function latestRun(runs: NarrativeRun[]): NarrativeRun | null {
   return [...runs].sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0] ?? null;
 }
 
+function shortId(value: string): string {
+  return value.length > 16 ? `${value.slice(0, 8)}…${value.slice(-6)}` : value;
+}
+
 function runStage(run: NarrativeRun): string {
   if (run.status === "pending")
     return translate(getLocale(), "bible.candidates.stage.pending");
@@ -462,5 +564,35 @@ function printValue(value: unknown): string {
     return JSON.stringify(value);
   } catch {
     return translate(getLocale(), "bible.candidates.complexValue");
+  }
+}
+
+function evidenceHref(
+  projectId: string,
+  sourceType: string,
+  sourceId: string,
+): string | null {
+  const project = encodeURIComponent(projectId);
+  const source = encodeURIComponent(sourceId);
+  switch (sourceType) {
+    case "outline":
+      return `/books/${project}/outline?node=${source}`;
+    case "entity":
+      return `/books/${project}/knowledge/character`;
+    case "fact":
+      return `/books/${project}/knowledge/fact`;
+    case "relation":
+      return `/books/${project}/knowledge/relationship`;
+    case "timeline":
+      return `/books/${project}/knowledge/timeline`;
+    case "foreshadow":
+      return `/books/${project}/knowledge/foreshadow`;
+    case "document":
+      return `/books/${project}/write/${source}`;
+    case "profile":
+    case "brief":
+      return `/books/${project}/advanced?tool=web-novel`;
+    default:
+      return null;
   }
 }

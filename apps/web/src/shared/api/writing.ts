@@ -1,5 +1,6 @@
 import {
   type StoryDocument,
+  type OutlineNode,
   type StudioDocumentDetail,
   type DocumentVersion,
   type DocumentDraft,
@@ -9,6 +10,7 @@ import {
 } from "./types";
 import { requestJson, jsonRequest } from "./client";
 import { type ModelExecutionPolicy } from "@narralume/contracts";
+import type { RunOrigin } from "@narralume/contracts";
 
 export async function getStudioDocuments(
   projectId: string,
@@ -34,6 +36,21 @@ export async function setStoryDocumentArchived(
   );
 }
 
+export async function renameStoryDocument(
+  document: StoryDocument,
+  title: string,
+  expectedOutlineUpdatedAt: string | null,
+): Promise<StoryDocument> {
+  return requestJson(
+    `/api/projects/${encodeURIComponent(document.projectId)}/studio/documents/${encodeURIComponent(document.id)}`,
+    jsonRequest("PUT", {
+      title,
+      expectedUpdatedAt: document.updatedAt,
+      expectedOutlineUpdatedAt,
+    }),
+  );
+}
+
 export async function createStoryDocument(
   projectId: string,
   input: {
@@ -45,6 +62,16 @@ export async function createStoryDocument(
 ): Promise<StoryDocument> {
   return requestJson(
     `/api/projects/${encodeURIComponent(projectId)}/documents`,
+    jsonRequest("POST", input),
+  );
+}
+
+export async function createChapter(
+  projectId: string,
+  input: { requestId: string; title: string; parentId: string | null },
+): Promise<{ outline: OutlineNode; document: StoryDocument }> {
+  return requestJson(
+    `/api/projects/${encodeURIComponent(projectId)}/chapters`,
     jsonRequest("POST", input),
   );
 }
@@ -123,9 +150,20 @@ export async function setDocumentCommentStatus(
   commentId: string,
   status: DocumentComment["status"],
 ): Promise<DocumentComment> {
+  return updateDocumentComment(commentId, { status });
+}
+
+export async function updateDocumentComment(
+  commentId: string,
+  input: {
+    body?: string;
+    status?: DocumentComment["status"];
+    expectedUpdatedAt?: string;
+  },
+): Promise<DocumentComment> {
   return requestJson(
     `/api/studio/comments/${encodeURIComponent(commentId)}`,
-    jsonRequest("PUT", { status }),
+    jsonRequest("PUT", input),
   );
 }
 
@@ -140,6 +178,7 @@ export async function createSelectionEdit(
     instruction: string;
     /** 稀疏覆盖；模型由服务端 assignment 解析。 */
     policy?: ModelExecutionPolicy;
+    origin?: RunOrigin | null;
   },
 ): Promise<RunSnapshot> {
   return requestJson(

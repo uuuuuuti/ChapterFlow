@@ -152,7 +152,7 @@ export const assistant = {
     chapterStart: "开始单章写作",
     autopilotStart: "开始 AI 快速创作",
     outlinePlanStart: "规划后续章节",
-    canonCandidateStart: "生成 Canon 候选修改",
+    canonCandidateStart: "生成设定候选修改",
     selectionEditStart: "修改选中文本",
     longGoalStart: "启动复合创作任务",
     taskControl: "控制当前任务",

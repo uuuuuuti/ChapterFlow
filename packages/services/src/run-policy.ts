@@ -5,10 +5,12 @@ import {
   resolveEffectivePolicy,
   type EffectivePolicy,
   type ModelExecutionPolicy,
+  type RunAvailableAction,
 } from "@narralume/contracts";
 import type { NarrativeRunStep, RunSnapshot } from "@narralume/domain";
 import {
   SqliteAssignmentRepository,
+  SqliteDocumentRepository,
   type SqliteProjectRepository,
   type SqliteRunRepository,
   type NarrativeDatabase,
@@ -22,6 +24,22 @@ export class RunServiceError extends ServiceError {
     this.name = "RunServiceError";
   }
 }
+
+/** Keep the order stable so task detail responses and the disabled-action
+ * explanation do not jump around as a run changes state. */
+const ALL_RUN_ACTIONS: readonly RunAvailableAction[] = [
+  "pause",
+  "resume",
+  "cancel",
+  "accept_plan",
+  "switch_to_manual",
+  "accept_manuscript",
+  "request_revision",
+  "discard_manuscript",
+  "use_partial",
+  "regenerate",
+  "retry_chapter",
+];
 
 export function runProductProjection(
   snapshot: RunSnapshot,
@@ -43,6 +61,7 @@ export function runProductProjection(
       ?.outputArtifact ?? null;
   const reason = latestAwaitReason(snapshot);
   const foundation = succeeded("foundation.stage");
+  const webNovel = succeeded("webnovel.stage");
   const canonCandidate = succeeded("canon.stage");
   const edit = succeeded("edit.stage");
   const cocreate = succeeded("cocreate.stage");
@@ -54,7 +73,7 @@ export function runProductProjection(
     .reverse()
     .find((stream) => stream.status === "interrupted");
   const partialCharacters = partial ? [...partial.content].length : 0;
-  let availableActions: string[] = [];
+  let availableActions: RunAvailableAction[] = [];
   if (snapshot.run.status === "awaiting_user") {
     if (reason === "scene_plan_approval_required") {
       availableActions = ["accept_plan", "switch_to_manual", "cancel"];
@@ -83,15 +102,13 @@ export function runProductProjection(
   } else if (snapshot.run.status === "paused") {
     availableActions = ["resume", "cancel"];
   } else if (snapshot.run.status === "failed_recoverable") {
-    availableActions = partial
-      ? [
-          ...(partialCharacters >= MIN_VIABLE_PARTIAL_CHARACTERS
-            ? ["use_partial"]
-            : []),
-          "regenerate",
-          "cancel",
-        ]
-      : ["cancel"];
+    availableActions = ["cancel"];
+    if (partial) {
+      availableActions = ["regenerate", ...availableActions];
+      if (partialCharacters >= MIN_VIABLE_PARTIAL_CHARACTERS) {
+        availableActions = ["use_partial", ...availableActions];
+      }
+    }
   } else if (snapshot.run.status === "failed") {
     // 终态 failed 没有可恢复的步骤语义；章节任务的重开入口 = 新建同章节
     // run（与写作台「重试本章」同一语义），其余配方的现场留在运行中心
@@ -105,6 +122,20 @@ export function runProductProjection(
   } else if (["pending", "running"].includes(snapshot.run.status)) {
     availableActions = ["pause", "cancel"];
   }
+  const actionAvailability = ALL_RUN_ACTIONS.map((action) => ({
+    action,
+    available: availableActions.includes(action),
+    reasonCode: availableActions.includes(action)
+      ? null
+      : unavailableActionReason(
+          action,
+          snapshot,
+          reason,
+          partial,
+          partialCharacters,
+          context,
+        ),
+  }));
   return {
     origin: isRecord(snapshot.run.policy.origin)
       ? snapshot.run.policy.origin
@@ -119,6 +150,7 @@ export function runProductProjection(
         committedChangeSetId(snapshot) ??
         stringValue(adoption, "canonChangeSetId"),
       foundationCandidateSetId: stringValue(foundation, "candidateSetId"),
+      webNovelCandidateSetId: stringValue(webNovel, "candidateSetId"),
       canonCandidateSetId: stringValue(canonCandidate, "candidateSetId"),
       editProposalId: stringValue(edit, "proposalId"),
       cocreateTurnId: stringValue(cocreate, "turnId"),
@@ -142,7 +174,64 @@ export function runProductProjection(
         : null,
     },
     availableActions,
+    actionAvailability,
   };
+}
+
+function unavailableActionReason(
+  action: RunAvailableAction,
+  snapshot: RunSnapshot,
+  awaitReason: string | null,
+  partial:
+    | {
+        stepId: string;
+        attempt: number;
+        content: string;
+        status: "streaming" | "completed" | "interrupted";
+        updatedAt: string;
+      }
+    | undefined,
+  partialCharacters: number,
+  context: { parentTask?: { kind: "autopilot"; id: string } | null },
+): string {
+  const status = snapshot.run.status;
+  const terminal = ["completed", "cancelled"].includes(status);
+
+  if (action === "retry_chapter") {
+    if (context.parentTask) return "run.retry.parent_task";
+    if (
+      snapshot.run.recipe !== "chapter-production" ||
+      snapshot.run.targetOutlineNodeId === null
+    ) {
+      return "run.retry.recipe";
+    }
+    if (status !== "failed") return "run.retry.status";
+  }
+
+  if (terminal) return "run.status.terminal";
+  if (status === "failed" && action !== "retry_chapter") {
+    return "run.status.terminal";
+  }
+  if (action === "pause") {
+    return status === "paused" ? "run.status.not_running" : "run.action.status";
+  }
+  if (action === "resume") {
+    return status === "paused" ? "run.action.status" : "run.status.not_paused";
+  }
+  if (action === "use_partial" || action === "regenerate") {
+    if (status !== "failed_recoverable") return "run.action.status";
+    if (!partial) return "run.partial.unavailable";
+    if (
+      action === "use_partial" &&
+      partialCharacters < MIN_VIABLE_PARTIAL_CHARACTERS
+    ) {
+      return "run.partial.not_viable";
+    }
+  }
+  if (status === "awaiting_user") {
+    return awaitReason ? "run.await_reason.mismatch" : "run.action.status";
+  }
+  return "run.action.status";
 }
 
 export function requireWritingAssignment(
@@ -276,6 +365,68 @@ export function requireAwaitReason(
     throw new RunServiceError(
       "run.action.not_available",
       `The run cannot perform this action right now; expected await reason: ${expected}`,
+      409,
+    );
+  }
+}
+
+/**
+ * The browser checks the draft before showing an approval action, but the
+ * server must repeat that check immediately before turning the approval into
+ * a commit permission. This keeps a second tab or a direct API caller from
+ * approving an AI manuscript over a newer local draft.
+ */
+export function requireManuscriptAcceptanceSafe(
+  database: NarrativeDatabase,
+  snapshot: RunSnapshot,
+): void {
+  const context =
+    [...snapshot.steps]
+      .reverse()
+      .find(
+        (step) =>
+          step.kind === "context.compile" && step.status === "succeeded",
+      )?.outputArtifact ?? null;
+  const documents = new SqliteDocumentRepository(database);
+  const documentId = stringValue(context, "baseDocumentId");
+  const document = documentId
+    ? documents.get(snapshot.run.projectId, documentId)
+    : snapshot.run.targetOutlineNodeId
+      ? documents.getByOutlineNodeId(
+          snapshot.run.projectId,
+          snapshot.run.targetOutlineNodeId,
+        )
+      : null;
+  if (!document) return;
+
+  const expectedVersionId = stringValue(context, "baseVersionId");
+  if (context && document.currentVersionId !== expectedVersionId) {
+    throw new RunServiceError(
+      "run.accept_manuscript.version_conflict",
+      "The manuscript changed while this task was running; refresh the chapter before accepting it",
+      409,
+    );
+  }
+
+  const draft = documents.getDraft(snapshot.run.projectId, document.id);
+  if (!draft) return;
+  const base = expectedVersionId
+    ? documents.getVersion(
+        snapshot.run.projectId,
+        document.id,
+        expectedVersionId,
+      )
+    : null;
+  const draftMatchesBase = Boolean(
+    context &&
+    base &&
+    draft.baseVersionId === expectedVersionId &&
+    draft.contentHash === base.contentHash,
+  );
+  if (!draftMatchesBase) {
+    throw new RunServiceError(
+      "run.accept_manuscript.draft.conflict",
+      "The manuscript has a newer local draft; save or discard it before accepting this task",
       409,
     );
   }

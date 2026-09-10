@@ -52,7 +52,7 @@ const ASSISTANT_TOOL_COPY: readonly AssistantToolDescriptorSeed[] = [
   },
   {
     name: "canon.candidate.start",
-    label: "生成 Canon 候选修改",
+    label: "生成设定候选修改",
     description: "为指定故事板块生成结构化候选修改；采纳仍由作者逐项裁定。",
   },
   {
@@ -69,7 +69,7 @@ const ASSISTANT_TOOL_COPY: readonly AssistantToolDescriptorSeed[] = [
   {
     name: "task.control",
     label: "控制当前任务",
-    description: "控制已经存在的 Run / 快速创作会话，并处理可恢复的章节失败。",
+    description: "控制已经存在的任务或连续创作会话，并处理可恢复的章节失败。",
   },
 ];
 

@@ -17,6 +17,6 @@ describe("任务现场链接", () => {
           branchId: "branch-1",
         },
       }),
-    ).toBe("/projects/p-1/studio?mode=cocreate&session=room-1");
+    ).toBe("/books/p-1/write?mode=cocreate&session=room-1");
   });
 });

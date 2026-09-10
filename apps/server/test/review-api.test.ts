@@ -133,6 +133,151 @@ describe("review workspace API", () => {
     ).toBe("committed");
   });
 
+  it("rejects story-change application when its source manuscript version is stale", async () => {
+    const database = new NodeNarrativeDatabase();
+    const app = await buildApp({
+      database,
+      environment: {},
+      enableRunWorker: false,
+      logger: false,
+      config: {
+        dataDirectory: ".",
+        databasePath: ":memory:",
+        host: "127.0.0.1",
+        port: 4317,
+        environment: "test",
+      },
+    });
+    resources.push({ app, database });
+    const project = (
+      await app.inject({
+        method: "POST",
+        url: "/api/projects",
+        payload: {
+          requestId: "source-version-project",
+          title: "来源版本样本",
+          premise: "正文变化后旧设定候选必须重新确认。",
+        },
+      })
+    ).json() as { id: string };
+    const bible = (
+      await app.inject({
+        method: "GET",
+        url: `/api/projects/${project.id}/story-bible`,
+      })
+    ).json() as { outline: Array<{ id: string; kind: string }> };
+    const chapter = (
+      await app.inject({
+        method: "POST",
+        url: `/api/projects/${project.id}/outline`,
+        payload: {
+          parentId: bible.outline.find((node) => node.kind === "book")!.id,
+          kind: "chapter",
+          ordinal: 0,
+          title: "版本潮汐",
+          summary: "正文版本会发生变化。",
+          goal: "验证候选来源绑定",
+        },
+      })
+    ).json() as { id: string };
+    const document = (
+      await app.inject({
+        method: "POST",
+        url: `/api/projects/${project.id}/documents`,
+        payload: {
+          requestId: "source-version-document",
+          kind: "chapter",
+          title: "版本潮汐",
+          outlineNodeId: chapter.id,
+        },
+      })
+    ).json() as { id: string };
+    const firstVersion = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/documents/${document.id}/versions`,
+      payload: {
+        content: "第一版正文。",
+        source: "manual",
+        expectedCurrentVersionId: null,
+      },
+    });
+    expect(firstVersion.statusCode, firstVersion.body).toBe(201);
+    const firstVersionId = firstVersion.json().id as string;
+
+    const runs = new SqliteRunRepository(database);
+    const recipe = buildChapterRecipe("run-source-version", 0);
+    runs.create({
+      id: "run-source-version",
+      projectId: project.id,
+      recipe: recipe.name,
+      recipeVersion: recipe.version,
+      mode: "manual",
+      targetOutlineNodeId: chapter.id,
+      policy: {},
+      budgetLimit: {
+        maxInputTokens: 10_000,
+        maxOutputTokens: 10_000,
+        maxCalls: 10,
+        maxCostUsd: null,
+        maxWallTimeMs: 60_000,
+      },
+      steps: recipe.steps,
+      now: "2026-08-19T02:00:00.000Z",
+    });
+    new SqliteReviewRepository(database).insertCanonChangeSet({
+      id: "change-set-source-version",
+      projectId: project.id,
+      runId: "run-source-version",
+      stepId: recipe.steps.at(-1)!.id,
+      sourceDocumentId: document.id,
+      sourceDocumentVersionId: firstVersionId,
+      changes: {},
+      status: "candidate",
+      createdAt: "2026-08-19T02:01:00.000Z",
+    });
+
+    const listed = await app.inject({
+      method: "GET",
+      url: `/api/projects/${project.id}/canon-change-sets`,
+    });
+    expect(listed.statusCode, listed.body).toBe(200);
+    expect(listed.json()).toMatchObject({
+      changeSets: [
+        {
+          id: "change-set-source-version",
+          sourceDocumentId: document.id,
+          sourceDocumentVersionId: firstVersionId,
+        },
+      ],
+    });
+
+    const secondVersion = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/documents/${document.id}/versions`,
+      payload: {
+        content: "第二版正文，已经改变证据。",
+        source: "manual",
+        expectedCurrentVersionId: firstVersionId,
+      },
+    });
+    expect(secondVersion.statusCode, secondVersion.body).toBe(201);
+
+    const applied = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/canon-change-sets/change-set-source-version/decisions`,
+      payload: {
+        requestId: "change-set-source-version:apply",
+        action: "apply",
+        expectedStatus: "candidate",
+        conflictPolicy: "reject",
+      },
+    });
+    expect(applied.statusCode, applied.body).toBe(409);
+    expect(applied.json()).toMatchObject({
+      error: { code: "settlement.source_version_conflict" },
+    });
+  });
+
   it("reviews the exact current chapter version without rewriting it", async () => {
     const database = new NodeNarrativeDatabase();
     const app = await buildApp({
@@ -224,6 +369,12 @@ describe("review workspace API", () => {
     expect(created.statusCode, created.body).toBe(202);
     expect(created.json()).toMatchObject({
       run: { recipe: "document-review", mode: "manual" },
+      origin: {
+        surface: "writing",
+        documentId: document.id,
+        versionId: version.id,
+        selection: null,
+      },
       steps: [{ kind: "context.compile" }, { kind: "semantic.review" }],
       idempotentReplay: false,
     });
@@ -307,7 +458,8 @@ describe("review workspace API", () => {
     });
     const project = projectResponse.json() as { id: string };
     const recipe = buildChapterRecipe("run-review", 0);
-    new SqliteRunRepository(database).create({
+    const runs = new SqliteRunRepository(database);
+    runs.create({
       id: "run-review",
       projectId: project.id,
       recipe: recipe.name,
@@ -325,6 +477,25 @@ describe("review workspace API", () => {
       steps: recipe.steps,
       now: "2026-08-10T00:00:00.000Z",
     });
+    const openingReport = await app.inject({
+      method: "POST",
+      url: "/api/projects/" + project.id + "/web-novel/checks/opening-three",
+      payload: {},
+    });
+    expect(openingReport.statusCode).toBe(200);
+    runs.mergePolicy(
+      "run-review",
+      {
+        origin: {
+          surface: "writing",
+          documentId: null,
+          selection: null,
+          checkReportId: openingReport.json().id,
+          checkIssueId: "opening.three_chapters_missing:book",
+        },
+      },
+      "2026-08-10T00:00:00.500Z",
+    );
     const reviewStep = recipe.steps.find(
       (step) => step.kind === "semantic.review",
     )!;
@@ -502,6 +673,68 @@ describe("review workspace API", () => {
         "content-hash",
       ),
     ).toBe(1);
+    const newerVersion = (
+      await app.inject({
+        method: "POST",
+        url: `/api/projects/${project.id}/documents/${document.id}/versions`,
+        payload: {
+          content: "林昼把信收回口袋，决定先查清潮声的来源。",
+          source: "manual",
+          expectedCurrentVersionId: version.id,
+        },
+      })
+    ).json() as { id: string };
+    expect(newerVersion.id).not.toBe(version.id);
+    const staleReportDecision = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/review-issues/issue-2/decisions`,
+      payload: {
+        requestId: "issue-2:stale-report",
+        action: "accept",
+        expectedStatus: "open",
+      },
+    });
+    expect(staleReportDecision.statusCode, staleReportDecision.body).toBe(409);
+    expect(staleReportDecision.json()).toMatchObject({
+      error: {
+        code: "review.report.stale",
+        details: {
+          reportDocumentVersionId: version.id,
+          currentDocumentVersionId: newerVersion.id,
+        },
+      },
+    });
+
+    reviews.insertRevisionProposal({
+      id: "proposal-accepted",
+      projectId: project.id,
+      runId: "run-review",
+      stepId: reviewStep.id,
+      baseDocumentVersionId: newerVersion.id,
+      revisedContent:
+        "林昼把信收回口袋，决定先查清潮声的来源，然后点亮备用灯。",
+      diff: { kind: "opening-check" },
+      addressedIssueIds: [],
+      status: "proposed",
+      createdAt: "2026-08-10T00:01:15.000Z",
+    });
+    const accepted = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/revision-proposals/proposal-accepted/decisions`,
+      payload: {
+        requestId: "proposal-accepted:apply",
+        action: "apply",
+      },
+    });
+    expect(accepted.statusCode, accepted.body).toBe(200);
+    expect(accepted.json()).toMatchObject({
+      proposal: {
+        id: "proposal-accepted",
+        status: "accepted",
+        acceptedDocumentVersionId: "proposal-accepted:accepted-version",
+      },
+      documentVersionId: "proposal-accepted:accepted-version",
+    });
 
     reviews.insertRevisionProposal({
       id: "proposal-decision",
@@ -528,6 +761,33 @@ describe("review workspace API", () => {
     expect(revisionDecision.json()).toMatchObject({
       proposal: { id: "proposal-decision", status: "rejected" },
     });
+    const openingAudit = await app.inject({
+      method: "GET",
+      url:
+        "/api/projects/" + project.id + "/web-novel/checks/opening-three/audit",
+    });
+    expect(openingAudit.statusCode).toBe(200);
+    expect(openingAudit.json()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          eventType: "candidate_decided",
+          action: "reject",
+          reportId: openingReport.json().id,
+          issueId: "opening.three_chapters_missing:book",
+          proposalId: "proposal-decision",
+          runId: "run-review",
+        }),
+        expect.objectContaining({
+          eventType: "candidate_decided",
+          action: "accept",
+          proposalId: "proposal-accepted",
+          runId: "run-review",
+          after: expect.objectContaining({
+            acceptedDocumentVersionId: "proposal-accepted:accepted-version",
+          }),
+        }),
+      ]),
+    );
     const revisionReplay = await app.inject({
       method: "POST",
       url: `/api/projects/${project.id}/revision-proposals/proposal-decision/decisions`,

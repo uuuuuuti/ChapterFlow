@@ -116,8 +116,8 @@ export const settings = {
   },
   tools: {
     label: "高级工具",
-    hintTrial: "运行账本、长篇推演与生产资产（风格 / Writing Skill / 导入管理）。",
-    hintFull: "运行账本、长篇推演、生产资产（风格 / Writing Skill / 导入管理）与系统备份档。",
+    hintTrial: "任务记录、长篇推演与创作资产（风格 / 写作技法 / 导入管理）。",
+    hintFull: "任务记录、长篇推演、创作资产（风格 / 写作技法 / 导入管理）与系统备份档。",
     projectsLoadError: "项目清单暂时无法加载",
     runsLink: "运行中心 · {title}",
     labLink: "长篇推演 · {title}",

@@ -401,6 +401,23 @@ export class SqliteDeliveryRepository {
     return rows.map(mapBatch);
   }
 
+  /**
+   * 查找仍然可操作的同源导入批次。
+   *
+   * source_hash 只代表上传文件的字节内容，不代表作者一定要复用旧批次，
+   * 因而这里不做唯一约束，而是把可供作者选择的重复信息交给服务层/UI。
+   */
+  findImportBatchBySourceHash(sourceHash: string): ImportBatch | null {
+    const row = this.database.raw
+      .prepare(
+        `SELECT * FROM import_batches
+         WHERE source_hash = ? AND status <> 'discarded'
+         ORDER BY created_at DESC LIMIT 1`,
+      )
+      .get(sourceHash) as ImportBatchRow | undefined;
+    return row ? mapBatch(row) : null;
+  }
+
   updateImportBatch(
     id: string,
     patch: Partial<

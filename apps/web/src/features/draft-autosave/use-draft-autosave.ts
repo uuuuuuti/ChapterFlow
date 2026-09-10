@@ -84,6 +84,19 @@ export function useDraftAutosave(
     () => flushCurrentDraft(true),
     [flushCurrentDraft],
   );
+  const resetToServer = useCallback(
+    (nextDetail: StudioDocumentDetail) => {
+      latestDraftRef.current = nextDetail.draft;
+      baseVersionRef.current = nextDetail.document.currentVersionId;
+      cancelScheduledAutosave();
+      const next = nextDetail.draft?.content ?? nextDetail.currentVersion?.content ?? "";
+      contentRef.current = next;
+      savedContentRef.current = next;
+      setContent(next);
+      setDraftSavedContent(next);
+    },
+    [cancelScheduledAutosave],
+  );
   useEffect(() => {
     if (!detail || content === draftSavedContent) return;
     autosaveTimerRef.current = window.setTimeout(() => {
@@ -109,15 +122,8 @@ export function useDraftAutosave(
     if (detailContentIdentity === syncedIdentityRef.current) return;
     syncedIdentityRef.current = detailContentIdentity;
     if (contentRef.current !== savedContentRef.current) return;
-    latestDraftRef.current = detail.draft;
-    baseVersionRef.current = detail.document.currentVersionId;
-    cancelScheduledAutosave();
-    const next = detail.draft?.content ?? detail.currentVersion?.content ?? "";
-    contentRef.current = next;
-    savedContentRef.current = next;
-    setContent(next);
-    setDraftSavedContent(next);
-  }, [cancelScheduledAutosave, detail, detailContentIdentity]);
+    resetToServer(detail);
+  }, [detail, detailContentIdentity, resetToServer]);
   useEffect(() => {
     onFlushReady(flushDraft);
     return () => onFlushReady(null);
@@ -153,5 +159,6 @@ export function useDraftAutosave(
     cancelScheduledAutosave,
     flushDraft,
     retryDraft,
+    resetToServer,
   };
 }

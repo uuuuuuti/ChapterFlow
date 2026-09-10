@@ -130,6 +130,73 @@ describe("story kernel API", () => {
     ).toEqual({ count: 1 });
   });
 
+  it("creates a chapter outline and manuscript atomically with replay protection", async () => {
+    const { app, database } = await setup();
+    const project = await createProject(app, "原子章节");
+    const bible = (
+      await app.inject({
+        method: "GET",
+        url: `/api/projects/${project.id}/story-bible`,
+      })
+    ).json() as { outline: Array<{ id: string; kind: string }> };
+    const root = bible.outline.find((node) => node.kind === "book")!;
+    const payload = {
+      requestId: "chapter-create-replay",
+      title: "潮声入港",
+      parentId: root.id,
+    };
+    const first = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/chapters`,
+      payload,
+    });
+    const replay = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/chapters`,
+      payload,
+    });
+    expect(first.statusCode, first.body).toBe(201);
+    expect(replay.statusCode, replay.body).toBe(201);
+    expect(replay.json()).toEqual(first.json());
+    expect(first.json()).toMatchObject({
+      outline: {
+        projectId: project.id,
+        kind: "chapter",
+        parentId: root.id,
+        title: "潮声入港",
+      },
+      document: {
+        projectId: project.id,
+        kind: "chapter",
+        outlineNodeId: expect.any(String),
+        title: "潮声入港",
+      },
+    });
+    expect(first.json().document.outlineNodeId).toBe(first.json().outline.id);
+    expect(
+      database.raw
+        .prepare("SELECT COUNT(*) AS count FROM documents WHERE project_id = ?")
+        .get(project.id),
+    ).toEqual({ count: 1 });
+    expect(
+      database.raw
+        .prepare(
+          "SELECT COUNT(*) AS count FROM outline_nodes WHERE project_id = ? AND kind = 'chapter'",
+        )
+        .get(project.id),
+    ).toEqual({ count: 1 });
+
+    const conflict = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/chapters`,
+      payload: { ...payload, title: "另一章" },
+    });
+    expect(conflict.statusCode).toBe(409);
+    expect(conflict.json()).toMatchObject({
+      error: { code: "chapter.create.idempotency_conflict" },
+    });
+  });
+
   it("creates a fully initialized project and story-bible snapshot", async () => {
     const { app } = await setup();
     const project = await createProject(app);
@@ -146,6 +213,175 @@ describe("story kernel API", () => {
       documents: [],
       entities: [],
       facts: [],
+    });
+  });
+
+  it("indexes manuscript, version, and outline evidence for native canon links", async () => {
+    const { app } = await setup();
+    const project = await createProject(app, "证据索引");
+    const entity = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/entities`,
+      payload: {
+        type: "character",
+        name: "沈砚",
+        aliases: ["守塔人"],
+        description: null,
+        attributes: {},
+      },
+    });
+    expect(entity.statusCode, entity.body).toBe(201);
+    const bible = (
+      await app.inject({
+        method: "GET",
+        url: `/api/projects/${project.id}/story-bible`,
+      })
+    ).json() as { outline: Array<{ id: string; kind: string }> };
+    const root = bible.outline.find((node) => node.kind === "book")!;
+    const chapter = (
+      await app.inject({
+        method: "POST",
+        url: `/api/projects/${project.id}/chapters`,
+        payload: {
+          requestId: "evidence-chapter",
+          title: "雾港来信",
+          parentId: root.id,
+        },
+      })
+    ).json() as { outline: { id: string }; document: { id: string } };
+    const first = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/documents/${chapter.document.id}/versions`,
+      payload: {
+        content: "第一版：雾港的钟声在凌晨响起。",
+        source: "manual",
+        expectedCurrentVersionId: null,
+      },
+    });
+    expect(first.statusCode, first.body).toBe(201);
+    const second = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/documents/${chapter.document.id}/versions`,
+      payload: {
+        content:
+          "第二版：雾港的钟声在凌晨响起，沈砚带着一封未署名的信走进灯塔。",
+        source: "manual",
+        expectedCurrentVersionId: first.json().id,
+      },
+    });
+    expect(second.statusCode, second.body).toBe(201);
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/projects/${project.id}/story-evidence`,
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    const refs = response.json() as Array<Record<string, unknown>>;
+    expect(refs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceType: "document",
+          sourceId: chapter.document.id,
+          documentId: chapter.document.id,
+          outlineNodeId: chapter.outline.id,
+          versionId: second.json().id,
+          excerpt: expect.stringContaining("未署名的信"),
+          entityIds: [entity.json().id],
+        }),
+        expect.objectContaining({
+          sourceType: "document_version",
+          sourceId: first.json().id,
+          documentId: chapter.document.id,
+          wordCount: expect.any(Number),
+        }),
+        expect.objectContaining({
+          sourceType: "outline_node",
+          sourceId: chapter.outline.id,
+          documentId: chapter.document.id,
+          versionId: second.json().id,
+        }),
+      ]),
+    );
+  });
+
+  it("previews outline removal impact before protecting referenced chapters", async () => {
+    const { app } = await setup();
+    const project = await createProject(app, "删除影响预览");
+    const bible = (
+      await app.inject({
+        method: "GET",
+        url: `/api/projects/${project.id}/story-bible`,
+      })
+    ).json() as { outline: Array<{ id: string; kind: string }> };
+    const root = bible.outline.find((node) => node.kind === "book")!;
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/outline`,
+      payload: {
+        parentId: root.id,
+        kind: "chapter",
+        ordinal: 0,
+        title: "会被引用的章节",
+        summary: null,
+        metadata: {},
+      },
+    });
+    expect(created.statusCode, created.body).toBe(201);
+    const chapter = created.json() as { id: string; updatedAt: string };
+
+    const emptyImpact = await app.inject({
+      method: "GET",
+      url: `/api/projects/${project.id}/outline/${chapter.id}/removal-impact`,
+    });
+    expect(emptyImpact.statusCode, emptyImpact.body).toBe(200);
+    expect(emptyImpact.json()).toMatchObject({
+      id: chapter.id,
+      totalReferences: 0,
+      canDelete: true,
+      dispositionIfConfirmed: "deleted",
+    });
+
+    const document = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/documents`,
+      payload: {
+        requestId: "outline-removal-impact-document",
+        kind: "chapter",
+        title: "正文引用",
+        outlineNodeId: chapter.id,
+      },
+    });
+    expect(document.statusCode, document.body).toBe(201);
+
+    const referencedImpact = await app.inject({
+      method: "GET",
+      url: `/api/projects/${project.id}/outline/${chapter.id}/removal-impact`,
+    });
+    expect(referencedImpact.statusCode, referencedImpact.body).toBe(200);
+    expect(referencedImpact.json()).toMatchObject({
+      id: chapter.id,
+      canDelete: false,
+      dispositionIfConfirmed: "abandoned",
+      references: [
+        expect.objectContaining({
+          table: "documents",
+          column: "outline_node_id",
+          label: "正文绑定",
+          count: 1,
+        }),
+      ],
+    });
+
+    const removed = await app.inject({
+      method: "DELETE",
+      url: `/api/projects/${project.id}/outline/${chapter.id}`,
+      payload: { expectedUpdatedAt: chapter.updatedAt },
+    });
+    expect(removed.statusCode, removed.body).toBe(200);
+    expect(removed.json()).toMatchObject({
+      id: chapter.id,
+      disposition: "abandoned",
+      references: 1,
     });
   });
 
@@ -536,6 +772,39 @@ describe("story kernel API", () => {
       },
     });
     expect(relationshipCorrection.statusCode).toBe(201);
+    const staleRelationshipCorrection = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/relationships`,
+      payload: {
+        fromEntityId: hero.id,
+        toEntityId: harbor.id,
+        relation: "守护",
+        intensity: 0.7,
+        state: { stale: true },
+        outlineNodeId: chapter.id,
+        storyTime: "海历 117 年·春",
+        sourceId: null,
+        supersedesEventId: relationshipEvent.id,
+      },
+    });
+    expect(staleRelationshipCorrection.statusCode).toBe(409);
+    expect(staleRelationshipCorrection.json().error.code).toBe(
+      "relationship.version.conflict",
+    );
+    const relationshipHistory = await app.inject({
+      method: "GET",
+      url: `/api/projects/${project.id}/relationships/history`,
+    });
+    expect(relationshipHistory.statusCode, relationshipHistory.body).toBe(200);
+    expect(relationshipHistory.json()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: relationshipEvent.id,
+          supersedesEventId: null,
+        }),
+        expect.objectContaining({ supersedesEventId: relationshipEvent.id }),
+      ]),
+    );
 
     const timelineResponse = await app.inject({
       method: "POST",
@@ -625,6 +894,60 @@ describe("story kernel API", () => {
       status: "developing",
       importance: 5,
     });
+
+    const entitiesList = await app.inject({
+      method: "GET",
+      url: `/api/projects/${project.id}/entities?includeRetired=true`,
+    });
+    expect(entitiesList.statusCode).toBe(200);
+    expect(entitiesList.json().map((item: { id: string }) => item.id)).toEqual(
+      expect.arrayContaining([hero.id, harbor.id]),
+    );
+    const factsList = await app.inject({
+      method: "GET",
+      url: `/api/projects/${project.id}/facts?includeCandidates=true`,
+    });
+    expect(factsList.statusCode).toBe(200);
+    expect(factsList.json()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ subjectId: hero.id, authority: "locked" }),
+      ]),
+    );
+    const relationshipsList = await app.inject({
+      method: "GET",
+      url: `/api/projects/${project.id}/relationships`,
+    });
+    expect(relationshipsList.statusCode).toBe(200);
+    expect(relationshipsList.json()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ supersedesEventId: relationshipEvent.id }),
+      ]),
+    );
+    const timelineList = await app.inject({
+      method: "GET",
+      url: `/api/projects/${project.id}/timeline`,
+    });
+    expect(timelineList.statusCode).toBe(200);
+    expect(timelineList.json()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: timeline.id, sequence: 11 }),
+      ]),
+    );
+    const foreshadowsList = await app.inject({
+      method: "GET",
+      url: `/api/projects/${project.id}/foreshadows`,
+    });
+    expect(foreshadowsList.statusCode).toBe(200);
+    expect(foreshadowsList.json()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: foreshadowItem.id, importance: 5 }),
+      ]),
+    );
+    const invalidResource = await app.inject({
+      method: "GET",
+      url: "/api/projects/missing-project/facts",
+    });
+    expect(invalidResource.statusCode).toBe(404);
 
     const preview = await app.inject({
       method: "POST",
@@ -828,6 +1151,87 @@ describe("story kernel API", () => {
       goal: "发现遗忘规则",
       status: "review",
     });
+    const secondChapterResponse = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/outline`,
+      payload: {
+        parentId: initial.outline[0]!.id,
+        kind: "chapter",
+        ordinal: 1,
+        title: "第二章 潮声",
+        summary: null,
+        metadata: {},
+      },
+    });
+    const secondChapter = secondChapterResponse.json() as {
+      id: string;
+      updatedAt: string;
+    };
+    const movedChapter = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/outline/${chapter.id}/move`,
+      payload: {
+        parentId: initial.outline[0]!.id,
+        ordinal: 1,
+        expectedUpdatedAt: (updatedChapter.json() as { updatedAt: string })
+          .updatedAt,
+      },
+    });
+    expect(movedChapter.statusCode).toBe(200);
+    expect(movedChapter.json()).toMatchObject({ ordinal: 1 });
+    const movedOutline = (
+      await app.inject({
+        method: "GET",
+        url: `/api/projects/${project.id}/story-bible`,
+      })
+    ).json() as { outline: { id: string; ordinal: number }[] };
+    expect(
+      movedOutline.outline.find((node) => node.id === chapter.id)?.ordinal,
+    ).toBe(1);
+    expect(
+      movedOutline.outline.find((node) => node.id === secondChapter.id)
+        ?.ordinal,
+    ).toBe(0);
+    const volumeResponse = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/outline`,
+      payload: {
+        parentId: initial.outline[0]!.id,
+        kind: "volume",
+        ordinal: 2,
+        title: "第一卷",
+        summary: null,
+        metadata: {},
+      },
+    });
+    const volume = volumeResponse.json() as { id: string; path: string };
+    const crossLevelMove = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/outline/${chapter.id}/move`,
+      payload: {
+        parentId: volume.id,
+        ordinal: 0,
+        expectedUpdatedAt: (movedChapter.json() as { updatedAt: string })
+          .updatedAt,
+      },
+    });
+    expect(crossLevelMove.statusCode).toBe(200);
+    expect(crossLevelMove.json()).toMatchObject({
+      parentId: volume.id,
+      path: `${volume.path}/${chapter.id}`,
+      depth: 2,
+    });
+    const illegalMove = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/outline/${chapter.id}/move`,
+      payload: {
+        parentId: chapter.id,
+        ordinal: 0,
+        expectedUpdatedAt: (crossLevelMove.json() as { updatedAt: string })
+          .updatedAt,
+      },
+    });
+    expect(illegalMove.statusCode).toBe(409);
 
     const factResponse = await app.inject({
       method: "POST",
@@ -919,5 +1323,306 @@ describe("story kernel API", () => {
       })
     ).json() as { facts: unknown[] };
     expect(afterWithdrawal.facts).toEqual([]);
+  });
+
+  it("moves outline selections atomically and supports safe copy and undo", async () => {
+    const { app } = await setup();
+    const project = await createProject(app, "结构操作回归");
+    const initial = (
+      await app.inject({
+        method: "GET",
+        url: `/api/projects/${project.id}/story-bible`,
+      })
+    ).json() as {
+      outline: Array<{ id: string; kind: string; updatedAt: string }>;
+    };
+    const root = initial.outline.find((node) => node.kind === "book")!;
+    const volume = (
+      await app.inject({
+        method: "POST",
+        url: `/api/projects/${project.id}/outline`,
+        payload: {
+          parentId: root.id,
+          kind: "volume",
+          ordinal: 0,
+          title: "第一卷",
+          summary: null,
+          metadata: {},
+        },
+      })
+    ).json() as { id: string; path: string; updatedAt: string };
+    const chapterOne = (
+      await app.inject({
+        method: "POST",
+        url: `/api/projects/${project.id}/outline`,
+        payload: {
+          parentId: root.id,
+          kind: "chapter",
+          ordinal: 1,
+          title: "第一章",
+          summary: null,
+          metadata: {},
+        },
+      })
+    ).json() as { id: string; updatedAt: string };
+    const chapterTwo = (
+      await app.inject({
+        method: "POST",
+        url: `/api/projects/${project.id}/outline`,
+        payload: {
+          parentId: root.id,
+          kind: "chapter",
+          ordinal: 2,
+          title: "第二章",
+          summary: null,
+          metadata: {},
+        },
+      })
+    ).json() as { id: string; updatedAt: string };
+
+    const moved = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/outline/batch-move`,
+      payload: {
+        parentId: volume.id,
+        ordinal: 0,
+        items: [
+          { nodeId: chapterOne.id, expectedUpdatedAt: chapterOne.updatedAt },
+          { nodeId: chapterTwo.id, expectedUpdatedAt: chapterTwo.updatedAt },
+        ],
+      },
+    });
+    expect(moved.statusCode, moved.body).toBe(200);
+    expect(moved.json()).toMatchObject({
+      operation: { operation: "batch_move", undoneAt: null },
+      nodes: expect.arrayContaining([
+        expect.objectContaining({
+          id: chapterOne.id,
+          parentId: volume.id,
+          path: `${volume.path}/${chapterOne.id}`,
+          ordinal: 0,
+        }),
+        expect.objectContaining({
+          id: chapterTwo.id,
+          parentId: volume.id,
+          path: `${volume.path}/${chapterTwo.id}`,
+          ordinal: 1,
+        }),
+      ]),
+    });
+    const operationId = moved.json().operation.id as string;
+    const stale = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/outline/batch-move`,
+      payload: {
+        parentId: root.id,
+        ordinal: 0,
+        items: [
+          { nodeId: chapterOne.id, expectedUpdatedAt: chapterOne.updatedAt },
+        ],
+      },
+    });
+    expect(stale.statusCode).toBe(409);
+    expect(stale.json()).toMatchObject({
+      error: { code: "outline.version.conflict" },
+    });
+
+    const snapshotAfterMove = (
+      await app.inject({
+        method: "GET",
+        url: `/api/projects/${project.id}/story-bible`,
+      })
+    ).json() as { outline: Array<{ id: string; updatedAt: string }> };
+    const undone = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/outline/operations/${operationId}/undo`,
+      payload: {
+        expectedUpdatedAtByNode: Object.fromEntries(
+          snapshotAfterMove.outline.map((node) => [node.id, node.updatedAt]),
+        ),
+      },
+    });
+    expect(undone.statusCode, undone.body).toBe(200);
+    expect(undone.json()).toMatchObject({
+      operation: { id: operationId, undoneAt: expect.any(String) },
+    });
+    const restored = (
+      await app.inject({
+        method: "GET",
+        url: `/api/projects/${project.id}/story-bible`,
+      })
+    ).json() as {
+      outline: Array<{
+        id: string;
+        parentId: string | null;
+        updatedAt: string;
+      }>;
+    };
+    expect(
+      restored.outline.find((node) => node.id === chapterOne.id)?.parentId,
+    ).toBe(root.id);
+    expect(
+      restored.outline.find((node) => node.id === chapterTwo.id)?.parentId,
+    ).toBe(root.id);
+
+    const copied = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/outline/${chapterOne.id}/copy`,
+      payload: {
+        parentId: volume.id,
+        ordinal: 0,
+        expectedUpdatedAt: restored.outline.find(
+          (node) => node.id === chapterOne.id,
+        )!.updatedAt,
+      },
+    });
+    expect(copied.statusCode, copied.body).toBe(201);
+    expect(copied.json()).toMatchObject({
+      root: { parentId: volume.id, title: "第一章（副本）" },
+      operation: { operation: "copy" },
+    });
+    const copyOperationId = copied.json().operation.id as string;
+    const copiedSnapshot = (
+      await app.inject({
+        method: "GET",
+        url: `/api/projects/${project.id}/story-bible`,
+      })
+    ).json() as { outline: Array<{ id: string; updatedAt: string }> };
+    const copyUndo = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/outline/operations/${copyOperationId}/undo`,
+      payload: {
+        expectedUpdatedAtByNode: Object.fromEntries(
+          copiedSnapshot.outline.map((node) => [node.id, node.updatedAt]),
+        ),
+      },
+    });
+    expect(copyUndo.statusCode, copyUndo.body).toBe(200);
+    expect(
+      (
+        await app.inject({
+          method: "GET",
+          url: `/api/projects/${project.id}/story-bible`,
+        })
+      ).json().outline,
+    ).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ title: "第一章（副本）" }),
+      ]),
+    );
+  });
+
+  it("saves outline character and foreshadow associations with version guards", async () => {
+    const { app } = await setup();
+    const project = await createProject(app, "关联工作流");
+    const initial = (
+      await app.inject({
+        method: "GET",
+        url: `/api/projects/${project.id}/story-bible`,
+      })
+    ).json() as { outline: { id: string; kind: string }[] };
+    const root = initial.outline.find((node) => node.kind === "book")!;
+    const chapter = (
+      await app.inject({
+        method: "POST",
+        url: `/api/projects/${project.id}/outline`,
+        payload: {
+          parentId: root.id,
+          kind: "chapter",
+          ordinal: 0,
+          title: "关联章节",
+          summary: null,
+          metadata: {},
+        },
+      })
+    ).json() as { id: string; updatedAt: string };
+    const entity = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/entities`,
+      payload: {
+        type: "character",
+        name: "林昼",
+        aliases: [],
+        description: "守灯人的女儿",
+        attributes: {},
+      },
+    });
+    expect(entity.statusCode, entity.body).toBe(201);
+    const foreshadow = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/foreshadows`,
+      payload: {
+        title: "第三下钟声",
+        description: "灯塔每次熄灭前都会响起第三下钟声。",
+        status: "planned",
+        importance: 4,
+        targetFromNodeId: chapter.id,
+        targetToNodeId: null,
+        dependencies: [],
+        evidenceNodeIds: [],
+        resolutionNodeId: null,
+      },
+    });
+    expect(foreshadow.statusCode, foreshadow.body).toBe(201);
+    const foreshadowItem = foreshadow.json() as {
+      id: string;
+      updatedAt: string;
+    };
+    const timeline = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/timeline`,
+      payload: {
+        title: "潮声退去",
+        description: "港口在钟声后短暂失去潮汐。",
+        outlineNodeId: null,
+        storyTimeStart: null,
+        storyTimeEnd: null,
+        sequence: 0,
+        participants: [],
+        causes: [],
+        visibility: "reader",
+        sourceId: null,
+      },
+    });
+    expect(timeline.statusCode, timeline.body).toBe(201);
+    const timelineItem = timeline.json() as { id: string; updatedAt: string };
+    const associated = await app.inject({
+      method: "PUT",
+      url: `/api/projects/${project.id}/outline/${chapter.id}/associations`,
+      payload: {
+        povEntityId: entity.json().id,
+        foreshadowIds: [foreshadowItem.id],
+        timelineEventIds: [timelineItem.id],
+        expectedUpdatedAt: chapter.updatedAt,
+        expectedForeshadowUpdatedAt: {
+          [foreshadowItem.id]: foreshadowItem.updatedAt,
+        },
+        expectedTimelineUpdatedAt: {
+          [timelineItem.id]: timelineItem.updatedAt,
+        },
+      },
+    });
+    expect(associated.statusCode, associated.body).toBe(200);
+    expect(associated.json()).toMatchObject({
+      node: { id: chapter.id, povEntityId: entity.json().id },
+      foreshadows: [{ id: foreshadowItem.id, evidenceNodeIds: [chapter.id] }],
+      timelines: [{ id: timelineItem.id, outlineNodeId: chapter.id }],
+    });
+    const stale = await app.inject({
+      method: "PUT",
+      url: `/api/projects/${project.id}/outline/${chapter.id}/associations`,
+      payload: {
+        povEntityId: null,
+        foreshadowIds: [],
+        expectedUpdatedAt: chapter.updatedAt,
+        expectedForeshadowUpdatedAt: {
+          [foreshadowItem.id]: foreshadowItem.updatedAt,
+        },
+      },
+    });
+    expect(stale.statusCode).toBe(409);
+    expect(stale.json()).toMatchObject({
+      error: { code: "outline.version.conflict" },
+    });
   });
 });

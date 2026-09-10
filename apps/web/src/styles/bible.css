@@ -813,6 +813,90 @@
   gap: 0.75rem;
 }
 
+.bible-ai__comparison {
+  display: grid;
+  gap: 0.65rem;
+  border: 1px solid var(--hairline);
+  padding: 0.75rem 0.8rem;
+  background: var(--paper-sunk);
+}
+
+.bible-ai__comparison > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.bible-ai__comparison > header > span,
+.bible-ai__comparison-grid span,
+.bible-ai__comparison-grid small {
+  color: var(--ink-faint);
+  font-size: 0.64rem;
+}
+
+.bible-ai__comparison h4 {
+  margin: 0.2rem 0 0;
+  color: var(--ink);
+  font-size: 0.82rem;
+}
+
+.bible-ai__comparison-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.bible-ai__comparison-grid article {
+  display: grid;
+  gap: 0.22rem;
+  min-width: 0;
+  border: 1px solid var(--hairline);
+  padding: 0.5rem;
+  background: var(--paper);
+}
+
+.bible-ai__comparison-grid strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 0.72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bible-ai__comparison-diffs {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+}
+
+.bible-ai__comparison-diffs > div {
+  display: grid;
+  grid-template-columns: minmax(6rem, 0.7fr) minmax(0, 1.3fr);
+  gap: 0.5rem;
+  border-top: 1px dashed var(--hairline);
+  padding-top: 0.35rem;
+}
+
+.bible-ai__comparison-diffs dt {
+  color: var(--ink);
+  font-size: 0.7rem;
+  font-weight: 650;
+}
+
+.bible-ai__comparison-diffs dd {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.68rem;
+  line-height: 1.45;
+}
+
+.bible-ai__comparison > p {
+  margin: 0;
+  color: var(--ink-faint);
+  font-size: 0.68rem;
+}
+
 .bible-ai__set {
   border: 1px solid var(--hairline);
   border-radius: var(--radius-card);
@@ -867,6 +951,65 @@
 .bible-ai__stale svg {
   flex: 0 0 auto;
   margin-top: 0.12rem;
+}
+
+.bible-ai__lineage {
+  margin: 0 0.8rem 0.4rem;
+  color: var(--ink-faint);
+  font-size: 0.62rem;
+  line-height: 1.5;
+}
+
+.bible-ai__lineage a {
+  margin-left: 0.35rem;
+  color: var(--vera-deep);
+  text-decoration: underline;
+  text-underline-offset: 0.12em;
+}
+
+.bible-ai__evidence {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0.75rem 0;
+  padding: 0;
+  list-style: none;
+}
+
+.bible-ai__evidence li {
+  display: grid;
+  gap: 0.28rem;
+  border-left: 2px solid var(--hairline);
+  padding-left: 0.7rem;
+  color: var(--ink-faint);
+  font-size: 0.72rem;
+}
+
+.bible-ai__evidence li > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.45rem;
+}
+
+.bible-ai__evidence strong {
+  color: var(--ink);
+  font-size: 0.76rem;
+}
+
+.bible-ai__evidence blockquote {
+  margin: 0;
+  color: var(--ink-soft);
+  line-height: 1.55;
+}
+
+.bible-ai__evidence a {
+  width: fit-content;
+  color: var(--vera-deep);
+  text-decoration: none;
+}
+
+.bible-ai__evidence a:hover {
+  text-decoration: underline;
 }
 
 .bible-ai__items {
@@ -1050,6 +1193,15 @@
 }
 
 @media (max-width: 520px) {
+  .bible-ai__comparison-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .bible-ai__comparison-diffs > div {
+    grid-template-columns: 1fr;
+    gap: 0.2rem;
+  }
+
   .bible-ai__actions {
     display: grid;
     grid-template-columns: 1fr 1.35fr;

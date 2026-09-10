@@ -21,6 +21,7 @@ import {
   RevertTurnRequestSchema,
   SaveDocumentDraftRequestSchema,
   SetDocumentArchivedRequestSchema,
+  UpdateDocumentTitleRequestSchema,
   SelectBranchRequestSchema,
   SelectSwipeRequestSchema,
   StoryBranchSchema,
@@ -40,6 +41,8 @@ import {
   SqliteProjectRepository,
   SqliteRequestReplayRepository,
   SqliteRunRepository,
+  SqliteStoryRepository,
+  SqliteWebNovelRepository,
   type NarrativeDatabase,
 } from "@narralume/persistence";
 import { z } from "zod";
@@ -86,9 +89,11 @@ export function registerStudioRoutes(
 ): void {
   const creative = new SqliteCreativeRepository(database);
   const documents = new SqliteDocumentRepository(database);
+  const story = new SqliteStoryRepository(database);
   const projects = new SqliteProjectRepository(database);
   const runs = new SqliteRunRepository(database);
   const requestReplays = new SqliteRequestReplayRepository(database);
+  const webNovel = new SqliteWebNovelRepository(database);
 
   app.route("GET", "/api/projects/:projectId/personas", async (request) => {
     const { projectId } = ProjectParamsSchema.parse(request.params);
@@ -688,6 +693,63 @@ export function registerStudioRoutes(
 
   app.route(
     "PUT",
+    "/api/projects/:projectId/studio/documents/:documentId",
+    async (request) => {
+      const { projectId, documentId } = DocumentParamsSchema.parse(
+        request.params,
+      );
+      const input = UpdateDocumentTitleRequestSchema.parse(request.body);
+      const current = documents.get(projectId, documentId);
+      if (!current)
+        throw new StudioRouteError(
+          "document.not_found",
+          "Document not found",
+          404,
+        );
+      if (current.updatedAt !== input.expectedUpdatedAt)
+        throw new StudioRouteError(
+          "document.version.conflict",
+          "The document has changed; refresh before renaming it",
+          409,
+        );
+      const linkedNode = current.outlineNodeId
+        ? story.getOutlineNode(projectId, current.outlineNodeId)
+        : null;
+      if (
+        linkedNode &&
+        input.expectedOutlineUpdatedAt &&
+        input.expectedOutlineUpdatedAt !== linkedNode.updatedAt
+      ) {
+        throw new StudioRouteError(
+          "outline.version.conflict",
+          "The linked outline node has changed; refresh before renaming it",
+          409,
+        );
+      }
+      const now = nextUpdatedAt(current.updatedAt);
+      return database.transaction(() => {
+        const renamed = documents.updateTitle(
+          projectId,
+          documentId,
+          input.title,
+          input.expectedUpdatedAt,
+          now,
+        );
+        if (linkedNode) {
+          story.updateOutlineDetails(
+            projectId,
+            linkedNode.id,
+            { title: input.title },
+            nextUpdatedAt(linkedNode.updatedAt),
+          );
+        }
+        return renamed;
+      });
+    },
+  );
+
+  app.route(
+    "PUT",
     "/api/projects/:projectId/studio/documents/:documentId/draft",
     async (request) => {
       const { projectId, documentId } = DocumentParamsSchema.parse(
@@ -783,9 +845,15 @@ export function registerStudioRoutes(
     const { commentId } = CommentParamsSchema.parse(request.params);
     const input = UpdateDocumentCommentRequestSchema.parse(request.body);
     return DocumentCommentSchema.parse(
-      creative.setCommentStatus(
+      creative.updateComment(
         commentId,
-        input.status,
+        {
+          ...(input.body !== undefined ? { body: input.body } : {}),
+          ...(input.status !== undefined ? { status: input.status } : {}),
+          ...(input.expectedUpdatedAt !== undefined
+            ? { expectedUpdatedAt: input.expectedUpdatedAt }
+            : {}),
+        },
         new Date().toISOString(),
       ),
     );
@@ -809,6 +877,7 @@ export function registerStudioRoutes(
         selectionEnd: input.selectionEnd,
         instruction: input.instruction,
         requestPolicy: input.policy,
+        requestOrigin: input.origin,
         environment: options.environment,
       });
       wake(options);
@@ -867,10 +936,30 @@ export function registerStudioRoutes(
         }
 
         const now = new Date().toISOString();
+        const openingOrigin = webNovel.getOpeningCheckOrigin(
+          proposal.projectId,
+          proposal.runId,
+        );
         if (input.action === "reject") {
           const result = EditProposalSchema.parse(
             creative.decideEditProposal(proposalId, "rejected", null, now),
           );
+          if (openingOrigin) {
+            webNovel.insertOpeningCheckAudit({
+              projectId: proposal.projectId,
+              reportId: openingOrigin.reportId,
+              issueId: openingOrigin.issueId,
+              runId: proposal.runId,
+              eventType: "candidate_decided",
+              action: "reject",
+              before: { status: proposal.status },
+              after: {
+                status: result.status,
+                acceptedVersionId: result.acceptedVersionId,
+              },
+              createdAt: now,
+            });
+          }
           requestReplays.insert({
             scope,
             requestId: input.requestId,
@@ -889,6 +978,22 @@ export function registerStudioRoutes(
           coordinatorWake: () => wake(options),
         });
         const result = EditProposalSchema.parse(decided);
+        if (openingOrigin) {
+          webNovel.insertOpeningCheckAudit({
+            projectId: proposal.projectId,
+            reportId: openingOrigin.reportId,
+            issueId: openingOrigin.issueId,
+            runId: proposal.runId,
+            eventType: "candidate_decided",
+            action: "accept",
+            before: { status: proposal.status },
+            after: {
+              status: result.status,
+              acceptedVersionId: result.acceptedVersionId,
+            },
+            createdAt: now,
+          });
+        }
         requestReplays.insert({
           scope,
           requestId: input.requestId,
@@ -909,4 +1014,9 @@ function wake(options: {
   enableBackgroundWorker: boolean;
 }) {
   if (options.enableBackgroundWorker) options.coordinator.wake();
+}
+
+function nextUpdatedAt(previous: string): string {
+  const previousMs = Date.parse(previous);
+  return new Date(Math.max(Date.now(), previousMs + 1)).toISOString();
 }

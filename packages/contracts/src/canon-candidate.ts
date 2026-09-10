@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { RunOriginSchema } from "./run.js";
 
 const IdSchema = z.string().trim().min(1).max(300);
 const TimestampSchema = z.string().min(1);
@@ -27,6 +28,28 @@ export const CanonCandidateDiffFieldSchema = z.object({
   after: z.unknown().nullable(),
 });
 
+/** A compact, human-readable fragment that explains where a candidate came from. */
+export const CanonCandidateEvidenceSchema = z.object({
+  sourceType: z.enum([
+    "outline",
+    "entity",
+    "fact",
+    "relation",
+    "timeline",
+    "foreshadow",
+    "document",
+    "profile",
+    "brief",
+  ]),
+  sourceId: IdSchema,
+  label: z.string().trim().min(1).max(500),
+  quote: z.string().trim().min(1).max(4_000),
+  versionId: IdSchema.nullable().default(null),
+});
+export type CanonCandidateEvidence = z.infer<
+  typeof CanonCandidateEvidenceSchema
+>;
+
 export const CanonCandidateDecisionSchema = z.object({
   action: z.enum(["apply", "reject"]),
   result: JsonObjectSchema.nullable(),
@@ -43,6 +66,7 @@ export const CanonCandidateItemSchema = z.object({
   before: JsonObjectSchema.nullable(),
   after: JsonObjectSchema.nullable(),
   diff: z.array(CanonCandidateDiffFieldSchema),
+  evidence: z.array(CanonCandidateEvidenceSchema).max(8).default([]),
   requiresLockedConfirmation: z.boolean(),
   decision: CanonCandidateDecisionSchema.nullable(),
 });
@@ -52,6 +76,11 @@ export const CanonCandidateSetSchema = z.object({
   projectId: IdSchema,
   runId: IdSchema,
   stepId: IdSchema,
+  /** Manuscript lineage for candidates produced from a chapter run. */
+  sourceDocumentId: IdSchema.nullable().default(null),
+  sourceDocumentVersionId: IdSchema.nullable().default(null),
+  sourceOutlineNodeId: IdSchema.nullable().default(null),
+  sourceOutlineUpdatedAt: TimestampSchema.nullable().default(null),
   spread: CanonSpreadSchema,
   instruction: z.string(),
   summary: z.string(),
@@ -69,6 +98,8 @@ export type CanonCandidateItemDto = z.infer<typeof CanonCandidateItemSchema>;
 export const CreateCanonCandidateRequestSchema = z.object({
   requestId: z.string().uuid(),
   instruction: z.string().trim().min(1).max(100_000),
+  /** Native pages may provide the exact outline context that opened the composer. */
+  origin: RunOriginSchema.nullable().optional(),
 });
 export type CreateCanonCandidateRequest = z.infer<
   typeof CreateCanonCandidateRequestSchema

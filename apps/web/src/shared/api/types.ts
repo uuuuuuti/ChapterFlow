@@ -39,6 +39,23 @@ import {
   type UpsertModelRequest,
   type UpsertProviderRequest,
   type WireApi,
+  type BookProfileDto,
+  type BookProfileHistoryDto,
+  type ChapterBriefDto,
+  type ChapterBriefHistoryDto,
+  type WebNovelCandidateItemDto,
+  type WebNovelCandidateKind,
+  type WebNovelCandidateSetDto,
+  type CreativePresetDto,
+  type CreativePresetHistoryDto,
+  type OpeningThreeCheckReport,
+  type OpeningCheckAuditRecord,
+  type PlatformMetricDto,
+  type PlatformMetricImportAuditDto,
+  type PlatformMetricReportDto,
+  type PublishRecordDto,
+  type ExportBatchDto,
+  type StoryEvidenceRef,
 } from "@narralume/contracts";
 
 export { MIN_VIABLE_PARTIAL_CHARACTERS, QUALITY_PRESETS };
@@ -82,6 +99,23 @@ export type {
   UpsertModelRequest,
   UpsertProviderRequest,
   WireApi,
+  BookProfileDto,
+  BookProfileHistoryDto,
+  ChapterBriefDto,
+  ChapterBriefHistoryDto,
+  WebNovelCandidateItemDto,
+  WebNovelCandidateKind,
+  WebNovelCandidateSetDto,
+  CreativePresetDto,
+  CreativePresetHistoryDto,
+  OpeningThreeCheckReport,
+  OpeningCheckAuditRecord,
+  PlatformMetricDto,
+  PlatformMetricImportAuditDto,
+  PlatformMetricReportDto,
+  PublishRecordDto,
+  ExportBatchDto,
+  StoryEvidenceRef,
 };
 
 export interface ProbeStage {
@@ -290,6 +324,7 @@ export interface RelationshipEvent {
   outlineNodeId: string | null;
   storyTime: string | null;
   sourceId: string | null;
+  supersedesEventId?: string | null;
   createdAt: string;
 }
 
@@ -341,6 +376,7 @@ export interface StoryBible {
     projectId: string;
     kind: string;
     title: string;
+    outlineNodeId: string | null;
     currentVersionId: string | null;
     archivedAt?: string | null;
     createdAt: string;
@@ -454,6 +490,16 @@ export interface BundleCounts {
   assistantActivities: number;
   assistantLongGoals: number;
   runs: number;
+  chapterBriefs?: number;
+  chapterBriefHistory?: number;
+  creativePresets?: number;
+  creativePresetHistory?: number;
+  bookProfileHistory?: number;
+  platformMetrics?: number;
+  publishRecords?: number;
+  exportBatches?: number;
+  openingCheckReports?: number;
+  openingCheckAudits?: number;
 }
 
 export interface ProjectBackup {
@@ -627,6 +673,11 @@ export interface NarrativeRun {
   version: number;
 }
 
+export interface RunListPage {
+  items: NarrativeRun[];
+  nextCursor: string | null;
+}
+
 export interface RunBudgetUsage {
   inputTokens: number;
   outputTokens: number;
@@ -721,6 +772,7 @@ export interface ReviewRevisionProposal {
   diff: Record<string, unknown>;
   addressedIssueIds: string[];
   status: "proposed" | "accepted" | "rejected" | "superseded";
+  acceptedDocumentVersionId: string | null;
   createdAt: string;
   decidedAt: string | null;
 }
@@ -746,7 +798,7 @@ export interface FoundationCandidate {
   id: string;
   setId: string;
   projectId: string;
-  kind: "intent" | "compass" | "entity";
+  kind: "intent" | "compass" | "entity" | "plan";
   label: string;
   payload: Record<string, unknown>;
   editedPayload: Record<string, unknown> | null;
@@ -781,7 +833,24 @@ export interface RunOriginInput {
    *  它们是必填；请求侧允许只给 surface，故此处全部可选。 */
   surface: string;
   documentId?: string | null;
+  outlineNodeId?: string;
+  sessionId?: string;
+  branchId?: string;
+  versionId?: string;
+  canonSpread?:
+    | "intent"
+    | "outline"
+    | "entities"
+    | "facts"
+    | "relations"
+    | "timeline"
+    | "foreshadows";
+  returnTo?: string;
   selection?: { start: number; end: number } | null;
+  checkIssueId?: string;
+  checkReportId?: string;
+  checkReportGeneratedAt?: string;
+  checkDocumentVersionId?: string | null;
 }
 
 export type RunAction =
@@ -1105,6 +1174,8 @@ export interface CanonChangeSetView {
   projectId: string;
   runId: string;
   stepId: string;
+  sourceDocumentId: string | null;
+  sourceDocumentVersionId: string | null;
   changes: Record<string, unknown>;
   status: "candidate" | "partially_applied" | "applied" | "rejected";
   createdAt: string;

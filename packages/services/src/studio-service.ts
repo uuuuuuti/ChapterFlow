@@ -1,4 +1,4 @@
-import type { ModelExecutionPolicy } from "@narralume/contracts";
+import type { ModelExecutionPolicy, RunOrigin } from "@narralume/contracts";
 import {
   buildSelectionEditRecipe,
   compileCoCreateRecipeTemplate,
@@ -19,6 +19,7 @@ import {
   requireWritingAssignment,
   withRuntimeModelPolicy,
 } from "./run-policy.js";
+import { validateRunOrigin } from "./run-origin.js";
 import { ServiceError } from "./service-error.js";
 import { startManualSettlementRun } from "./manual-settlement.js";
 
@@ -74,6 +75,7 @@ export function createSelectionEditRun(
     selectionEnd: number;
     instruction: string;
     requestPolicy?: ModelExecutionPolicy | undefined;
+    requestOrigin?: RunOrigin | null | undefined;
     environment: Readonly<Record<string, string | undefined>>;
   },
 ) {
@@ -148,6 +150,20 @@ export function createSelectionEditRun(
       input.selectionEnd,
     );
   }
+  const origin: RunOrigin = {
+    ...(input.requestOrigin ?? {}),
+    surface: "writing",
+    documentId: input.documentId,
+    versionId: version.id,
+    selection: {
+      start: input.selectionStart,
+      end: input.selectionEnd,
+    },
+  };
+  validateRunOrigin(database, input.projectId, origin, {
+    expectedDocumentId: input.documentId,
+    expectedVersionId: version.id,
+  });
   const runId = randomUuid();
   const recipe = buildSelectionEditRecipe(runId);
   return runs.create({
@@ -165,14 +181,7 @@ export function createSelectionEditRun(
         selectionEnd: input.selectionEnd,
         instruction: input.instruction,
         editMaxOutputTokens: 4_000,
-        origin: {
-          surface: "writing",
-          documentId: input.documentId,
-          selection: {
-            start: input.selectionStart,
-            end: input.selectionEnd,
-          },
-        },
+        origin,
         ...input.requestPolicy,
       },
       input.environment,
@@ -236,6 +245,19 @@ export function acceptEditProposal(
       "Base version not found",
       404,
     );
+  // A proposal is generated from an immutable base version, but the author
+  // may have started a new draft after that run completed. The browser guard
+  // gives an early UX error; this server check is the final protection against
+  // an old candidate replacing a newer local draft through a direct/replayed
+  // request.
+  const draft = documents.getDraft(proposal.projectId, proposal.documentId);
+  if (draft && draft.contentHash !== base.contentHash) {
+    throw new StudioServiceError(
+      "edit.draft.conflict",
+      "The manuscript has a newer local draft; save or discard it before accepting this proposal",
+      409,
+    );
+  }
   const content =
     input.mode === "insert_after"
       ? base.content.slice(0, proposal.selectionEnd) +

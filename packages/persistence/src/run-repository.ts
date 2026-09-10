@@ -46,6 +46,16 @@ export interface RunEventRecord {
   payload: Record<string, unknown>;
 }
 
+export interface RunListCursor {
+  createdAt: string;
+  id: string;
+}
+
+export interface RunListPage {
+  runs: NarrativeRun[];
+  nextCursor: RunListCursor | null;
+}
+
 export type RunEventListener = (event: RunEventRecord) => void;
 
 export class SqliteRunRepository {
@@ -139,10 +149,50 @@ export class SqliteRunRepository {
   listRuns(projectId: string, limit = 100): NarrativeRun[] {
     const rows = this.database.raw
       .prepare(
-        "SELECT * FROM runs WHERE project_id = ? ORDER BY created_at DESC LIMIT ?",
+        "SELECT * FROM runs WHERE project_id = ? ORDER BY created_at DESC, id DESC LIMIT ?",
       )
       .all(projectId, Math.max(1, Math.min(limit, 500))) as unknown as RunRow[];
     return rows.map(mapRun);
+  }
+
+  listRunsPage(
+    projectId: string,
+    limit = 50,
+    cursor?: RunListCursor,
+  ): RunListPage {
+    const boundedLimit = Math.max(1, Math.min(limit, 100));
+    const rows = (cursor
+      ? this.database.raw
+          .prepare(
+            `SELECT * FROM runs
+               WHERE project_id = ?
+                 AND (created_at < ? OR (created_at = ? AND id < ?))
+               ORDER BY created_at DESC, id DESC
+               LIMIT ?`,
+          )
+          .all(
+            projectId,
+            cursor.createdAt,
+            cursor.createdAt,
+            cursor.id,
+            boundedLimit + 1,
+          )
+      : this.database.raw
+          .prepare(
+            `SELECT * FROM runs
+               WHERE project_id = ?
+               ORDER BY created_at DESC, id DESC
+               LIMIT ?`,
+          )
+          .all(projectId, boundedLimit + 1)) as unknown as RunRow[];
+    const hasMore = rows.length > boundedLimit;
+    const visible = rows.slice(0, boundedLimit);
+    const last = visible.at(-1);
+    return {
+      runs: visible.map(mapRun),
+      nextCursor:
+        hasMore && last ? { createdAt: last.created_at, id: last.id } : null,
+    };
   }
 
   /**

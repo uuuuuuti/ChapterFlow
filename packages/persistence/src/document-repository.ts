@@ -129,6 +129,31 @@ export class SqliteDocumentRepository {
     return this.get(projectId, documentId)!;
   }
 
+  updateTitle(
+    projectId: string,
+    documentId: string,
+    title: string,
+    expectedUpdatedAt: string,
+    now: string,
+  ): Document {
+    const result = this.database.raw
+      .prepare(
+        `UPDATE documents SET title = ?, updated_at = ?
+         WHERE project_id = ? AND id = ? AND updated_at = ?`,
+      )
+      .run(title.trim(), now, projectId, documentId, expectedUpdatedAt);
+    if (result.changes !== 1) {
+      const current = this.get(projectId, documentId);
+      if (!current) throw new PersistenceNotFoundError("document", documentId);
+      throw new DocumentVersionConflictError(
+        documentId,
+        expectedUpdatedAt,
+        current.updatedAt,
+      );
+    }
+    return this.get(projectId, documentId)!;
+  }
+
   getDraft(projectId: string, documentId: string): DocumentDraft | null {
     this.requireDocument(projectId, documentId);
     const row = this.database.raw

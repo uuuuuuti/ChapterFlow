@@ -187,6 +187,7 @@ export const labels = {
     intent: "意图",
     compass: "指南针",
     entity: "实体",
+    plan: "完整方案",
   },
   foundationCandidateStatus: {
     pending: "待裁定",
@@ -258,7 +259,7 @@ export const labels = {
     intent: "意图",
     entity: "实体",
     style: "风格",
-    skill: "Skill",
+    skill: "写作技法",
     relationship: "关系",
     timeline: "时间线",
     foreshadow: "伏笔",
@@ -501,7 +502,7 @@ export const labels = {
     serialWrite: "连续创作",
     composeSerial: "复合创作任务",
     reviewRun: "审稿",
-    canonEdit: "Canon 编辑",
+    canonEdit: "设定编辑",
     selectionPolish: "局部润色",
   },
 };

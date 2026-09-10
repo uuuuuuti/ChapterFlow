@@ -8,11 +8,15 @@ import {
   type RelationshipEvent,
   type TimelineEvent,
   type Foreshadow,
+  type StoryEvidenceRef,
 } from "./types";
 import { requestJson, jsonRequest } from "./client";
 import {
   type CanonSpread,
   type CanonCandidateSetDto,
+  type StoryResourceRemovalImpact,
+  type OutlineOperationDto,
+  type RunOrigin,
 } from "@narralume/contracts";
 
 export async function getStoryBible(
@@ -25,10 +29,80 @@ export async function getStoryBible(
   );
 }
 
+export async function getCanonEntities(
+  projectId: string,
+  signal?: AbortSignal,
+): Promise<CanonEntity[]> {
+  return requestJson<CanonEntity[]>(
+    `/api/projects/${encodeURIComponent(projectId)}/entities?includeRetired=true`,
+    signal ? { signal } : {},
+  );
+}
+
+export async function getCanonFacts(
+  projectId: string,
+  signal?: AbortSignal,
+): Promise<CanonFact[]> {
+  return requestJson<CanonFact[]>(
+    `/api/projects/${encodeURIComponent(projectId)}/facts?includeCandidates=true`,
+    signal ? { signal } : {},
+  );
+}
+
+export async function getRelationships(
+  projectId: string,
+  signal?: AbortSignal,
+): Promise<RelationshipEvent[]> {
+  return requestJson<RelationshipEvent[]>(
+    `/api/projects/${encodeURIComponent(projectId)}/relationships`,
+    signal ? { signal } : {},
+  );
+}
+
+export async function getRelationshipHistory(
+  projectId: string,
+  signal?: AbortSignal,
+): Promise<RelationshipEvent[]> {
+  return requestJson<RelationshipEvent[]>(
+    `/api/projects/${encodeURIComponent(projectId)}/relationships/history`,
+    signal ? { signal } : {},
+  );
+}
+
+export async function getTimelineEvents(
+  projectId: string,
+  signal?: AbortSignal,
+): Promise<TimelineEvent[]> {
+  return requestJson<TimelineEvent[]>(
+    `/api/projects/${encodeURIComponent(projectId)}/timeline`,
+    signal ? { signal } : {},
+  );
+}
+
+export async function getForeshadows(
+  projectId: string,
+  signal?: AbortSignal,
+): Promise<Foreshadow[]> {
+  return requestJson<Foreshadow[]>(
+    `/api/projects/${encodeURIComponent(projectId)}/foreshadows`,
+    signal ? { signal } : {},
+  );
+}
+
+export async function getStoryEvidence(
+  projectId: string,
+  signal?: AbortSignal,
+): Promise<StoryEvidenceRef[]> {
+  return requestJson<StoryEvidenceRef[]>(
+    `/api/projects/${encodeURIComponent(projectId)}/story-evidence`,
+    signal ? { signal } : {},
+  );
+}
+
 export async function startCanonCandidate(
   projectId: string,
   spread: CanonSpread,
-  input: { requestId: string; instruction: string },
+  input: { requestId: string; instruction: string; origin?: RunOrigin | null },
 ): Promise<{ runId: string; idempotentReplay: boolean }> {
   return requestJson(
     `/api/projects/${encodeURIComponent(projectId)}/canon-spreads/${encodeURIComponent(spread)}/candidates`,
@@ -159,10 +233,102 @@ export async function updateOutlineNode(
   );
 }
 
+export async function updateOutlineAssociations(
+  projectId: string,
+  node: OutlineNode,
+  input: {
+    povEntityId: string | null;
+    foreshadowIds: string[];
+    timelineEventIds: string[];
+    expectedForeshadowUpdatedAt: Record<string, string>;
+    expectedTimelineUpdatedAt: Record<string, string>;
+  },
+): Promise<{ node: OutlineNode; foreshadows: Foreshadow[]; timelines: TimelineEvent[] }> {
+  return requestJson(
+    `/api/projects/${encodeURIComponent(projectId)}/outline/${encodeURIComponent(node.id)}/associations`,
+    jsonRequest("PUT", {
+      ...input,
+      expectedUpdatedAt: node.updatedAt,
+    }),
+  );
+}
+
+export async function moveOutlineNode(
+  projectId: string,
+  nodeId: string,
+  input: {
+    parentId: string;
+    ordinal: number;
+    expectedUpdatedAt: string;
+  },
+): Promise<OutlineNode> {
+  return requestJson<OutlineNode>(
+    `/api/projects/${encodeURIComponent(projectId)}/outline/${encodeURIComponent(nodeId)}/move`,
+    jsonRequest("POST", input),
+  );
+}
+
+export async function batchMoveOutlineNodes(
+  projectId: string,
+  input: {
+    items: Array<{ nodeId: string; expectedUpdatedAt: string }>;
+    parentId: string;
+    ordinal: number;
+  },
+): Promise<{ operation: OutlineOperationDto; nodes: OutlineNode[] }> {
+  return requestJson(
+    `/api/projects/${encodeURIComponent(projectId)}/outline/batch-move`,
+    jsonRequest("POST", input),
+  );
+}
+
+export async function copyOutlineNode(
+  projectId: string,
+  node: OutlineNode,
+  input: { parentId: string; ordinal: number },
+): Promise<{ operation: OutlineOperationDto; root: OutlineNode; nodes: OutlineNode[] }> {
+  return requestJson(
+    `/api/projects/${encodeURIComponent(projectId)}/outline/${encodeURIComponent(node.id)}/copy`,
+    jsonRequest("POST", {
+      ...input,
+      expectedUpdatedAt: node.updatedAt,
+    }),
+  );
+}
+
+export async function undoOutlineOperation(
+  projectId: string,
+  operation: OutlineOperationDto,
+  nodes: OutlineNode[],
+): Promise<{ operation: OutlineOperationDto; nodes: OutlineNode[] }> {
+  return requestJson(
+    `/api/projects/${encodeURIComponent(projectId)}/outline/operations/${encodeURIComponent(operation.id)}/undo`,
+    jsonRequest("POST", {
+      expectedUpdatedAtByNode: Object.fromEntries(
+        operation.after.map((snapshot) => [
+          snapshot.id,
+          nodes.find((node) => node.id === snapshot.id)?.updatedAt ?? snapshot.updatedAt,
+        ]),
+      ),
+    }),
+  );
+}
+
 export function removeOutlineNode(projectId: string, node: OutlineNode) {
   return removeStoryResource(
     `/api/projects/${encodeURIComponent(projectId)}/outline/${encodeURIComponent(node.id)}`,
     node.updatedAt,
+  );
+}
+
+export function getOutlineRemovalImpact(
+  projectId: string,
+  nodeId: string,
+  signal?: AbortSignal,
+): Promise<StoryResourceRemovalImpact> {
+  return requestJson<StoryResourceRemovalImpact>(
+    `/api/projects/${encodeURIComponent(projectId)}/outline/${encodeURIComponent(nodeId)}/removal-impact`,
+    signal ? { signal } : {},
   );
 }
 
@@ -177,6 +343,8 @@ export async function createCanonFact(
     knowledgeScope: CanonFact["knowledgeScope"];
     knowledgeSubjectId?: string | null;
     confidence?: number;
+    validFromNodeId?: string | null;
+    validToNodeId?: string | null;
   },
 ): Promise<{
   fact: CanonFact;
@@ -252,6 +420,17 @@ export async function createRelationshipEvent(
     `/api/projects/${encodeURIComponent(projectId)}/relationships`,
     jsonRequest("POST", input),
   );
+}
+
+export async function reviseRelationshipEvent(
+  projectId: string,
+  relationship: RelationshipEvent,
+  input: Omit<RelationshipEvent, "id" | "projectId" | "createdAt" | "supersedesEventId">,
+): Promise<RelationshipEvent> {
+  return createRelationshipEvent(projectId, {
+    ...input,
+    supersedesEventId: relationship.id,
+  });
 }
 
 export function removeRelationshipEvent(

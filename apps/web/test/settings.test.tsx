@@ -551,7 +551,7 @@ describe("设置回归（CR-43 / CR-92 / CR-100）", () => {
     expect(screen.queryByRole("button", { name: "保存风格" })).not.toBeInTheDocument();
   });
 
-  it("风格和 Writing Skill 查询失败时不显示空白创建表单", async () => {
+  it("风格和写作技法查询失败时不显示空白创建表单", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url === "/api/providers") return json(PROVIDERS);
@@ -573,9 +573,9 @@ describe("设置回归（CR-43 / CR-92 / CR-100）", () => {
 
     expect(await screen.findByText("风格列表暂时无法加载")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "保存风格" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("tab", { name: "Writing Skill" }));
-    expect(await screen.findByText("Writing Skill 列表暂时无法加载")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "保存 Skill" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "写作技法" }));
+    expect(await screen.findByText("写作技法列表暂时无法加载")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "保存写作技法" })).not.toBeInTheDocument();
   });
 
   it("已停用渠道下的启用模型不出现在岗位候选中", async () => {
@@ -602,7 +602,7 @@ describe("设置回归（CR-43 / CR-92 / CR-100）", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("切换生产资产所属项目后风格与 Skill 表单草稿重置", async () => {
+  it("切换生产资产所属项目后风格与写作技法表单草稿重置", async () => {
     stubSettingsFetch({
       "/api/providers": PROVIDERS,
       "/api/models": MODELS,
@@ -628,8 +628,8 @@ describe("设置回归（CR-43 / CR-92 / CR-100）", () => {
 
     const nextStyleForm = (await screen.findAllByText("创建风格")).at(-1)!.closest("form");
     expect(within(nextStyleForm!).getByLabelText("名称")).toHaveValue("");
-    fireEvent.click(screen.getByRole("tab", { name: "Writing Skill" }));
-    const nextSkillForm = (await screen.findByText("创建 Writing Skill")).closest("form");
+    fireEvent.click(screen.getByRole("tab", { name: "写作技法" }));
+    const nextSkillForm = (await screen.findByText("创建写作技法")).closest("form");
     expect(within(nextSkillForm!).getByLabelText("名称")).toHaveValue("");
   });
 
@@ -641,7 +641,7 @@ describe("设置回归（CR-43 / CR-92 / CR-100）", () => {
       updatedAt: "2026-08-01T10:00:00.000Z", version: 0,
     }];
     let skills = [{
-      id: "skill-1", projectId: "p-1", name: "旧 Skill", description: null,
+      id: "skill-1", projectId: "p-1", name: "旧写作技法", description: null,
       instructions: "旧指令内容足够长，可以通过现有校验。", scopes: ["all"],
       priority: 0, enabled: true, source: "manual",
       createdAt: "2026-08-01T10:00:00.000Z",
@@ -669,14 +669,14 @@ describe("设置回归（CR-43 / CR-92 / CR-100）", () => {
       expect(within(screen.getByText("编辑风格").closest("form")!).getByLabelText("名称")).toHaveValue("远端新风格");
     });
 
-    fireEvent.click(screen.getByRole("tab", { name: "Writing Skill" }));
-    fireEvent.click(await screen.findByRole("button", { name: /旧 Skill/ }));
-    const skillForm = screen.getByText("编辑 Writing Skill").closest("form")!;
-    fireEvent.change(within(skillForm).getByLabelText("名称"), { target: { value: "本地旧 Skill 草稿" } });
-    skills = [{ ...skills[0]!, name: "远端新 Skill", instructions: "远端已经更新后的完整指令内容。", version: 1, updatedAt: "2026-08-01T10:01:00.000Z" }];
+    fireEvent.click(screen.getByRole("tab", { name: "写作技法" }));
+    fireEvent.click(await screen.findByRole("button", { name: /旧写作技法/ }));
+    const skillForm = screen.getByText("编辑写作技法").closest("form")!;
+    fireEvent.change(within(skillForm).getByLabelText("名称"), { target: { value: "本地旧写作技法草稿" } });
+    skills = [{ ...skills[0]!, name: "远端新写作技法", instructions: "远端已经更新后的完整指令内容。", version: 1, updatedAt: "2026-08-01T10:01:00.000Z" }];
     await client.invalidateQueries({ queryKey: ["project", "p-1", "writing-skills"] });
     await waitFor(() => {
-      expect(within(screen.getByText("编辑 Writing Skill").closest("form")!).getByLabelText("名称")).toHaveValue("远端新 Skill");
+      expect(within(screen.getByText("编辑写作技法").closest("form")!).getByLabelText("名称")).toHaveValue("远端新写作技法");
     });
   });
 

@@ -2,7 +2,7 @@
 
 从一个想法，到一部长篇。基于 [NarraLume](https://github.com/abligail/narralume) 的中文网文创作工作台，保留原长篇引擎与 Apache-2.0 许可证。
 
-本轮实现 Phase 0 → Phase 1 → Phase 2 → Phase 4：作品管理、创作首页、三栏写作台、自动保存、版本、AI 建议采纳、选区改写、检查和任务恢复。详细范围与验证见 [改造记录](docs/refactor/04-writing-workbench.md)。
+当前工作树已经把 Phase 0 → Phase 1 → Phase 2 → Phase 4 的核心主链迁入 ChapterFlow，并继续推进 M0—M9：作品管理、创作首页、原生大纲、三栏写作台、设定、自动保存、版本、AI 建议采纳、选区改写、任务恢复、网文规划、手工数据复盘、发布导出和备份恢复。完整缺口、旧入口清单和 Luna Max Goal 执行顺序见 [完整改造缺口与执行方案](docs/refactor/10-comprehensive-gap-plan.md)、[全平台迁移方案](docs/refactor/06-full-platform-migration-plan.md)、[当前缺口审计](docs/refactor/08-current-gap-audit.md)、[迁移台账](docs/refactor/MIGRATION_MATRIX.md) 与 [Luna Max 执行台账](docs/refactor/09-luna-max-execution-backlog.md)；可直接复制的 Goal 提示词见 [07-luna-goal-prompt.md](docs/refactor/07-luna-goal-prompt.md)。
 
 ## 本地启动
 
@@ -28,7 +28,7 @@ CHAPTERFLOW_E2E_SUCCESS_MODEL=1 npm run test:e2e -- e2e/chapterflow.spec.ts e2e/
 
 最后一条使用仅测试环境启用的确定性 AI，验证完整候选采纳流程，不会调用真实付费模型。原上游故障模型与对应恢复测试保持独立。
 
-原工作区保留在 `/shelf`、`/projects/:projectId/*`；新入口为 `/books`。本轮不实现多方案 AI 开书、平台数据复盘或自动发布，发布通过手工导出完成。
+新入口统一为 `/books/*`、`/settings/*`；`/shelf`、`/projects/:projectId/*` 和历史 `/books/:id/{overview,bible,studio,runs,lab,delivery}` 只作为保留上下文的兼容深链，不作为普通导航入口。发布保持导出后由作者手工上传，不接入第三方自动登录或自动发布。
 
 ---
 
@@ -158,7 +158,7 @@ All three modes use the same manuscript versions and canon. Switching modes does
 
 ### A ten-minute first workflow
 
-1. Start NarraLume and open the bookshelf. Local release users can run the `Start-NarraLume` launcher for their platform.
+1. Start ChapterFlow and open the作品库. Local release users can run the platform launcher for their environment.
 2. Create a blank book and enter a title and premise. Model configuration can wait.
 3. Open Story, write the author intent, and create one chapter outline. Characters and facts can be added as the draft grows.
 4. Create a chapter in the writing studio, enter text, and save a new version.

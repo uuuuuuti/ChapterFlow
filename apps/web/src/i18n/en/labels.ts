@@ -192,6 +192,7 @@ export const labels: typeof labelsZh = {
     intent: "Intent",
     compass: "Compass",
     entity: "Entity",
+    plan: "Complete plan",
   },
   foundationCandidateStatus: {
     pending: "Pending a ruling",

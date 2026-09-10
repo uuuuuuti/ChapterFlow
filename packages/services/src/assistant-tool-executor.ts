@@ -1,6 +1,7 @@
 import { sha256Hex } from "@narralume/domain";
 
 import {
+  AssistantCanonSpreadSchema,
   AUTOMATION_DEFAULTS,
   resolveEffectivePolicy,
 } from "@narralume/contracts";
@@ -887,11 +888,17 @@ function isSessionResolutionAction(
 function runOrigin(context: StoredAssistantContext | null): {
   surface: string;
   documentId: string | null;
+  outlineNodeId?: string;
+  canonSpread?: string;
   selection: { start: number; end: number } | null;
 } {
   return {
     surface: context?.surface ?? "assistant",
     documentId: context?.documentId ?? null,
+    ...(context?.outlineNodeId ? { outlineNodeId: context.outlineNodeId } : {}),
+    ...(context?.canonSpread
+      ? { canonSpread: AssistantCanonSpreadSchema.parse(context.canonSpread) }
+      : {}),
     selection: context?.selection
       ? { start: context.selection.start, end: context.selection.end }
       : null,

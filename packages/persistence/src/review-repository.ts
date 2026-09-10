@@ -172,6 +172,8 @@ export class SqliteReviewRepository {
     projectId: string;
     runId: string;
     stepId: string;
+    sourceDocumentId?: string | null;
+    sourceDocumentVersionId?: string | null;
     changes: Readonly<Record<string, unknown>>;
     status: "candidate" | "partially_applied" | "applied" | "rejected";
     createdAt: string;
@@ -179,14 +181,17 @@ export class SqliteReviewRepository {
     this.database.raw
       .prepare(
         `INSERT OR IGNORE INTO canon_change_sets(
-          id, project_id, run_id, step_id, changes_json, status, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          id, project_id, run_id, step_id, source_document_id,
+          source_document_version_id, changes_json, status, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         changeSet.id,
         changeSet.projectId,
         changeSet.runId,
         changeSet.stepId,
+        changeSet.sourceDocumentId ?? null,
+        changeSet.sourceDocumentVersionId ?? null,
         JSON.stringify(changeSet.changes),
         changeSet.status,
         changeSet.createdAt,
@@ -413,6 +418,7 @@ export class SqliteReviewRepository {
       diff: JSON.parse(row.diff_json) as Record<string, unknown>,
       addressedIssueIds: JSON.parse(row.addressed_issue_ids_json) as string[],
       status: row.status,
+      acceptedDocumentVersionId: row.accepted_document_version_id,
       createdAt: row.created_at,
       decidedAt: row.decided_at,
     }));
@@ -447,6 +453,7 @@ export class SqliteReviewRepository {
             row.addressed_issue_ids_json,
           ) as string[],
           status: row.status,
+          acceptedDocumentVersionId: row.accepted_document_version_id,
           createdAt: row.created_at,
           decidedAt: row.decided_at,
         }
@@ -458,15 +465,17 @@ export class SqliteReviewRepository {
     proposalId: string;
     expectedStatus: "proposed";
     status: "accepted" | "rejected" | "superseded";
+    acceptedDocumentVersionId?: string | null;
     now: string;
   }): ReviewRevisionProposalDetail {
     const changed = this.database.raw
       .prepare(
-        `UPDATE revision_proposals SET status = ?, decided_at = ?
+        `UPDATE revision_proposals SET status = ?, accepted_document_version_id = ?, decided_at = ?
          WHERE project_id = ? AND id = ? AND status = ?`,
       )
       .run(
         input.status,
+        input.acceptedDocumentVersionId ?? null,
         input.now,
         input.projectId,
         input.proposalId,
@@ -688,6 +697,42 @@ export class SqliteReviewRepository {
         }
       : null;
   }
+
+  /** Return the immutable document version a review issue was generated from. */
+  getIssueReportContext(
+    projectId: string,
+    issueId: string,
+  ): {
+    reportId: string;
+    documentId: string | null;
+    documentVersionId: string | null;
+  } | null {
+    const row = this.database.raw
+      .prepare(
+        `SELECT report.id AS report_id,
+                report.document_version_id,
+                version.document_id
+         FROM review_issues issue
+         JOIN review_reports report ON report.id = issue.report_id
+         LEFT JOIN document_versions version
+           ON version.id = report.document_version_id
+         WHERE report.project_id = ? AND issue.id = ?`,
+      )
+      .get(projectId, issueId) as
+      | {
+          report_id: string;
+          document_version_id: string | null;
+          document_id: string | null;
+        }
+      | undefined;
+    return row
+      ? {
+          reportId: row.report_id,
+          documentId: row.document_id,
+          documentVersionId: row.document_version_id,
+        }
+      : null;
+  }
 }
 
 export interface ReviewReportView {
@@ -751,6 +796,7 @@ export interface ReviewRevisionProposalView {
   diff: Record<string, unknown>;
   addressedIssueIds: string[];
   status: "proposed" | "accepted" | "rejected" | "superseded";
+  acceptedDocumentVersionId: string | null;
   createdAt: string;
   decidedAt: string | null;
 }
@@ -767,6 +813,8 @@ export interface CanonChangeSetView {
   projectId: string;
   runId: string;
   stepId: string;
+  sourceDocumentId: string | null;
+  sourceDocumentVersionId: string | null;
   changes: Record<string, unknown>;
   status: CanonChangeSetStatus;
   createdAt: string;
@@ -852,6 +900,7 @@ interface RevisionProposalRow {
   diff_json: string;
   addressed_issue_ids_json: string;
   status: ReviewRevisionProposalView["status"];
+  accepted_document_version_id: string | null;
   created_at: string;
   decided_at: string | null;
 }
@@ -866,6 +915,8 @@ interface CanonChangeSetRow {
   project_id: string;
   run_id: string;
   step_id: string;
+  source_document_id: string | null;
+  source_document_version_id: string | null;
   changes_json: string;
   status: CanonChangeSetStatus;
   created_at: string;
@@ -910,6 +961,8 @@ function mapCanonChangeSet(row: CanonChangeSetRow): CanonChangeSetView {
     projectId: row.project_id,
     runId: row.run_id,
     stepId: row.step_id,
+    sourceDocumentId: row.source_document_id ?? null,
+    sourceDocumentVersionId: row.source_document_version_id ?? null,
     changes: JSON.parse(row.changes_json) as Record<string, unknown>,
     status: row.status,
     createdAt: row.created_at,

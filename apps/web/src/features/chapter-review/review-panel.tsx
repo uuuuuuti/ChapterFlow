@@ -7,30 +7,41 @@ import {
   decideRevisionProposal,
 } from "../../shared/api/review";
 import { queryKeys } from "../../shared/query/keys";
-import { ErrorNote } from "../../shared/ui";
+import { ConflictRecovery, ErrorNote } from "../../shared/ui";
 import type { ReviewWorkspaceIssue } from "../../shared/api/types";
+import { isAuthoringConflict } from "../../shared/api/client";
+import { useState } from "react";
 export function ReviewPanel({
   projectId,
   documentId,
+  currentVersionId,
   onCheck,
   onRevise,
   busy,
 }: {
   projectId: string;
   documentId: string;
+  currentVersionId: string | null;
   onCheck: () => void;
   onRevise: (instruction: string) => void;
   busy: boolean;
 }) {
   const client = useQueryClient();
   const flushWriting = useFlushWriting();
+  const [revisionConflict, setRevisionConflict] = useState<unknown>(null);
+  const [conflictNotice, setConflictNotice] = useState("");
+  const [refreshingConflict, setRefreshingConflict] = useState(false);
   const query = useQuery({
     queryKey: queryKeys.review(projectId),
     queryFn: ({ signal }) => getReviewWorkspace(projectId, signal),
     refetchInterval: 2500,
   });
-  const refresh = () =>
-    client.invalidateQueries({ queryKey: queryKeys.project(projectId) });
+  const refresh = async () => {
+    await Promise.all([
+      client.invalidateQueries({ queryKey: queryKeys.review(projectId) }),
+      client.invalidateQueries({ queryKey: queryKeys.project(projectId) }),
+    ]);
+  };
   const decision = useMutation({
     mutationFn: ({
       issue,
@@ -60,11 +71,44 @@ export function ReviewPanel({
       }
       return decideRevisionProposal(projectId, id, action);
     },
-    onSuccess: refresh,
+    onSuccess: () => {
+      setRevisionConflict(null);
+      setConflictNotice("");
+      refresh();
+    },
+    onError: (error) => {
+      if (isAuthoringConflict(error)) setRevisionConflict(error);
+    },
   });
+  const refreshRevisionRemote = async () => {
+    setRefreshingConflict(true);
+    try {
+      await query.refetch();
+      setRevisionConflict(null);
+      setConflictNotice("已重新读取检查报告和正文版本，请确认最新建议后再操作。");
+    } finally {
+      setRefreshingConflict(false);
+    }
+  };
   const reports =
-    query.data?.reports.filter((r) => r.documentId === documentId) ?? [];
-  const report = reports[0];
+    query.data?.reports
+      .filter((r) => r.documentId === documentId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt)) ?? [];
+  const currentReports = currentVersionId
+    ? reports.filter((r) => r.documentVersionId === currentVersionId)
+    : [];
+  const staleReports = reports.filter(
+    (r) => r.documentVersionId !== currentVersionId,
+  );
+  const report = currentReports[0];
+  const proposals =
+    query.data?.proposals.filter((p) => p.documentId === documentId) ?? [];
+  const currentProposals = currentVersionId
+    ? proposals.filter((p) => p.baseDocumentVersionId === currentVersionId)
+    : [];
+  const staleProposals = proposals.filter(
+    (p) => p.baseDocumentVersionId !== currentVersionId,
+  );
   return (
     <div className="cf-assistant-content">
       <h3>给这一章做一次检查</h3>
@@ -74,7 +118,13 @@ export function ReviewPanel({
       </button>
       {query.isError ? <ErrorNote error={query.error} /> : null}
       {!report ? (
-        <p>还没有检查结果。检查会先保存当前正文。</p>
+        <>
+          <p>
+            {staleReports.length > 0
+              ? `已有 ${staleReports.length} 份旧版本检查报告；当前正文版本尚未检查。请重新检查，旧报告不能用于当前正文。`
+              : "还没有检查结果。检查会先保存当前正文。"}
+          </p>
+        </>
       ) : (
         <>
           <h3>
@@ -139,31 +189,70 @@ export function ReviewPanel({
           ))}
         </>
       )}
-      {query.data?.proposals
-        .filter((p) => p.documentId === documentId && p.status === "proposed")
-        .map((p) => (
+      {staleReports.length > 0 ? (
+        <details className="cf-review-stale">
+          <summary>
+            {report
+              ? `已隐藏 ${staleReports.length} 份旧版本检查报告`
+              : `查看 ${staleReports.length} 份旧版本检查报告`}
+          </summary>
+          {staleReports.map((stale) => (
+            <article key={stale.id}>
+              <strong>
+                旧版本 · {stale.documentVersionId ?? "未绑定版本"} · {stale.createdAt.slice(0, 16)}
+              </strong>
+              <p>{stale.summary}</p>
+              <small>此报告仅供追溯，问题裁定和修改建议已停用。</small>
+            </article>
+          ))}
+        </details>
+      ) : null}
+      {currentProposals.map((p) => (
           <article className="cf-proposal" key={p.id}>
             <h4>建议修订</h4>
             <del>{p.baseContent}</del>
             <ins>{p.revisedContent}</ins>
-            <div className="cf-actions">
-              <button
-                disabled={revise.isPending}
-                onClick={() => revise.mutate({ id: p.id, action: "apply" })}
-              >
-                接受修订
-              </button>
-              <button
-                disabled={revise.isPending}
-                onClick={() => revise.mutate({ id: p.id, action: "reject" })}
-              >
-                放弃
-              </button>
-            </div>
+            {p.acceptedDocumentVersionId ? (
+              <small>已绑定正式版本：{p.acceptedDocumentVersionId}</small>
+            ) : null}
+            {p.status === "proposed" ? (
+              <div className="cf-actions">
+                <button
+                  disabled={revise.isPending}
+                  onClick={() => revise.mutate({ id: p.id, action: "apply" })}
+                >
+                  接受修订
+                </button>
+                <button
+                  disabled={revise.isPending}
+                  onClick={() => revise.mutate({ id: p.id, action: "reject" })}
+                >
+                  放弃
+                </button>
+              </div>
+            ) : <small>状态：{p.status === "accepted" ? "已采纳" : p.status === "rejected" ? "已放弃" : "已被替代"}</small>}
           </article>
         ))}
+      {staleProposals.length > 0 ? (
+        <details className="cf-review-stale">
+          <summary>已隐藏 {staleProposals.length} 条旧版本修订建议</summary>
+          <p>这些建议基于其他正文版本，不能直接覆盖当前正文。请重新检查后生成新的建议。</p>
+        </details>
+      ) : null}
       {decision.isError ? <ErrorNote error={decision.error} /> : null}
-      {revise.isError ? <ErrorNote error={revise.error} /> : null}
+      {revisionConflict ? (
+        <ConflictRecovery
+          error={revisionConflict}
+          refreshing={refreshingConflict}
+          onKeepLocal={() => {
+            setRevisionConflict(null);
+            setConflictNotice("已保留当前正文，建议修订尚未采纳。");
+          }}
+          onRefreshRemote={() => void refreshRevisionRemote()}
+        />
+      ) : null}
+      {conflictNotice ? <p className="cf-editor-notice" role="status">{conflictNotice}</p> : null}
+      {revise.isError && !revisionConflict ? <ErrorNote error={revise.error} /> : null}
     </div>
   );
 }

@@ -168,12 +168,22 @@ export class SqliteAutomationRepository {
       editedPayload?: Readonly<Record<string, unknown>> | null;
       adoptedRefType?: string | null;
       adoptedRefId?: string | null;
+      expectedUpdatedAt?: string;
       now: string;
     },
   ): FoundationCandidate {
     return this.database.transaction(() => {
       const candidate = this.requireCandidate(id);
       if (candidate.status !== "pending") return candidate;
+      if (
+        input.expectedUpdatedAt !== undefined &&
+        candidate.updatedAt !== input.expectedUpdatedAt
+      ) {
+        throw new AutomationPersistenceError(
+          "foundation_candidate.version.conflict",
+          "The foundation candidate changed after it was opened; refresh before deciding",
+        );
+      }
       this.database.raw
         .prepare(
           `UPDATE foundation_candidates SET status = ?, edited_payload_json = ?,
@@ -210,21 +220,27 @@ export class SqliteAutomationRepository {
     id: string;
     projectId: string;
     mode: AutopilotSession["mode"];
+    scope?: AutopilotSession["scope"];
     targetChapters: number;
     windowSize: number;
     maxRevisionCycles: number;
     chapterPolicy: Readonly<Record<string, unknown>>;
     now: string;
   }): AutopilotSession {
+    const scope = input.scope ?? {
+      startOutlineNodeId: null,
+      endOutlineNodeId: null,
+    };
     this.database.raw
       .prepare(
         `INSERT INTO autopilot_sessions(
           id, project_id, mode, status, target_chapters, window_size,
           max_revision_cycles, chapter_policy_json,
+          start_outline_node_id, end_outline_node_id,
           current_run_id, current_outline_node_id, completed_chapters,
           skipped_chapters, pause_requested, cancel_requested, replan_requested,
           active_notes_json, last_error_json, created_at, updated_at, finished_at, version
-        ) VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, NULL, NULL, 0, 0, 0, 0, 0,
+        ) VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, NULL, NULL, 0, 0, 0, 0, 0,
           '[]', NULL, ?, ?, NULL, 0)`,
       )
       .run(
@@ -235,6 +251,8 @@ export class SqliteAutomationRepository {
         input.windowSize,
         input.maxRevisionCycles,
         JSON.stringify(input.chapterPolicy),
+        scope.startOutlineNodeId,
+        scope.endOutlineNodeId,
         input.now,
         input.now,
       );
@@ -697,16 +715,23 @@ export class SqliteAutomationRepository {
       .prepare(
         `SELECT COUNT(*) AS total,
           SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending,
-          SUM(CASE WHEN status = 'adopted' THEN 1 ELSE 0 END) AS adopted
+          SUM(CASE WHEN status = 'adopted' THEN 1 ELSE 0 END) AS adopted,
+          SUM(CASE WHEN kind = 'plan' THEN 1 ELSE 0 END) AS plans
          FROM foundation_candidates WHERE set_id = ?`,
       )
-      .get(setId) as { total: number; pending: number; adopted: number };
+      .get(setId) as {
+      total: number;
+      pending: number;
+      adopted: number;
+      plans: number;
+    };
     const status: FoundationCandidateSet["status"] =
       counts.pending > 0
         ? counts.adopted > 0
           ? "partially_adopted"
           : "open"
-        : counts.adopted === counts.total && counts.total > 0
+        : (counts.adopted === counts.total && counts.total > 0) ||
+            (counts.plans === counts.total && counts.adopted > 0)
           ? "adopted"
           : counts.adopted > 0
             ? "partially_adopted"
@@ -775,6 +800,8 @@ interface SessionRow {
   window_size: number;
   max_revision_cycles: number;
   chapter_policy_json: string;
+  start_outline_node_id: string | null;
+  end_outline_node_id: string | null;
   current_run_id: string | null;
   current_outline_node_id: string | null;
   completed_chapters: number;
@@ -882,6 +909,10 @@ function mapSession(row: SessionRow): AutopilotSession {
     id: row.id,
     projectId: row.project_id,
     mode: row.mode,
+    scope: {
+      startOutlineNodeId: row.start_outline_node_id,
+      endOutlineNodeId: row.end_outline_node_id,
+    },
     status: row.status,
     targetChapters: row.target_chapters,
     windowSize: row.window_size,

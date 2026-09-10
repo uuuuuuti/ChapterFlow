@@ -2,6 +2,7 @@ import type { NarrativeModelClient } from "@narralume/narrative";
 import {
   SqliteAssignmentRepository,
   SqliteAutomationRepository,
+  SqliteDocumentRepository,
   SqliteModelRepository,
   SqliteProviderRepository,
   SqliteRunRepository,
@@ -95,6 +96,68 @@ async function createProjectAndChapter(
 }
 
 describe("chapter run API", () => {
+  it("paginates native task history with a stable cursor while keeping the array endpoint", async () => {
+    const { app, database } = await setup();
+    const target = await createProjectAndChapter(app);
+    const runs = new SqliteRunRepository(database);
+    for (const [id, now] of [
+      ["page-run-1", "2026-09-09T00:00:00.000Z"],
+      ["page-run-2", "2026-09-09T00:01:00.000Z"],
+    ] as const) {
+      runs.create({
+        id,
+        projectId: target.projectId,
+        recipe: "manual-test",
+        recipeVersion: 1,
+        mode: "manual",
+        targetOutlineNodeId: null,
+        policy: {},
+        steps: [],
+        now,
+      });
+    }
+    const first = await app.inject({
+      method: "GET",
+      url: `/api/projects/${target.projectId}/runs/page?limit=1`,
+    });
+    expect(first.statusCode).toBe(200);
+    const firstBody = first.json() as {
+      items: { id: string }[];
+      nextCursor: string | null;
+    };
+    expect(firstBody.items.map((item) => item.id)).toEqual(["page-run-2"]);
+    expect(firstBody.nextCursor).toBeTruthy();
+
+    const second = await app.inject({
+      method: "GET",
+      url: `/api/projects/${target.projectId}/runs/page?limit=1&cursor=${firstBody.nextCursor}`,
+    });
+    expect(second.statusCode).toBe(200);
+    expect(second.json()).toMatchObject({
+      items: [{ id: "page-run-1" }],
+      nextCursor: null,
+    });
+
+    const legacy = await app.inject({
+      method: "GET",
+      url: `/api/projects/${target.projectId}/runs`,
+    });
+    expect(legacy.statusCode).toBe(200);
+    expect((legacy.json() as { id: string }[]).map((item) => item.id)).toEqual([
+      "page-run-2",
+      "page-run-1",
+    ]);
+
+    const invalid = await app.inject({
+      method: "GET",
+      url: `/api/projects/${target.projectId}/runs/page?cursor=invalid`,
+    });
+    expect(invalid.statusCode).toBe(400);
+    expect(invalid.json()).toMatchObject({
+      error: { code: "run.cursor.invalid" },
+    });
+  });
+
   it("continues only the current saved chapter version and preserves its exact prefix", async () => {
     const { app } = await setup();
     const target = await createProjectAndChapter(app);
@@ -142,6 +205,124 @@ describe("chapter run API", () => {
     });
     expect(created.statusCode, created.body).toBe(202);
     expect(created.json().run.policy.continuationPrefix).toBe(prefix);
+  });
+
+  it("rejects task origins whose manuscript or selection is stale", async () => {
+    const { app } = await setup();
+    const target = await createProjectAndChapter(app);
+    const createdDocument = await app.inject({
+      method: "POST",
+      url: `/api/projects/${target.projectId}/documents`,
+      payload: {
+        requestId: "origin-validation-doc",
+        kind: "chapter",
+        title: "雾港失灯",
+        outlineNodeId: target.chapterId,
+      },
+    });
+    expect(createdDocument.statusCode).toBe(201);
+    const document = createdDocument.json() as {
+      id: string;
+      currentVersionId: string | null;
+    };
+    const version = await app.inject({
+      method: "POST",
+      url: `/api/projects/${target.projectId}/documents/${document.id}/versions`,
+      payload: {
+        content: "林昼推开门。",
+        source: "manual",
+        expectedCurrentVersionId: document.currentVersionId,
+      },
+    });
+    expect(version.statusCode).toBe(201);
+    const versionId = (version.json() as { id: string }).id;
+
+    const missingDocument = await app.inject({
+      method: "POST",
+      url: `/api/projects/${target.projectId}/runs/chapter`,
+      payload: {
+        requestId: "origin-validation-missing-document",
+        targetOutlineNodeId: target.chapterId,
+        origin: {
+          surface: "writing",
+          documentId: "document-from-another-project",
+          outlineNodeId: target.chapterId,
+          versionId,
+          selection: null,
+        },
+      },
+    });
+    expect(missingDocument.statusCode).toBe(404);
+    expect(missingDocument.json()).toMatchObject({
+      error: { code: "run.origin.document_not_found" },
+    });
+
+    const invalidSelection = await app.inject({
+      method: "POST",
+      url: `/api/projects/${target.projectId}/runs/chapter`,
+      payload: {
+        requestId: "origin-validation-selection",
+        targetOutlineNodeId: target.chapterId,
+        origin: {
+          surface: "writing",
+          documentId: document.id,
+          outlineNodeId: target.chapterId,
+          versionId,
+          selection: { start: 0, end: 10_000 },
+        },
+      },
+    });
+    expect(invalidSelection.statusCode).toBe(422);
+    expect(invalidSelection.json()).toMatchObject({
+      error: { code: "run.origin.selection_invalid" },
+    });
+
+    const otherChapter = await app.inject({
+      method: "POST",
+      url: `/api/projects/${target.projectId}/outline`,
+      payload: {
+        parentId: (
+          (
+            await app.inject({
+              method: "GET",
+              url: `/api/projects/${target.projectId}/story-bible`,
+            })
+          ).json() as { outline: Array<{ id: string; kind: string }> }
+        ).outline.find((node) => node.kind === "book")!.id,
+        kind: "chapter",
+        ordinal: 1,
+        title: "另一章",
+      },
+    });
+    expect(otherChapter.statusCode, otherChapter.body).toBe(201);
+    const otherDocument = await app.inject({
+      method: "POST",
+      url: `/api/projects/${target.projectId}/documents`,
+      payload: {
+        requestId: "origin-validation-other-document",
+        kind: "chapter",
+        title: "另一章",
+        outlineNodeId: otherChapter.json().id,
+      },
+    });
+    expect(otherDocument.statusCode, otherDocument.body).toBe(201);
+    const wrongChapter = await app.inject({
+      method: "POST",
+      url: `/api/projects/${target.projectId}/runs/chapter`,
+      payload: {
+        requestId: "origin-validation-wrong-chapter",
+        targetOutlineNodeId: target.chapterId,
+        origin: {
+          surface: "writing",
+          documentId: otherDocument.json().id,
+          selection: null,
+        },
+      },
+    });
+    expect(wrongChapter.statusCode).toBe(422);
+    expect(wrongChapter.json()).toMatchObject({
+      error: { code: "run.origin.document_outline_mismatch" },
+    });
   });
 
   it("replays the same creation request and allows only one active chapter run per project", async () => {
@@ -479,6 +660,108 @@ describe("chapter run API", () => {
     });
   });
 
+  it("blocks manuscript acceptance when a newer local draft appears", async () => {
+    const { app, database } = await setup();
+    const target = await createProjectAndChapter(app);
+    const createdDocument = await app.inject({
+      method: "POST",
+      url: `/api/projects/${target.projectId}/documents`,
+      payload: {
+        requestId: "acceptance-guard-document",
+        kind: "chapter",
+        title: "雾港失灯",
+        outlineNodeId: target.chapterId,
+      },
+    });
+    expect(createdDocument.statusCode, createdDocument.body).toBe(201);
+    const document = createdDocument.json() as {
+      id: string;
+      currentVersionId: string | null;
+    };
+    const saved = await app.inject({
+      method: "POST",
+      url: `/api/projects/${target.projectId}/documents/${document.id}/versions`,
+      payload: {
+        content: "这是任务开始前已经保存的正文。",
+        source: "manual",
+        expectedCurrentVersionId: null,
+      },
+    });
+    expect(saved.statusCode, saved.body).toBe(201);
+    const baseVersionId = (saved.json() as { id: string }).id;
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/projects/${target.projectId}/runs/chapter`,
+      payload: {
+        requestId: "acceptance-guard-run",
+        targetOutlineNodeId: target.chapterId,
+        planningMode: "auto",
+        maxRevisionCycles: 1,
+        policy: { minChapterCharacters: 100 },
+      },
+    });
+    expect(created.statusCode, created.body).toBe(202);
+    const runId = (created.json() as { run: { id: string } }).run.id;
+    const documents = new SqliteDocumentRepository(database);
+    let protectedApproval = false;
+    let status = "pending";
+    for (let index = 0; index < 40 && status !== "completed"; index += 1) {
+      const advanced = await app.inject({
+        method: "POST",
+        url: `/api/runs/${runId}/advance`,
+        payload: { projectId: target.projectId },
+      });
+      expect(advanced.statusCode, advanced.body).toBe(200);
+      status = (advanced.json() as { snapshot: { run: { status: string } } })
+        .snapshot.run.status;
+      if (status !== "awaiting_user") continue;
+      const detail = await app.inject({
+        method: "GET",
+        url: `/api/runs/${runId}?projectId=${target.projectId}`,
+      });
+      const availableActions = (detail.json() as { availableActions: string[] })
+        .availableActions;
+      if (!availableActions.includes("accept_manuscript")) {
+        const plan = await app.inject({
+          method: "POST",
+          url: `/api/runs/${runId}/actions`,
+          payload: { action: "accept_plan", projectId: target.projectId },
+        });
+        expect(plan.statusCode, plan.body).toBe(200);
+        status = "running";
+        continue;
+      }
+
+      documents.upsertDraft(target.projectId, document.id, {
+        baseVersionId,
+        content: "作者在任务等待确认时写入的新草稿。",
+        now: "2026-09-09T00:02:00.000Z",
+      });
+      const blocked = await app.inject({
+        method: "POST",
+        url: `/api/runs/${runId}/actions`,
+        payload: { action: "accept_manuscript", projectId: target.projectId },
+      });
+      expect(blocked.statusCode, blocked.body).toBe(409);
+      expect(blocked.json()).toMatchObject({
+        error: { code: "run.accept_manuscript.draft.conflict" },
+      });
+      expect(
+        documents.getDraft(target.projectId, document.id)?.content,
+      ).toContain("作者在任务等待确认时");
+      documents.deleteDraft(target.projectId, document.id);
+      const accepted = await app.inject({
+        method: "POST",
+        url: `/api/runs/${runId}/actions`,
+        payload: { action: "accept_manuscript", projectId: target.projectId },
+      });
+      expect(accepted.statusCode, accepted.body).toBe(200);
+      protectedApproval = true;
+      status = "running";
+    }
+    expect(protectedApproval, `final status: ${status}`).toBe(true);
+  });
+
   it("executes an evidence-gated chapter recipe and exposes its receipts", async () => {
     const { app, database } = await setup();
     const target = await createProjectAndChapter(app);
@@ -716,6 +999,17 @@ describe("chapter run API", () => {
       },
       availableActions: ["pause", "cancel"],
     });
+    expect(created.json().actionAvailability).toEqual(
+      expect.arrayContaining([
+        { action: "pause", available: true, reasonCode: null },
+        { action: "cancel", available: true, reasonCode: null },
+        {
+          action: "accept_plan",
+          available: false,
+          reasonCode: "run.action.status",
+        },
+      ]),
+    );
     const runId = (created.json() as { run: { id: string } }).run.id;
 
     let detail: {
@@ -745,6 +1039,24 @@ describe("chapter run API", () => {
       },
       availableActions: ["accept_plan", "switch_to_manual", "cancel"],
     });
+    expect(
+      (detail as { actionAvailability: Array<Record<string, unknown>> })
+        .actionAvailability,
+    ).toEqual(
+      expect.arrayContaining([
+        { action: "accept_plan", available: true, reasonCode: null },
+        {
+          action: "accept_manuscript",
+          available: false,
+          reasonCode: "run.await_reason.mismatch",
+        },
+        {
+          action: "request_revision",
+          available: false,
+          reasonCode: "run.await_reason.mismatch",
+        },
+      ]),
+    );
 
     const invalid = await app.inject({
       method: "POST",

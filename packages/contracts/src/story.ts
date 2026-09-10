@@ -76,6 +76,38 @@ export const CreateProjectRequestSchema = z.object({
   subtitle: z.string().trim().max(300).nullable().optional(),
   premise: z.string().trim().max(10_000).nullable().optional(),
   language: ProjectLanguageSchema.default("zh-CN"),
+  /** Optional initial web-novel profile, applied atomically with the book. */
+  bookProfile: z
+    .object({
+      presetId: IdSchema.nullable().default(null),
+      genre: z.string().trim().max(200).nullable().default(null),
+      audience: z.string().trim().max(500).nullable().default(null),
+      promise: z.string().trim().max(10_000).nullable().default(null),
+      tone: z.string().trim().max(500).nullable().default(null),
+      endingDirection: z.string().trim().max(10_000).nullable().default(null),
+      pov: z.string().trim().max(500).nullable().default(null),
+      updateCadence: z.string().trim().max(500).nullable().default(null),
+      targetWordsPerChapter: z
+        .number()
+        .int()
+        .positive()
+        .max(100_000)
+        .nullable()
+        .default(null),
+      boundaries: z
+        .array(z.string().trim().min(1).max(2_000))
+        .max(100)
+        .default([]),
+      worldRules: z
+        .array(z.string().trim().min(1).max(2_000))
+        .max(100)
+        .default([]),
+      arcNotes: z
+        .array(z.string().trim().min(1).max(2_000))
+        .max(100)
+        .default([]),
+    })
+    .optional(),
 });
 /**
  * 封面变更与书籍资料保存在同一个请求里提交，服务端在同一事务中应用，
@@ -243,6 +275,71 @@ export const UpdateOutlineNodeRequestSchema = z.object({
   status: OutlineStatusSchema.optional(),
   metadata: JsonObjectSchema.optional(),
   expectedUpdatedAt: TimestampSchema,
+});
+export const MoveOutlineNodeRequestSchema = z.object({
+  parentId: IdSchema.nullable(),
+  ordinal: z.number().int().nonnegative(),
+  expectedUpdatedAt: TimestampSchema,
+});
+
+/**
+ * A bulk structure change is one transaction. Each selected node carries the
+ * version rendered by the page so a second tab cannot silently move a newer
+ * outline over the author's latest edit.
+ */
+export const OutlineBatchMoveItemSchema = z.object({
+  nodeId: IdSchema,
+  expectedUpdatedAt: TimestampSchema,
+});
+export const OutlineBatchMoveRequestSchema = z.object({
+  items: z.array(OutlineBatchMoveItemSchema).min(1).max(100),
+  parentId: IdSchema,
+  ordinal: z.number().int().nonnegative(),
+});
+
+export const OutlineCopyRequestSchema = z.object({
+  parentId: IdSchema,
+  ordinal: z.number().int().nonnegative(),
+  expectedUpdatedAt: TimestampSchema,
+});
+
+export const OutlineOperationSnapshotSchema = z.object({
+  id: IdSchema,
+  projectId: IdSchema,
+  parentId: IdSchema.nullable(),
+  kind: OutlineKindSchema,
+  path: z.string(),
+  depth: z.number().int().nonnegative(),
+  ordinal: z.number().int().nonnegative(),
+  title: z.string(),
+  summary: z.string().nullable(),
+  goal: z.string().nullable(),
+  conflict: z.string().nullable(),
+  outcome: z.string().nullable(),
+  povEntityId: IdSchema.nullable(),
+  storyTime: z.string().nullable(),
+  status: OutlineStatusSchema,
+  metadata: JsonObjectSchema,
+  createdAt: TimestampSchema,
+  updatedAt: TimestampSchema,
+});
+export type OutlineOperationSnapshot = z.infer<
+  typeof OutlineOperationSnapshotSchema
+>;
+
+export const OutlineOperationSchema = z.object({
+  id: IdSchema,
+  projectId: IdSchema,
+  operation: z.enum(["batch_move", "copy"]),
+  before: z.array(OutlineOperationSnapshotSchema),
+  after: z.array(OutlineOperationSnapshotSchema),
+  createdAt: TimestampSchema,
+  undoneAt: TimestampSchema.nullable(),
+});
+export type OutlineOperationDto = z.infer<typeof OutlineOperationSchema>;
+
+export const OutlineUndoRequestSchema = z.object({
+  expectedUpdatedAtByNode: z.record(IdSchema, TimestampSchema).optional(),
 });
 
 export const CanonEntityTypeSchema = z.enum([
@@ -464,6 +561,26 @@ export const UpdateForeshadowRequestSchema =
     expectedUpdatedAt: TimestampSchema,
   });
 
+/** Associations edited from the native outline editor. The expected tokens
+ * cover both the outline node and every foreshadow whose evidence list will
+ * change, so a stale browser cannot silently detach a newer link. */
+export const UpdateOutlineAssociationsRequestSchema = z.object({
+  povEntityId: IdSchema.nullable(),
+  foreshadowIds: z.array(IdSchema).max(100),
+  timelineEventIds: z.array(IdSchema).max(100).default([]),
+  expectedUpdatedAt: TimestampSchema,
+  expectedForeshadowUpdatedAt: z.record(IdSchema, TimestampSchema).default({}),
+  expectedTimelineUpdatedAt: z.record(IdSchema, TimestampSchema).default({}),
+});
+export const OutlineAssociationsSchema = z.object({
+  node: OutlineNodeSchema,
+  foreshadows: z.array(ForeshadowSchema),
+  timelines: z.array(TimelineEventSchema),
+});
+export type UpdateOutlineAssociationsRequest = z.infer<
+  typeof UpdateOutlineAssociationsRequestSchema
+>;
+
 export const DocumentKindSchema = z.enum([
   "manuscript",
   "chapter",
@@ -500,6 +617,16 @@ export const CreateDocumentRequestSchema = z.object({
   title: z.string().trim().min(1).max(300),
   outlineNodeId: IdSchema.nullable().default(null),
 });
+/** Create a chapter outline node and its manuscript in one idempotent transaction. */
+export const CreateChapterRequestSchema = z.object({
+  requestId: IdSchema,
+  title: z.string().trim().min(1).max(300),
+  parentId: IdSchema.nullable().default(null),
+});
+export const CreateChapterResultSchema = z.object({
+  outline: OutlineNodeSchema,
+  document: DocumentSchema,
+});
 export const AppendDocumentVersionRequestSchema = z.object({
   content: z.string().max(5_000_000),
   source: z.string().trim().min(1).max(100).default("manual"),
@@ -519,6 +646,24 @@ export const StoryResourceRemovalSchema = z.object({
   references: z.number().int().nonnegative(),
 });
 export type StoryResourceRemoval = z.infer<typeof StoryResourceRemovalSchema>;
+export const StoryResourceReferenceSchema = z.object({
+  table: IdSchema,
+  column: IdSchema,
+  label: z.string(),
+  count: z.number().int().positive(),
+});
+export const StoryResourceRemovalImpactSchema = z.object({
+  id: IdSchema,
+  title: z.string(),
+  kind: OutlineKindSchema,
+  references: z.array(StoryResourceReferenceSchema),
+  totalReferences: z.number().int().nonnegative(),
+  canDelete: z.boolean(),
+  dispositionIfConfirmed: z.enum(["deleted", "abandoned"]),
+});
+export type StoryResourceRemovalImpact = z.infer<
+  typeof StoryResourceRemovalImpactSchema
+>;
 
 export const ContextBudgetSchema = z.object({
   contextWindow: z.number().int().positive(),
@@ -563,3 +708,25 @@ export const StoryBibleSnapshotSchema = z.object({
   occupiedOutlineNodeIds: z.array(IdSchema),
 });
 export type StoryBibleSnapshot = z.infer<typeof StoryBibleSnapshotSchema>;
+
+/**
+ * Read-only evidence index used by the native setting pages. A reference can
+ * resolve either a document/version source id or an outline node id, while
+ * retaining the exact manuscript version and a short, safe preview for the
+ * author to verify in context.
+ */
+export const StoryEvidenceRefSchema = z.object({
+  sourceType: z.enum(["document", "document_version", "outline_node"]),
+  sourceId: IdSchema,
+  documentId: IdSchema.nullable(),
+  outlineNodeId: IdSchema.nullable(),
+  title: z.string(),
+  versionId: IdSchema.nullable(),
+  versionCreatedAt: TimestampSchema.nullable(),
+  source: z.string().nullable(),
+  excerpt: z.string().nullable(),
+  entityIds: z.array(IdSchema),
+  wordCount: z.number().int().nonnegative(),
+  updatedAt: TimestampSchema,
+});
+export type StoryEvidenceRef = z.infer<typeof StoryEvidenceRefSchema>;

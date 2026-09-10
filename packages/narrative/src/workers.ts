@@ -685,7 +685,16 @@ export class ChapterWorkerSuite {
             ].join("\n\n"),
           },
         ],
-        maxOutputTokens: 3_000,
+        // DeepSeek reasoning tokens are included in the model output budget.
+        // The previous fixed 3,000-token ceiling could truncate a valid scene
+        // plan before its JSON closed once the continuation context grew.
+        // Let the role policy request the available budget; ModelClient then
+        // clamps it to the assigned model's physical max (8,000 for V1).
+        maxOutputTokens: policyNumber(
+          snapshot.run.policy,
+          "planningMaxOutputTokens",
+          8_000,
+        ),
         temperature: 0.65,
         reasoningEffort: "low",
       },
@@ -715,6 +724,16 @@ export class ChapterWorkerSuite {
     // continuation and the final manuscript is prefix + generated part.
     const continuationPrefix = continuationPrefixOf(snapshot.run.policy);
     const writingReference = chapterWritingReference(context);
+    const minChapterCharacters = policyNumber(
+      snapshot.run.policy,
+      "minChapterCharacters",
+      2_000,
+    );
+    const maxChapterCharacters = policyNumber(
+      snapshot.run.policy,
+      "maxChapterCharacters",
+      3_500,
+    );
     const result = await this.model.text(
       snapshot.run,
       step,
@@ -744,6 +763,7 @@ export class ChapterWorkerSuite {
               "<compiled-context>",
               purposeContextText(context, "chapter-draft"),
               "</compiled-context>",
+              `<chapter-length-contract>最终正文有效字符数必须在 ${minChapterCharacters}—${maxChapterCharacters} 之间；不要用重复、占位或思考过程凑长度。</chapter-length-contract>`,
               "<scene-plan>",
               JSON.stringify(plan),
               "</scene-plan>",
@@ -779,7 +799,7 @@ export class ChapterWorkerSuite {
           finishReason: result.finishReason,
           partial: true,
           recoveryActions: ["continue", "adopt", "regenerate"],
-          partialCharacters: [...generated].length,
+          partialCharacters: effectiveCharacterCount(generated),
           partialHash: sha256(generated),
         },
         usage: result.usage,
@@ -798,11 +818,14 @@ export class ChapterWorkerSuite {
       artifactKind: "chapter-draft",
       output: {
         content,
-        characters: [...content].length,
+        characters: effectiveCharacterCount(content),
         paragraphs: paragraphs(content).length,
         contentHash: sha256(content),
         ...(continuationPrefix
-          ? { continuationPrefixCharacters: [...continuationPrefix].length }
+          ? {
+              continuationPrefixCharacters:
+                effectiveCharacterCount(continuationPrefix),
+            }
           : {}),
       },
       usage: result.usage,
@@ -822,14 +845,28 @@ export class ChapterWorkerSuite {
     const minCharacters = policyNumber(
       snapshot.run.policy,
       "minChapterCharacters",
-      1_200,
+      2_000,
     );
-    if ([...content].length < minCharacters) {
+    const maxCharacters = policyNumber(
+      snapshot.run.policy,
+      "maxChapterCharacters",
+      3_500,
+    );
+    const characterCount = effectiveCharacterCount(content);
+    if (characterCount < minCharacters) {
       issues.push({
         code: "draft.too_short",
         severity: "major",
         message: `正文少于 ${minCharacters} 个字符`,
         evidence: null,
+      });
+    }
+    if (characterCount > maxCharacters) {
+      issues.push({
+        code: "draft.too_long",
+        severity: "major",
+        message: `正文超过 ${maxCharacters} 个字符上限`,
+        evidence: `实际 ${characterCount} 个字符`,
       });
     }
     const placeholder =
@@ -911,7 +948,7 @@ export class ChapterWorkerSuite {
       output: {
         verdict: issues.length ? "revise" : "pass",
         issues,
-        characters: [...content].length,
+        characters: characterCount,
         paragraphs: paragraphs(content).length,
         contentHash: sha256(content),
       },
@@ -934,12 +971,9 @@ export class ChapterWorkerSuite {
           summary: documentReview.outlineNode.summary,
           mode: "review-current-version",
         }
-      : requiredArtifact(
-          snapshot.run.recipe === "chapter-candidate-revision"
-            ? this.requestedRevisionSource(snapshot)
-            : snapshot,
-          "scene.plan",
-        );
+      : snapshot.run.recipe === "chapter-candidate-revision"
+        ? this.requestedRevisionPlan(snapshot)
+        : requiredArtifact(snapshot, "scene.plan");
     const locator = documentReview
       ? new ParagraphLocator(content, {
           documentVersionId: documentReview.version.id,
@@ -958,6 +992,7 @@ export class ChapterWorkerSuite {
           {
             role: "user",
             content: [
+              "<semantic-review-output-contract>只返回严格 JSON；最多报告 3 个最重要问题，每个问题最多引用 3 个证据段落，message 和 suggestedDirection 保持简短具体；没有可举证问题时返回 issues=[]。不要复述正文、上下文或整段证据，必须在有限输出内完整闭合 JSON。</semantic-review-output-contract>",
               "<compiled-context>",
               purposeContextText(context, "semantic-review"),
               "</compiled-context>",
@@ -968,13 +1003,12 @@ export class ChapterWorkerSuite {
             ].join("\n"),
           },
         ],
-        maxOutputTokens: policyNumber(
-          snapshot.run.policy,
-          "reviewMaxOutputTokens",
-          16_000,
+        maxOutputTokens: Math.min(
+          policyNumber(snapshot.run.policy, "reviewMaxOutputTokens", 6_000),
+          6_000,
         ),
         temperature: 0.2,
-        reasoningEffort: "low",
+        reasoningEffort: "none",
       },
       REVIEW_CONTRACT,
       zodValidator(ReviewResultSchema, (value) =>
@@ -1048,6 +1082,16 @@ export class ChapterWorkerSuite {
     const revisionInstruction = isRequestedRevision
       ? stringField(snapshot.run.policy, "revisionInstruction")
       : null;
+    const minChapterCharacters = policyNumber(
+      snapshot.run.policy,
+      "minChapterCharacters",
+      2_000,
+    );
+    const maxChapterCharacters = policyNumber(
+      snapshot.run.policy,
+      "maxChapterCharacters",
+      3_500,
+    );
     const review = isRequestedRevision
       ? {
           verdict: "revise",
@@ -1075,6 +1119,7 @@ export class ChapterWorkerSuite {
               revisionInstruction
                 ? `<author-revision-instruction>${revisionInstruction}</author-revision-instruction>`
                 : "",
+              `<chapter-length-contract>最终正文有效字符数必须在 ${minChapterCharacters}—${maxChapterCharacters} 之间；不得用重复、占位或思考过程凑长度。</chapter-length-contract>`,
               `<review>${JSON.stringify(review)}</review>`,
               "<base-manuscript>",
               baseContent,
@@ -1102,7 +1147,7 @@ export class ChapterWorkerSuite {
         details: {
           finishReason: result.finishReason,
           partial: true,
-          partialCharacters: [...content].length,
+          partialCharacters: effectiveCharacterCount(content),
           partialHash: sha256(content),
         },
         usage: result.usage,
@@ -1129,16 +1174,16 @@ export class ChapterWorkerSuite {
           reason,
           baseHash: sha256(baseContent),
           contentHash: sha256(baseContent),
-          characters: [...baseContent].length,
+          characters: effectiveCharacterCount(baseContent),
         },
         usage: result.usage,
       };
     }
-    const characters = [...content].length;
+    const characters = effectiveCharacterCount(content);
     const minimumCharacters = policyNumber(
       snapshot.run.policy,
       "minChapterCharacters",
-      1_200,
+      2_000,
     );
     if (characters < minimumCharacters) {
       throw <RunStepError>{
@@ -1180,7 +1225,7 @@ export class ChapterWorkerSuite {
         proposalId,
         baseHash: sha256(baseContent),
         contentHash: sha256(content),
-        characters: [...content].length,
+        characters: effectiveCharacterCount(content),
         diff: buildTextDiff(baseContent, content),
       },
       usage: result.usage,
@@ -1200,6 +1245,33 @@ export class ChapterWorkerSuite {
       );
     }
     return source;
+  }
+
+  /** Revision runs intentionally do not duplicate the scene plan. Walk the
+   * immutable revision lineage so a second author-requested revision can
+   * still ground its semantic review in the original plan. */
+  private requestedRevisionPlan(
+    snapshot: RunSnapshot,
+  ): Record<string, unknown> {
+    let source = this.requestedRevisionSource(snapshot);
+    const visited = new Set<string>();
+    while (!visited.has(source.run.id)) {
+      visited.add(source.run.id);
+      const plan = source.steps
+        .slice()
+        .reverse()
+        .find(
+          (step) => step.kind === "scene.plan" && step.status === "succeeded",
+        )?.outputArtifact;
+      if (plan) return { ...plan };
+      const parentId = stringOrNull(source.run.policy.revisionSourceRunId);
+      if (!parentId) break;
+      source = this.runs.getSnapshot(parentId);
+    }
+    throw permanent(
+      "artifact.missing",
+      "Missing confirmed artifact for step scene.plan",
+    );
   }
 
   private async settleChapter(
@@ -1267,6 +1339,7 @@ export class ChapterWorkerSuite {
           {
             role: "user",
             content: [
+              "<settlement-output-contract>只返回严格 JSON；每个 stateDelta、factCandidates、timelineCandidates、relationshipCandidates、foreshadowCandidates 项的 evidenceParagraphs 最多填写 3 个最直接的 [P#] 段号，绝不能超过 5 个；只记录本章实际变化，不要复述正文或解释过程，必须完整闭合 JSON。</settlement-output-contract>",
               `<authoritative-context>${authoritative}</authoritative-context>`,
               `<entities>${JSON.stringify(entities.map(({ id, name, type }) => ({ id, name, type })))}</entities>`,
               "<manuscript>",
@@ -1275,13 +1348,12 @@ export class ChapterWorkerSuite {
             ].join("\n"),
           },
         ],
-        maxOutputTokens: policyNumber(
-          snapshot.run.policy,
-          "settlementMaxOutputTokens",
-          16_000,
+        maxOutputTokens: Math.min(
+          policyNumber(snapshot.run.policy, "settlementMaxOutputTokens", 6_000),
+          6_000,
         ),
         temperature: 0.15,
-        reasoningEffort: "low",
+        reasoningEffort: "none",
       },
       SETTLEMENT_CONTRACT,
       zodValidator(SettlementSchema, (value) =>
@@ -1498,6 +1570,8 @@ export class ChapterWorkerSuite {
         projectId: run.projectId,
         runId: run.id,
         stepId: step.id,
+        sourceDocumentId: document.id,
+        sourceDocumentVersionId: version.id,
         changes: boundSettlement,
         status: "candidate",
         createdAt: now,
@@ -1790,6 +1864,8 @@ export class ChapterWorkerSuite {
           projectId: run.projectId,
           runId: run.id,
           stepId: step.id,
+          sourceDocumentId: manual.document.id,
+          sourceDocumentVersionId: manual.version.id,
           changes: boundSettlement,
           status: "candidate",
           createdAt: now,
@@ -2267,6 +2343,10 @@ export function isRevisionNoop(base: string, candidate: string): boolean {
 
 function normalizeLineEndings(value: string): string {
   return value.replace(/\r\n?/gu, "\n");
+}
+
+function effectiveCharacterCount(value: string): number {
+  return Array.from(value.replace(/\s/gu, "")).length;
 }
 
 function repeatedPhraseEvidence(

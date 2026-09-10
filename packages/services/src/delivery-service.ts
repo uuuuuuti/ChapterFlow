@@ -3,7 +3,6 @@ import { AUTOMATION_DEFAULTS } from "@narralume/contracts";
 import { decodeBase64 as decodeBase64Bytes } from "./internal/bytes.js";
 import { declaredUncompressedSize } from "./internal/zip.js";
 import {
-  bytesToText,
   concatBytes,
   encodeBase64,
   hashBytes,
@@ -32,12 +31,17 @@ import {
   SqliteCreativeRepository,
   SqliteDeliveryRepository,
   SqliteDocumentRepository,
+  SqliteExportBatchRepository,
   SqliteImportUploadRepository,
   SqliteNarrativeStateRepository,
+  SqlitePlatformMetricsRepository,
+  SqlitePublishRecordRepository,
   SqliteProjectCoverRepository,
   SqliteProjectRepository,
   SqliteRetrievalRepository,
   SqliteStoryRepository,
+  SqliteWebNovelRepository,
+  SqliteWebNovelCandidateRepository,
   type ImportUploadSession,
 } from "@narralume/persistence";
 import type { NarrativeDatabase } from "@narralume/persistence";
@@ -68,6 +72,20 @@ const BundleCountsSchema = z.object({
   assistantActivities: z.number().int().nonnegative(),
   assistantLongGoals: z.number().int().nonnegative(),
   runs: z.number().int().nonnegative(),
+  /** Added in bundle v4; defaults keep v3 backups restorable. */
+  chapterBriefs: z.number().int().nonnegative().default(0),
+  chapterBriefHistory: z.number().int().nonnegative().default(0),
+  creativePresets: z.number().int().nonnegative().default(0),
+  creativePresetHistory: z.number().int().nonnegative().default(0),
+  bookProfileHistory: z.number().int().nonnegative().default(0),
+  platformMetrics: z.number().int().nonnegative().default(0),
+  publishRecords: z.number().int().nonnegative().default(0),
+  exportBatches: z.number().int().nonnegative().default(0),
+  openingCheckReports: z.number().int().nonnegative().default(0),
+  openingCheckAudits: z.number().int().nonnegative().default(0),
+  /** Added with the profile/brief candidate workbench; defaults keep older bundles restorable. */
+  webNovelCandidateSets: z.number().int().nonnegative().default(0),
+  webNovelCandidateItems: z.number().int().nonnegative().default(0),
 });
 export type BundleCounts = z.infer<typeof BundleCountsSchema>;
 
@@ -82,6 +100,8 @@ const BundleSchema = z.object({
         versionMode: z.enum(["current", "history"]),
         includeAnnotations: z.boolean(),
         includeRuns: z.boolean(),
+        fromOutlineNodeId: z.string().nullable().optional(),
+        toOutlineNodeId: z.string().nullable().optional(),
       })
       .optional(),
   }),
@@ -164,6 +184,26 @@ const BundleSchema = z.object({
     .default([]),
   longGoals: z.array(z.record(z.string(), z.unknown())).default([]),
   runs: z.array(z.record(z.string(), z.unknown())).default([]),
+  /** Web-novel planning and publication data were added as optional sections. */
+  bookProfile: z.record(z.string(), z.unknown()).nullable().default(null),
+  bookProfileHistory: z.array(z.record(z.string(), z.unknown())).default([]),
+  creativePresets: z.array(z.record(z.string(), z.unknown())).default([]),
+  creativePresetHistory: z.array(z.record(z.string(), z.unknown())).default([]),
+  chapterBriefs: z.array(z.record(z.string(), z.unknown())).default([]),
+  chapterBriefHistory: z.array(z.record(z.string(), z.unknown())).default([]),
+  platformMetrics: z.array(z.record(z.string(), z.unknown())).default([]),
+  publishRecords: z.array(z.record(z.string(), z.unknown())).default([]),
+  exportBatches: z.array(z.record(z.string(), z.unknown())).default([]),
+  openingCheckReports: z.array(z.record(z.string(), z.unknown())).default([]),
+  openingCheckAudits: z.array(z.record(z.string(), z.unknown())).default([]),
+  webNovelCandidates: z
+    .array(
+      z.object({
+        set: z.record(z.string(), z.unknown()),
+        items: z.array(z.record(z.string(), z.unknown())).default([]),
+      }),
+    )
+    .default([]),
 });
 
 export type NarrativeBundle = z.infer<typeof BundleSchema>;
@@ -171,6 +211,9 @@ export interface ProjectExportOptions {
   versionMode: "current" | "history";
   includeAnnotations: boolean;
   includeRuns: boolean;
+  /** Inclusive chapter boundaries. Omit both to export the whole project. */
+  fromOutlineNodeId?: string | null;
+  toOutlineNodeId?: string | null;
 }
 
 const DEFAULT_EXPORT_OPTIONS: ProjectExportOptions = {
@@ -233,6 +276,10 @@ export class DeliveryService {
       createdAt: input.now,
       updatedAt: input.now,
     });
+  }
+
+  getUpload(sessionId: string) {
+    return this.uploads.require(sessionId);
   }
 
   putUploadChunk(input: {
@@ -393,35 +440,60 @@ export class DeliveryService {
     }
     const batchId = randomUuid();
     const sourceHash = hash(bytes);
+    const duplicate = this.delivery.findImportBatchBySourceHash(sourceHash);
     let sourceText: string;
+    let sourceEncoding: string | null = null;
+    const decodeSourceText = () => {
+      const decoded = decodeImportedText(bytes);
+      sourceEncoding = decoded.encoding;
+      return decoded.text;
+    };
     let bundle: NarrativeBundle | null = null;
-    if (input.format === "epub") sourceText = await extractEpub(bytes);
-    else if (input.format === "docx") sourceText = await extractDocx(bytes);
-    else if (input.format === "html")
-      sourceText = normalizeImportedText(htmlToText(bytesToText(bytes)));
-    else if (input.format === "narrative-bundle") {
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(bytesToText(bytes));
-      } catch {
-        throw new DeliveryServiceError(
-          "import.bundle.invalid_json",
-          "The project bundle is not valid JSON",
-        );
-      }
-      const checked = BundleSchema.safeParse(parsed);
-      if (!checked.success) {
-        throw new DeliveryServiceError(
-          "import.bundle.invalid_schema",
-          "The project bundle structure or version is not supported",
-        );
-      }
-      bundle = checked.data;
-      sourceText = bundle.documents
-        .flatMap((item) => item.versions)
-        .map((version) => stringField(version, "content") ?? "")
-        .join("\n\n");
-    } else sourceText = normalizeImportedText(bytesToText(bytes));
+    try {
+      if (input.format === "epub") sourceText = await extractEpub(bytes);
+      else if (input.format === "docx") sourceText = await extractDocx(bytes);
+      else if (input.format === "html")
+        sourceText = normalizeImportedText(htmlToText(decodeSourceText()));
+      else if (input.format === "narrative-bundle") {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(decodeSourceText());
+        } catch {
+          throw new DeliveryServiceError(
+            "import.bundle.invalid_json",
+            "The project bundle is not valid JSON",
+          );
+        }
+        const checked = BundleSchema.safeParse(parsed);
+        if (!checked.success) {
+          throw new DeliveryServiceError(
+            "import.bundle.invalid_schema",
+            "The project bundle structure or version is not supported",
+          );
+        }
+        bundle = checked.data;
+        sourceText = bundle.documents
+          .flatMap((item) => item.versions)
+          .map((version) => stringField(version, "content") ?? "")
+          .join("\n\n");
+      } else sourceText = normalizeImportedText(decodeSourceText());
+    } catch (error) {
+      if (error instanceof DeliveryServiceError) throw error;
+      throw new DeliveryServiceError(
+        `import.${input.format}.parse_failed`,
+        `The ${input.format} file could not be parsed safely`,
+      );
+    }
+
+    // A syntactically valid container with no readable manuscript is still a
+    // failed import. Creating a project candidate for it would leave a blank
+    // work that looks successful and makes recovery/rollback ambiguous.
+    if (input.format !== "narrative-bundle" && !sourceText.trim()) {
+      throw new DeliveryServiceError(
+        "import.source.empty",
+        "The imported file contains no readable manuscript text",
+      );
+    }
 
     const title = bundle?.project.title ?? titleFromFilename(input.filename);
     const candidates = bundle
@@ -438,8 +510,28 @@ export class DeliveryService {
         status: "previewed",
         metadata: {
           title,
+          sourceBytes: bytes.length,
+          sourceDiagnostics: {
+            encoding: sourceEncoding,
+            warnings:
+              sourceEncoding === "utf-8-replacement"
+                ? ["encoding_replacement"]
+                : [],
+          },
           candidateCount: candidates.length,
+          ...(sourceEncoding ? { sourceEncoding } : {}),
           ...(bundle ? { bundleVersion: 1 } : {}),
+          ...(duplicate
+            ? {
+                duplicate: {
+                  batchId: duplicate.id,
+                  status: duplicate.status,
+                  targetProjectId: duplicate.targetProjectId,
+                  appliedProjectId: duplicate.appliedProjectId,
+                  createdAt: duplicate.createdAt,
+                },
+              }
+            : {}),
         },
         analysisRunId: null,
         appliedProjectId: null,
@@ -581,8 +673,65 @@ export class DeliveryService {
     const relationships = this.state.listCurrentRelationships(projectId);
     const timeline = this.state.listTimeline(projectId);
     const foreshadows = this.state.listForeshadows(projectId);
-    const documents = this.documents
-      .list(projectId, undefined, true)
+    const planning = new SqliteWebNovelRepository(this.database);
+    const platformMetrics = new SqlitePlatformMetricsRepository(
+      this.database,
+    ).list(projectId);
+    const publishRecords = new SqlitePublishRecordRepository(
+      this.database,
+    ).list(projectId);
+    const exportBatches = new SqliteExportBatchRepository(this.database).list(
+      projectId,
+      200,
+    );
+    const bookProfile = planning.getBookProfile(projectId);
+    const bookProfileHistory = planning.listBookProfileHistory(projectId, 100);
+    const creativePresets = planning
+      .listPresets(projectId)
+      .filter((preset) => preset.projectId === projectId);
+    const creativePresetHistory = creativePresets.flatMap((preset) =>
+      planning.listPresetHistory(preset.id, 100),
+    );
+    const chapterBriefs = planning.listChapterBriefs(projectId);
+    const chapterBriefHistory = outline.flatMap((node) =>
+      planning.listChapterBriefHistory(projectId, node.id, 100),
+    );
+    const webNovelCandidates = new SqliteWebNovelCandidateRepository(
+      this.database,
+    )
+      .list(projectId)
+      .map(({ set, items }) => ({ set, items }));
+    const openingCheckReports = planning
+      .listOpeningCheckReports(projectId, 100)
+      .map((record) => record.report);
+    const openingCheckAudits = planning.listOpeningCheckAudits(projectId, 500);
+    const outlineOrder = new Map(
+      outline.map((node, index) => [node.id, index]),
+    );
+    const allDocuments = this.documents.list(projectId, undefined, true);
+    const selectedDocumentIds = this.resolveExportDocumentIds(
+      options,
+      allDocuments,
+      outline,
+    );
+    const documents = allDocuments
+      .filter(
+        (document) =>
+          selectedDocumentIds === null || selectedDocumentIds.has(document.id),
+      )
+      .sort((left, right) => {
+        const leftOrder = left.outlineNodeId
+          ? outlineOrder.get(left.outlineNodeId)
+          : undefined;
+        const rightOrder = right.outlineNodeId
+          ? outlineOrder.get(right.outlineNodeId)
+          : undefined;
+        if (leftOrder !== undefined && rightOrder !== undefined)
+          return leftOrder - rightOrder;
+        if (leftOrder !== undefined) return -1;
+        if (rightOrder !== undefined) return 1;
+        return left.updatedAt.localeCompare(right.updatedAt);
+      })
       .map((document) => ({
         document,
         versions:
@@ -623,16 +772,22 @@ export class DeliveryService {
           this.database,
           "SELECT * FROM document_comments WHERE project_id = ? ORDER BY created_at",
           projectId,
-        ).map((row) => ({
-          id: row.id,
-          documentId: row.document_id,
-          versionId: row.version_id,
-          startOffset: row.start_offset,
-          endOffset: row.end_offset,
-          quote: row.quote,
-          body: row.body,
-          status: row.status,
-        }))
+        )
+          .filter(
+            (row) =>
+              selectedDocumentIds === null ||
+              selectedDocumentIds.has(String(row.document_id)),
+          )
+          .map((row) => ({
+            id: row.id,
+            documentId: row.document_id,
+            versionId: row.version_id,
+            startOffset: row.start_offset,
+            endOffset: row.end_offset,
+            quote: row.quote,
+            body: row.body,
+            status: row.status,
+          }))
       : [];
     const reviews = records(
       this.database,
@@ -660,7 +815,7 @@ export class DeliveryService {
           category: issue.category,
           severity: issue.severity,
           message: issue.message,
-          evidence: parseJsonObject(issue.evidence_json),
+          evidence: parseJsonArray(issue.evidence_json),
           suggestedDirection: issue.suggested_direction,
           status: issue.status,
         },
@@ -851,6 +1006,21 @@ export class DeliveryService {
       ),
       assistantLongGoals: longGoals.length,
       runs: runs.length,
+      chapterBriefs: chapterBriefs.length,
+      chapterBriefHistory: chapterBriefHistory.length,
+      creativePresets: creativePresets.length,
+      creativePresetHistory: creativePresetHistory.length,
+      bookProfileHistory: bookProfileHistory.length,
+      platformMetrics: platformMetrics.length,
+      publishRecords: publishRecords.length,
+      exportBatches: exportBatches.length,
+      openingCheckReports: openingCheckReports.length,
+      openingCheckAudits: openingCheckAudits.length,
+      webNovelCandidateSets: webNovelCandidates.length,
+      webNovelCandidateItems: webNovelCandidates.reduce(
+        (sum, candidate) => sum + candidate.items.length,
+        0,
+      ),
     });
     return BundleSchema.parse({
       manifest: {
@@ -886,6 +1056,18 @@ export class DeliveryService {
       assistant,
       longGoals,
       runs,
+      bookProfile,
+      bookProfileHistory,
+      creativePresets,
+      creativePresetHistory,
+      chapterBriefs,
+      chapterBriefHistory,
+      platformMetrics,
+      publishRecords,
+      exportBatches,
+      openingCheckReports,
+      openingCheckAudits,
+      webNovelCandidates,
     });
   }
 
@@ -1058,7 +1240,7 @@ export class DeliveryService {
       documents: documents.length,
       versions: versions.length,
       manuscriptCharacters: currentVersions.reduce(
-        (sum, version) => sum + [...version.content].length,
+        (sum, version) => sum + effectiveCharacterCount(version.content),
         0,
       ),
       entities: entities.length,
@@ -1235,11 +1417,21 @@ export class DeliveryService {
   }
 
   private exportSections(projectId: string, options: ProjectExportOptions) {
+    const outline = this.story.listOutline(projectId);
     const outlineOrder = new Map(
-      this.story.listOutline(projectId).map((node, index) => [node.id, index]),
+      outline.map((node, index) => [node.id, index]),
     );
-    const documents = this.documents
-      .list(projectId)
+    const allDocuments = this.documents.list(projectId);
+    const selectedDocumentIds = this.resolveExportDocumentIds(
+      options,
+      allDocuments,
+      outline,
+    );
+    const documents = allDocuments
+      .filter(
+        (document) =>
+          selectedDocumentIds === null || selectedDocumentIds.has(document.id),
+      )
       .filter((document) =>
         ["manuscript", "chapter", "scene"].includes(document.kind),
       )
@@ -1321,6 +1513,77 @@ export class DeliveryService {
         });
     }
     return sections.filter((section) => section.content.trim());
+  }
+
+  /**
+   * Resolve an inclusive chapter range once for every export format. Documents
+   * attached to scenes/breakdowns inherit their nearest chapter; unbound
+   * documents are intentionally omitted when a range is selected.
+   */
+  private resolveExportDocumentIds(
+    options: ProjectExportOptions,
+    documents: readonly { id: string; outlineNodeId: string | null }[],
+    outline: readonly {
+      id: string;
+      kind: string;
+      parentId: string | null;
+    }[],
+  ): Set<string> | null {
+    const fromId = options.fromOutlineNodeId ?? null;
+    const toId = options.toOutlineNodeId ?? null;
+    if (!fromId && !toId) return null;
+
+    const nodeById = new Map(outline.map((node) => [node.id, node]));
+    const chapters = outline.filter((node) => node.kind === "chapter");
+    const chapterIndex = new Map(
+      chapters.map((node, index) => [node.id, index]),
+    );
+    const resolveBoundary = (id: string | null, label: string) => {
+      if (!id) return label === "from" ? 0 : chapters.length - 1;
+      const node = nodeById.get(id);
+      if (!node || node.kind !== "chapter") {
+        throw new DeliveryServiceError(
+          "export.range.invalid",
+          `Export ${label} boundary must reference a chapter in this project`,
+        );
+      }
+      return chapterIndex.get(id)!;
+    };
+    if (!chapters.length) {
+      throw new DeliveryServiceError(
+        "export.range.invalid",
+        "A chapter range cannot be selected before the project has chapters",
+      );
+    }
+    const start = resolveBoundary(fromId, "from");
+    const end = resolveBoundary(toId, "to");
+    if (start > end) {
+      throw new DeliveryServiceError(
+        "export.range.invalid",
+        "Export range start must not come after its end",
+      );
+    }
+
+    const nearestChapter = (nodeId: string): string | null => {
+      let current = nodeById.get(nodeId);
+      const visited = new Set<string>();
+      while (current && !visited.has(current.id)) {
+        if (current.kind === "chapter") return current.id;
+        visited.add(current.id);
+        current = current.parentId ? nodeById.get(current.parentId) : undefined;
+      }
+      return null;
+    };
+    return new Set(
+      documents
+        .filter((document) => {
+          if (!document.outlineNodeId) return false;
+          const chapterId = nearestChapter(document.outlineNodeId);
+          const index = chapterId ? chapterIndex.get(chapterId) : undefined;
+          return index !== undefined && index >= start && index <= end;
+        })
+        .map((document) => document.id),
+    );
   }
 
   private applyCandidates(
@@ -1603,17 +1866,29 @@ export class DeliveryService {
       now,
     });
     this.projects.insert(project);
+    const planning = new SqliteWebNovelRepository(this.database);
+    const platformMetrics = new SqlitePlatformMetricsRepository(this.database);
+    const publishRecords = new SqlitePublishRecordRepository(this.database);
+    const exportBatches = new SqliteExportBatchRepository(this.database);
     const nodeMap = new Map<string, string>();
     const entityMap = new Map<string, string>();
     const timelineMap = new Map<string, string>();
     const foreshadowMap = new Map<string, string>();
     const documentMap = new Map<string, string>();
     const versionMap = new Map<string, string>();
+    const exportBatchMap = new Map<string, string>();
+    const openingCheckReportMap = new Map<string, string>();
     const personaMap = new Map<string, string>();
     const conversationMap = new Map<string, string>();
     const messageMap = new Map<string, string>();
     const activityMap = new Map<string, string>();
     const issueMap = new Map<string, string>();
+    const creativePresetMap = new Map<string, string>();
+    const candidateRunMap = new Map<
+      string,
+      { runId: string; stepId: string }
+    >();
+    const reviewRunMap = new Map<string, { runId: string; stepId: string }>();
     let restoredFacts = 0;
     let restoredRelationships = 0;
     let restoredTimeline = 0;
@@ -1628,6 +1903,18 @@ export class DeliveryService {
     let restoredActivities = 0;
     let restoredLongGoals = 0;
     let restoredCover = 0;
+    let restoredBookProfileHistory = 0;
+    let restoredCreativePresets = 0;
+    let restoredCreativePresetHistory = 0;
+    let restoredChapterBriefs = 0;
+    let restoredChapterBriefHistory = 0;
+    let restoredPlatformMetrics = 0;
+    let restoredPublishRecords = 0;
+    let restoredExportBatches = 0;
+    let restoredOpeningCheckReports = 0;
+    let restoredOpeningCheckAudits = 0;
+    let restoredWebNovelCandidateSets = 0;
+    let restoredWebNovelCandidateItems = 0;
     // issueMap 保留 issue 旧 ID → 新 ID 的映射，便于后续扩展（如裁定回指）。
     const orderedOutline = [...bundle.outline].sort(
       (a, b) => numberField(a, "depth") - numberField(b, "depth"),
@@ -1918,6 +2205,545 @@ export class DeliveryService {
         );
       }
     }
+    for (const source of bundle.creativePresets) {
+      const oldPresetId = stringField(source, "id");
+      if (!oldPresetId) continue;
+      const created = planning.insertPreset({
+        id: randomUuid(),
+        projectId,
+        name: stringField(source, "name") ?? "恢复的创作预设",
+        genre: stringField(source, "genre"),
+        audience: stringField(source, "audience"),
+        promise: stringField(source, "promise"),
+        pacing: presetPacing(stringField(source, "pacing")),
+        targetWordsPerChapter: Math.max(
+          1,
+          Math.min(
+            100_000,
+            numberField(source, "targetWordsPerChapter") || 2_500,
+          ),
+        ),
+        updateCadence: stringField(source, "updateCadence"),
+        boundaries: stringArray(source.boundaries),
+        checkRules: stringArray(source.checkRules),
+        defaultTemplate: stringField(source, "defaultTemplate"),
+        status: source.status === "archived" ? "archived" : "active",
+        now,
+      });
+      creativePresetMap.set(oldPresetId, created.id);
+      this.database.raw
+        .prepare(
+          `UPDATE creative_presets
+           SET version = ?, created_at = ?, updated_at = ?
+           WHERE id = ? AND project_id = ?`,
+        )
+        .run(
+          Math.max(0, numberField(source, "version")),
+          stringField(source, "createdAt") ?? now,
+          stringField(source, "updatedAt") ?? now,
+          created.id,
+          projectId,
+        );
+      restoredCreativePresets += 1;
+    }
+    for (const source of bundle.creativePresetHistory) {
+      const presetId = creativePresetMap.get(
+        stringField(source, "presetId") ?? "",
+      );
+      if (!presetId) continue;
+      this.database.raw
+        .prepare(
+          `INSERT INTO creative_preset_history(
+            id, preset_id, preset_version, snapshot_json, created_at
+          ) VALUES (?, ?, ?, ?, ?)`,
+        )
+        .run(
+          randomUuid(),
+          presetId,
+          Math.max(0, numberField(source, "presetVersion")),
+          JSON.stringify(objectField(source, "snapshot")),
+          stringField(source, "createdAt") ?? now,
+        );
+      restoredCreativePresetHistory += 1;
+    }
+    if (bundle.bookProfile) {
+      const profile = bundle.bookProfile;
+      const presetId = stringField(profile, "presetId");
+      const validPresetId = presetId
+        ? (creativePresetMap.get(presetId) ??
+          (planning.getPreset(presetId) ? presetId : null))
+        : null;
+      const targetWords =
+        typeof profile.targetWordsPerChapter === "number" &&
+        profile.targetWordsPerChapter > 0
+          ? Math.floor(profile.targetWordsPerChapter)
+          : null;
+      planning.ensureBookProfile(projectId, now, {
+        presetId: validPresetId,
+        genre: stringField(profile, "genre"),
+        audience: stringField(profile, "audience"),
+        promise: stringField(profile, "promise"),
+        tone: stringField(profile, "tone"),
+        endingDirection: stringField(profile, "endingDirection"),
+        pov: stringField(profile, "pov"),
+        updateCadence: stringField(profile, "updateCadence"),
+        targetWordsPerChapter: targetWords,
+        boundaries: stringArray(profile.boundaries),
+        worldRules: stringArray(profile.worldRules),
+        arcNotes: stringArray(profile.arcNotes),
+      });
+      this.database.raw
+        .prepare(
+          "UPDATE book_profiles SET version = ?, updated_at = ? WHERE project_id = ?",
+        )
+        .run(
+          Math.max(0, numberField(profile, "version")),
+          stringField(profile, "updatedAt") ?? now,
+          projectId,
+        );
+    }
+    for (const source of bundle.bookProfileHistory) {
+      const snapshot = objectField(source, "snapshot");
+      this.database.raw
+        .prepare(
+          `INSERT INTO book_profile_history(
+            id, project_id, profile_version, snapshot_json, created_at
+          ) VALUES (?, ?, ?, ?, ?)`,
+        )
+        .run(
+          randomUuid(),
+          projectId,
+          Math.max(0, numberField(source, "profileVersion")),
+          JSON.stringify(snapshot),
+          stringField(source, "createdAt") ?? now,
+        );
+      restoredBookProfileHistory += 1;
+    }
+    for (const source of bundle.chapterBriefs) {
+      const outlineNodeId = nodeMap.get(
+        stringField(source, "outlineNodeId") ?? "",
+      );
+      if (!outlineNodeId) continue;
+      const brief = planning.upsertChapterBrief(projectId, outlineNodeId, {
+        goal: stringField(source, "goal"),
+        conflict: stringField(source, "conflict"),
+        payoff: stringField(source, "payoff"),
+        hook: stringField(source, "hook"),
+        characterIds: stringArray(source.characterIds)
+          .map((id) => entityMap.get(id))
+          .filter((id): id is string => Boolean(id)),
+        foreshadowIds: stringArray(source.foreshadowIds)
+          .map((id) => foreshadowMap.get(id))
+          .filter((id): id is string => Boolean(id)),
+        timelineIds: stringArray(source.timelineIds)
+          .map((id) => timelineMap.get(id))
+          .filter((id): id is string => Boolean(id)),
+        targetWords:
+          typeof source.targetWords === "number" && source.targetWords > 0
+            ? Math.floor(source.targetWords)
+            : null,
+        pacing: ["slow", "steady", "fast", "cliffhanger"].includes(
+          stringField(source, "pacing") ?? "",
+        )
+          ? (stringField(source, "pacing") as
+              "slow" | "steady" | "fast" | "cliffhanger")
+          : "steady",
+        expectedVersion: null,
+        now,
+      });
+      const sourceVersionId = versionMap.get(
+        stringField(source, "documentVersionId") ?? "",
+      );
+      this.database.raw
+        .prepare(
+          "UPDATE chapter_briefs SET document_version_id = ?, version = ?, created_at = ?, updated_at = ? WHERE id = ? AND project_id = ?",
+        )
+        .run(
+          sourceVersionId ?? brief.documentVersionId,
+          Math.max(0, numberField(source, "version")),
+          stringField(source, "createdAt") ?? now,
+          stringField(source, "updatedAt") ?? now,
+          brief.id,
+          projectId,
+        );
+      restoredChapterBriefs += 1;
+    }
+    for (const source of bundle.chapterBriefHistory) {
+      const outlineNodeId = nodeMap.get(
+        stringField(source, "outlineNodeId") ?? "",
+      );
+      if (!outlineNodeId) continue;
+      const snapshot = objectField(source, "snapshot");
+      const remappedSnapshot = {
+        ...snapshot,
+        characterIds: stringArray(snapshot.characterIds)
+          .map((id) => entityMap.get(id))
+          .filter((id): id is string => Boolean(id)),
+        foreshadowIds: stringArray(snapshot.foreshadowIds)
+          .map((id) => foreshadowMap.get(id))
+          .filter((id): id is string => Boolean(id)),
+        timelineIds: stringArray(snapshot.timelineIds)
+          .map((id) => timelineMap.get(id))
+          .filter((id): id is string => Boolean(id)),
+      };
+      this.database.raw
+        .prepare(
+          `INSERT INTO chapter_brief_history(
+            id, project_id, outline_node_id, brief_version, snapshot_json, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          randomUuid(),
+          projectId,
+          outlineNodeId,
+          Math.max(0, numberField(source, "briefVersion")),
+          JSON.stringify(remappedSnapshot),
+          stringField(source, "createdAt") ?? now,
+        );
+      restoredChapterBriefHistory += 1;
+    }
+    const candidateRepository = new SqliteWebNovelCandidateRepository(
+      this.database,
+    );
+    for (const source of bundle.webNovelCandidates) {
+      const sourceSet = source.set;
+      const kind = stringField(sourceSet, "kind");
+      const oldRunId = stringField(sourceSet, "runId");
+      const oldStepId = stringField(sourceSet, "stepId");
+      if (!oldRunId || !oldStepId || (kind !== "profile" && kind !== "brief"))
+        continue;
+      const oldPairKey = `${oldRunId}:${oldStepId}`;
+      let runPair = candidateRunMap.get(oldPairKey);
+      const candidateSetId = randomUuid();
+      const sourceCreatedAt = stringField(sourceSet, "createdAt") ?? now;
+      if (!runPair) {
+        const runId = randomUuid();
+        const stepId = randomUuid();
+        runPair = { runId, stepId };
+        candidateRunMap.set(oldPairKey, runPair);
+        this.database.raw
+          .prepare(
+            `INSERT INTO runs(
+              id, project_id, recipe, mode, status, policy_json, current_step_id,
+              started_at, finished_at, created_at, updated_at, recipe_version,
+              target_outline_node_id, budget_used_json,
+              revision_cycle, pause_requested, cancel_requested, lease_owner,
+              lease_expires_at, version
+            ) VALUES (?, ?, ?, 'manual', 'completed', ?, ?, ?, ?, ?, ?, 1, ?, ?, 0, 0, 0, NULL, NULL, 0)`,
+          )
+          .run(
+            runId,
+            projectId,
+            "web-novel-candidate-restore",
+            JSON.stringify({ restored: true, sourceRunId: oldRunId }),
+            stepId,
+            sourceCreatedAt,
+            sourceCreatedAt,
+            sourceCreatedAt,
+            sourceCreatedAt,
+            nodeMap.get(stringField(sourceSet, "outlineNodeId") ?? "") ?? null,
+            JSON.stringify({
+              inputTokens: 0,
+              outputTokens: 0,
+              calls: 0,
+              costUsd: 0,
+              wallTimeMs: 0,
+            }),
+          );
+        this.database.raw
+          .prepare(
+            `INSERT INTO run_steps(
+              id, run_id, ordinal, kind, status, idempotency_key, input_hash,
+              output_artifact_json, error_json, attempt, started_at, finished_at,
+              created_at, cycle, max_attempts, output_hash, updated_at
+            ) VALUES (?, ?, 0, 'webnovel.stage', 'succeeded', ?, NULL, ?, NULL, 1, ?, ?, ?, 0, 1, NULL, ?)`,
+          )
+          .run(
+            stepId,
+            runId,
+            `bundle-restore:${oldStepId}`,
+            JSON.stringify({ restored: true }),
+            sourceCreatedAt,
+            sourceCreatedAt,
+            sourceCreatedAt,
+            sourceCreatedAt,
+          );
+        this.database.raw
+          .prepare(
+            `INSERT INTO run_jobs(
+              run_id, status, priority, available_at, lease_owner,
+              lease_expires_at, last_error_json, created_at, updated_at
+            ) VALUES (?, 'finished', 0, ?, NULL, NULL, NULL, ?, ?)`,
+          )
+          .run(runId, sourceCreatedAt, sourceCreatedAt, sourceCreatedAt);
+      }
+      const sourceItems = recordArray(source.items);
+      const itemInputs = sourceItems.map((item) => ({
+        id: randomUuid(),
+        title: stringField(item, "title") ?? "恢复的候选项",
+        rationale: stringField(item, "rationale") ?? "从作品备份恢复",
+        impact: stringArray(item.impact),
+        before:
+          item.before &&
+          typeof item.before === "object" &&
+          !Array.isArray(item.before)
+            ? (item.before as Record<string, unknown>)
+            : null,
+        after: objectField(item, "after"),
+        evidence: recordArray(item.evidence) as never[],
+        requiresLockedConfirmation: item.requiresLockedConfirmation === true,
+      }));
+      const staged = candidateRepository.stageCandidateSet({
+        id: candidateSetId,
+        projectId,
+        runId: runPair.runId,
+        stepId: runPair.stepId,
+        kind,
+        outlineNodeId:
+          nodeMap.get(stringField(sourceSet, "outlineNodeId") ?? "") ?? null,
+        instruction: stringField(sourceSet, "instruction") ?? "恢复的候选任务",
+        summary: stringField(sourceSet, "summary") ?? "从作品备份恢复",
+        sourceProfileVersion:
+          typeof sourceSet.sourceProfileVersion === "number"
+            ? sourceSet.sourceProfileVersion
+            : null,
+        sourceBriefVersion:
+          typeof sourceSet.sourceBriefVersion === "number"
+            ? sourceSet.sourceBriefVersion
+            : null,
+        sourceDocumentId:
+          documentMap.get(stringField(sourceSet, "sourceDocumentId") ?? "") ??
+          null,
+        sourceDocumentVersionId:
+          versionMap.get(
+            stringField(sourceSet, "sourceDocumentVersionId") ?? "",
+          ) ?? null,
+        sourceOutlineUpdatedAt: stringField(
+          sourceSet,
+          "sourceOutlineUpdatedAt",
+        ),
+        baseFingerprint:
+          stringField(sourceSet, "baseFingerprint") ?? "restored",
+        items: itemInputs,
+        now: sourceCreatedAt,
+      });
+      for (const [index, sourceItem] of sourceItems.entries()) {
+        const itemId = staged.items[index]?.id;
+        const decision =
+          sourceItem.decision && typeof sourceItem.decision === "object"
+            ? (sourceItem.decision as Record<string, unknown>)
+            : null;
+        const action = stringField(decision ?? undefined, "action");
+        if (!itemId || (action !== "apply" && action !== "reject")) continue;
+        this.database.raw
+          .prepare(
+            `UPDATE web_novel_candidate_items
+             SET decision_action = ?, decision_result_json = ?, decided_at = ?
+             WHERE id = ? AND set_id = ?`,
+          )
+          .run(
+            action,
+            decision?.result && typeof decision.result === "object"
+              ? JSON.stringify(decision.result)
+              : null,
+            stringField(decision ?? undefined, "decidedAt") ?? sourceCreatedAt,
+            itemId,
+            candidateSetId,
+          );
+        restoredWebNovelCandidateItems += 1;
+      }
+      this.database.raw
+        .prepare(
+          `UPDATE web_novel_candidate_sets
+           SET status = ?, decided_at = ? WHERE id = ?`,
+        )
+        .run(
+          ["candidate", "partially_applied", "applied", "rejected"].includes(
+            stringField(sourceSet, "status") ?? "",
+          )
+            ? stringField(sourceSet, "status")
+            : "candidate",
+          stringField(sourceSet, "decidedAt"),
+          candidateSetId,
+        );
+      restoredWebNovelCandidateSets += 1;
+    }
+    for (const source of bundle.openingCheckReports) {
+      const oldReportId = stringField(source, "id");
+      const reportId = randomUuid();
+      if (oldReportId) openingCheckReportMap.set(oldReportId, reportId);
+      const sourceVersions = recordArray(source.sourceVersions)
+        .map((entry) => ({
+          chapterId: nodeMap.get(stringField(entry, "chapterId") ?? "") ?? "",
+          documentId:
+            documentMap.get(stringField(entry, "documentId") ?? "") ?? null,
+          documentVersionId:
+            versionMap.get(stringField(entry, "documentVersionId") ?? "") ??
+            null,
+        }))
+        .filter((entry) => entry.chapterId);
+      const issues = recordArray(source.issues).map((entry) => {
+        const oldIssueId = stringField(entry, "id");
+        const issueId = randomUuid();
+        if (oldIssueId) issueMap.set(oldIssueId, issueId);
+        return {
+          ...entry,
+          id: issueId,
+          targetChapterId:
+            nodeMap.get(stringField(entry, "targetChapterId") ?? "") ?? null,
+          targetDocumentId:
+            documentMap.get(stringField(entry, "targetDocumentId") ?? "") ??
+            null,
+          targetDocumentVersionId:
+            versionMap.get(
+              stringField(entry, "targetDocumentVersionId") ?? "",
+            ) ?? null,
+        };
+      });
+      const report = {
+        ...source,
+        id: reportId,
+        projectId,
+        scope: "opening-three",
+        chapterIds: stringArray(source.chapterIds)
+          .map((id) => nodeMap.get(id))
+          .filter((id): id is string => Boolean(id)),
+        sourceVersions,
+        issues,
+        generatedAt: stringField(source, "generatedAt") ?? now,
+      };
+      planning.insertOpeningCheckReport(
+        projectId,
+        report,
+        stringField(source, "createdAt") ?? now,
+      );
+      restoredOpeningCheckReports += 1;
+    }
+    for (const source of bundle.openingCheckAudits) {
+      const reportId = openingCheckReportMap.get(
+        stringField(source, "reportId") ?? "",
+      );
+      planning.insertOpeningCheckAudit({
+        projectId,
+        reportId: reportId ?? null,
+        issueId:
+          issueMap.get(stringField(source, "issueId") ?? "") ??
+          stringField(source, "issueId") ??
+          null,
+        eventType:
+          stringField(source, "eventType") === "candidate_decided"
+            ? "candidate_decided"
+            : stringField(source, "eventType") === "issue_decided"
+              ? "issue_decided"
+              : "report_generated",
+        action: stringField(source, "action") ?? "restored",
+        before: objectField(source, "before"),
+        after: objectField(source, "after"),
+        createdAt: stringField(source, "createdAt") ?? now,
+      });
+      restoredOpeningCheckAudits += 1;
+    }
+    for (const source of bundle.exportBatches) {
+      const oldId = stringField(source, "id");
+      if (!oldId) continue;
+      const format = stringField(source, "format");
+      if (
+        !["markdown", "text", "docx", "epub", "narrative-bundle"].includes(
+          format ?? "",
+        )
+      )
+        continue;
+      const restored = exportBatches.insert(
+        projectId,
+        {
+          format: format as
+            "markdown" | "text" | "docx" | "epub" | "narrative-bundle",
+          status:
+            stringField(source, "status") === "failed" ? "failed" : "completed",
+          versionMode:
+            stringField(source, "versionMode") === "history"
+              ? "history"
+              : "current",
+          includeAnnotations: source.includeAnnotations === true,
+          includeRuns: source.includeRuns === true,
+          fromOutlineNodeId:
+            nodeMap.get(stringField(source, "fromOutlineNodeId") ?? "") ?? null,
+          toOutlineNodeId:
+            nodeMap.get(stringField(source, "toOutlineNodeId") ?? "") ?? null,
+          filename: stringField(source, "filename") ?? "恢复的导出文件",
+          byteSize: Math.max(0, numberField(source, "byteSize")),
+          contentHash: /^[a-f0-9]{64}$/u.test(
+            stringField(source, "contentHash") ?? "",
+          )
+            ? stringField(source, "contentHash")!
+            : "0".repeat(64),
+          errorCode: stringField(source, "errorCode"),
+          errorMessage: stringField(source, "errorMessage"),
+          retryOfBatchId:
+            exportBatchMap.get(stringField(source, "retryOfBatchId") ?? "") ??
+            null,
+        },
+        stringField(source, "createdAt") ?? now,
+      );
+      exportBatchMap.set(oldId, restored.id);
+      restoredExportBatches += 1;
+    }
+    for (const source of bundle.platformMetrics) {
+      const platform = stringField(source, "platform");
+      const chapter = stringField(source, "chapter");
+      const date = stringField(source, "date");
+      if (!platform || !chapter || !date || !/^\d{4}-\d{2}-\d{2}$/u.test(date))
+        continue;
+      const result = platformMetrics.upsert(
+        projectId,
+        [
+          {
+            platform,
+            chapter,
+            date,
+            words: Math.max(0, numberField(source, "words")),
+            views: nullableNonNegativeNumber(source.views),
+            likes: nullableNonNegativeNumber(source.likes),
+            comments: nullableNonNegativeNumber(source.comments),
+            source: "csv",
+          },
+        ],
+        stringField(source, "updatedAt") ?? now,
+      );
+      if (result.added + result.replaced > 0) restoredPlatformMetrics += 1;
+    }
+    for (const source of bundle.publishRecords) {
+      const platform = stringField(source, "platform");
+      const chapter = stringField(source, "chapter");
+      const publishedAt = stringField(source, "publishedAt");
+      if (
+        !platform ||
+        !chapter ||
+        !publishedAt ||
+        !/^\d{4}-\d{2}-\d{2}$/u.test(publishedAt)
+      )
+        continue;
+      publishRecords.insert(
+        projectId,
+        {
+          platform,
+          chapter,
+          publishedAt,
+          url: stringField(source, "url"),
+          status: ["published", "scheduled", "draft"].includes(
+            stringField(source, "status") ?? "",
+          )
+            ? (stringField(source, "status") as
+                "published" | "scheduled" | "draft")
+            : "draft",
+          exportBatchId:
+            exportBatchMap.get(stringField(source, "exportBatchId") ?? "") ??
+            null,
+        },
+        stringField(source, "createdAt") ?? now,
+      );
+      restoredPublishRecords += 1;
+    }
     if (bundle.intent) {
       this.story.upsertAuthorIntent({
         projectId,
@@ -2014,7 +2840,7 @@ export class DeliveryService {
       this.delivery.insertWritingSkill({
         id: randomUuid(),
         projectId,
-        name: stringField(source, "name") ?? "恢复的 Skill",
+        name: stringField(source, "name") ?? "恢复的写作技法",
         description: stringField(source, "description"),
         instructions: stringField(source, "instructions") ?? "保持叙事一致",
         scopes: skillScopes(source.scopes),
@@ -2085,6 +2911,79 @@ export class DeliveryService {
       restoredAnnotations += 1;
     }
     for (const item of bundle.reviews) {
+      // A backup intentionally does not restore the original execution graph.
+      // Review reports still need valid run/step parents, however, so create a
+      // completed, inert pair for each distinct historical lineage instead of
+      // inserting dangling `bundle-restored:*` foreign-key values.
+      const oldRunId = stringField(item.report, "runId") ?? "unknown";
+      const oldStepId = stringField(item.report, "stepId") ?? "unknown";
+      const oldPairKey = `${oldRunId}:${oldStepId}`;
+      let runPair = reviewRunMap.get(oldPairKey);
+      const sourceCreatedAt = stringField(item.report, "createdAt") ?? now;
+      if (!runPair) {
+        const runId = randomUuid();
+        const stepId = randomUuid();
+        runPair = { runId, stepId };
+        reviewRunMap.set(oldPairKey, runPair);
+        this.database.raw
+          .prepare(
+            `INSERT INTO runs(
+              id, project_id, recipe, mode, status, policy_json, current_step_id,
+              started_at, finished_at, created_at, updated_at, recipe_version,
+              target_outline_node_id, budget_used_json,
+              revision_cycle, pause_requested, cancel_requested, lease_owner,
+              lease_expires_at, version
+            ) VALUES (?, ?, ?, 'manual', 'completed', ?, ?, ?, ?, ?, ?, 1, NULL, ?, 0, 0, 0, NULL, NULL, 0)`,
+          )
+          .run(
+            runId,
+            projectId,
+            "review-report-restore",
+            JSON.stringify({
+              restored: true,
+              sourceRunId: oldRunId,
+              sourceStepId: oldStepId,
+            }),
+            stepId,
+            sourceCreatedAt,
+            sourceCreatedAt,
+            sourceCreatedAt,
+            sourceCreatedAt,
+            JSON.stringify({
+              inputTokens: 0,
+              outputTokens: 0,
+              calls: 0,
+              costUsd: 0,
+              wallTimeMs: 0,
+            }),
+          );
+        this.database.raw
+          .prepare(
+            `INSERT INTO run_steps(
+              id, run_id, ordinal, kind, status, idempotency_key, input_hash,
+              output_artifact_json, error_json, attempt, started_at, finished_at,
+              created_at, cycle, max_attempts, output_hash, updated_at
+            ) VALUES (?, ?, 0, 'review.restore', 'succeeded', ?, NULL, ?, NULL, 1, ?, ?, ?, 0, 1, NULL, ?)`,
+          )
+          .run(
+            stepId,
+            runId,
+            `bundle-restore:${oldStepId}`,
+            JSON.stringify({ restored: true }),
+            sourceCreatedAt,
+            sourceCreatedAt,
+            sourceCreatedAt,
+            sourceCreatedAt,
+          );
+        this.database.raw
+          .prepare(
+            `INSERT INTO run_jobs(
+              run_id, status, priority, available_at, lease_owner,
+              lease_expires_at, last_error_json, created_at, updated_at
+            ) VALUES (?, 'finished', 0, ?, NULL, NULL, NULL, ?, ?)`,
+          )
+          .run(runId, sourceCreatedAt, sourceCreatedAt, sourceCreatedAt);
+      }
       const reportId = randomUuid();
       this.database.raw
         .prepare(
@@ -2097,8 +2996,8 @@ export class DeliveryService {
         .run(
           reportId,
           projectId,
-          `bundle-restored:${stringField(item.report, "runId") ?? "unknown"}`,
-          `bundle-restored:${stringField(item.report, "stepId") ?? "unknown"}`,
+          runPair.runId,
+          runPair.stepId,
           versionMap.get(stringField(item.report, "documentVersionId") ?? "") ??
             null,
           ["pass", "revise", "block"].includes(
@@ -2133,7 +3032,9 @@ export class DeliveryService {
               ? stringField(entry.issue, "severity")
               : "info",
             stringField(entry.issue, "message") ?? "",
-            JSON.stringify(entry.issue.evidence ?? {}),
+            JSON.stringify(
+              Array.isArray(entry.issue.evidence) ? entry.issue.evidence : [],
+            ),
             stringField(entry.issue, "suggestedDirection"),
             ["open", "accepted", "rejected", "resolved"].includes(
               stringField(entry.issue, "status") ?? "",
@@ -2562,6 +3463,18 @@ export class DeliveryService {
       assistantActivities: restoredActivities,
       assistantLongGoals: restoredLongGoals,
       runs: 0,
+      chapterBriefs: restoredChapterBriefs,
+      chapterBriefHistory: restoredChapterBriefHistory,
+      creativePresets: restoredCreativePresets,
+      creativePresetHistory: restoredCreativePresetHistory,
+      bookProfileHistory: restoredBookProfileHistory,
+      platformMetrics: restoredPlatformMetrics,
+      publishRecords: restoredPublishRecords,
+      exportBatches: restoredExportBatches,
+      openingCheckReports: restoredOpeningCheckReports,
+      openingCheckAudits: restoredOpeningCheckAudits,
+      webNovelCandidateSets: restoredWebNovelCandidateSets,
+      webNovelCandidateItems: restoredWebNovelCandidateItems,
     });
     return { projectId, counts };
   }
@@ -2575,6 +3488,90 @@ export class DeliveryServiceError extends Error {
     super(message);
     this.name = "DeliveryServiceError";
   }
+}
+
+/** 给导入失败补充稳定分类与作者下一步动作，保持原错误码兼容。 */
+export function deliveryErrorDetails(code: string):
+  | {
+      failureKind:
+        | "size"
+        | "encoding"
+        | "container"
+        | "structure"
+        | "empty"
+        | "hash"
+        | "unknown";
+      repairAction:
+        | "choose_smaller_file"
+        | "export_utf8"
+        | "repair_container"
+        | "check_manifest"
+        | "choose_non_empty_file"
+        | "retry_upload"
+        | "choose_supported_file";
+      retryable: boolean;
+    }
+  | undefined {
+  if (!code.startsWith("import.")) return undefined;
+  if (
+    code.endsWith("size.invalid") ||
+    code.endsWith("entry_limit") ||
+    code.endsWith("expansion_limit") ||
+    code.endsWith("content_limit") ||
+    code.endsWith("page_too_large") ||
+    code.endsWith("document_too_large")
+  ) {
+    return {
+      failureKind: "size",
+      repairAction: "choose_smaller_file",
+      retryable: true,
+    };
+  }
+  if (code.endsWith("upload.file_hash") || code.endsWith("upload.chunk_hash")) {
+    return {
+      failureKind: "hash",
+      repairAction: "retry_upload",
+      retryable: true,
+    };
+  }
+  if (code === "import.source.empty" || code.endsWith("epub.empty")) {
+    return {
+      failureKind: "empty",
+      repairAction: "choose_non_empty_file",
+      retryable: true,
+    };
+  }
+  if (code.includes("invalid_json") || code.includes("invalid_schema")) {
+    return {
+      failureKind: "structure",
+      repairAction: "check_manifest",
+      retryable: true,
+    };
+  }
+  if (
+    code.endsWith("epub.invalid") ||
+    code.endsWith("epub.container_missing") ||
+    code.endsWith("epub.opf_missing") ||
+    code.endsWith("epub.invalid_href") ||
+    code.endsWith("docx.invalid") ||
+    code.endsWith("docx.document_missing")
+  ) {
+    return {
+      failureKind: "container",
+      repairAction: "repair_container",
+      retryable: true,
+    };
+  }
+  if (code.endsWith("parse_failed") || code.endsWith("upload.base64")) {
+    return {
+      failureKind: code.endsWith("upload.base64") ? "encoding" : "unknown",
+      repairAction: code.endsWith("upload.base64")
+        ? "export_utf8"
+        : "choose_supported_file",
+      retryable: true,
+    };
+  }
+  return undefined;
 }
 
 function candidatesFromText(
@@ -2596,7 +3593,7 @@ function candidatesFromText(
           title: section.title,
           kind: sections.length > 1 ? "chapter" : "manuscript",
           content: section.content,
-          characters: [...section.content].length,
+          characters: effectiveCharacterCount(section.content),
         },
         now,
       ),
@@ -2966,7 +3963,7 @@ async function renderDocx(
   const now = new Date().toISOString();
   zip.file(
     "docProps/core.xml",
-    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>${escapeXml(project.title)}</dc:title><dc:creator>NarraLume</dc:creator><dcterms:created xsi:type="dcterms:W3CDTF">${now}</dcterms:created></cp:coreProperties>`,
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>${escapeXml(project.title)}</dc:title><dc:creator>ChapterFlow · 文织·网文工坊</dc:creator><dcterms:created xsi:type="dcterms:W3CDTF">${now}</dcterms:created></cp:coreProperties>`,
   );
   return zip.generateAsync({ type: "uint8array", compression: "DEFLATE" });
 }
@@ -3214,6 +4211,58 @@ function parseJsonObject(value: unknown): Record<string, unknown> {
   }
 }
 
+function parseJsonArray(value: unknown): unknown[] {
+  if (typeof value !== "string" || !value) return [];
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * 网文旧稿经常来自 Windows/国产编辑器，不能把所有非 UTF-8 字节都静默
+ * 替换成 �。先用 fatal UTF-8 校验，再尝试 GB18030；两者都无法解码时
+ * 才回退到带替换字符的 UTF-8，并把结果写进导入批次 metadata 供作者检查。
+ */
+function decodeImportedText(bytes: Uint8Array): {
+  text: string;
+  encoding: "utf-8" | "utf-8-bom" | "gb18030" | "utf-8-replacement";
+} {
+  const hasUtf8Bom =
+    bytes.length >= 3 &&
+    bytes[0] === 0xef &&
+    bytes[1] === 0xbb &&
+    bytes[2] === 0xbf;
+  try {
+    return {
+      text: new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+      encoding: hasUtf8Bom ? "utf-8-bom" : "utf-8",
+    };
+  } catch {
+    try {
+      return {
+        text: new TextDecoder("gb18030", { fatal: true }).decode(bytes),
+        encoding: "gb18030",
+      };
+    } catch {
+      return {
+        text: new TextDecoder("utf-8").decode(bytes),
+        encoding: "utf-8-replacement",
+      };
+    }
+  }
+}
+
+function presetPacing(
+  value: string | null,
+): "slow" | "steady" | "fast" | "cliffhanger" {
+  return ["slow", "steady", "fast", "cliffhanger"].includes(value ?? "")
+    ? (value as "slow" | "steady" | "fast" | "cliffhanger")
+    : "steady";
+}
+
 function stringField(
   value: Readonly<Record<string, unknown>> | undefined,
   key: string,
@@ -3225,6 +4274,12 @@ function stringField(
 function numberField(value: Readonly<Record<string, unknown>>, key: string) {
   const field = value[key];
   return typeof field === "number" && Number.isFinite(field) ? field : 0;
+}
+
+function nullableNonNegativeNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? Math.floor(value)
+    : null;
 }
 
 function objectField(value: Readonly<Record<string, unknown>>, key: string) {
@@ -3338,6 +4393,10 @@ function projectPhase(value: string): ProjectPhase {
   ].includes(value)
     ? (value as ProjectPhase)
     : "idea";
+}
+
+function effectiveCharacterCount(value: string): number {
+  return Array.from(value.replace(/\s/gu, "")).length;
 }
 
 function timelineVisibility(value: string | null) {

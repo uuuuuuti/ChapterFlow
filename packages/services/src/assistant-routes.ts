@@ -3,6 +3,7 @@ import { sha256Hex } from "@narralume/domain";
 import {
   AssistantActivityActionRequestSchema,
   AssistantActivityActionResponseSchema,
+  AssistantCanonSpreadSchema,
   AssistantConversationActionRequestSchema,
   AssistantConversationDetailSchema,
   AssistantConversationSchema,
@@ -273,6 +274,16 @@ export function registerAssistantRoutes(
       const origin = {
         surface: input.context.surface,
         documentId: input.context.documentId,
+        ...(input.context.outlineNodeId
+          ? { outlineNodeId: input.context.outlineNodeId }
+          : {}),
+        ...(input.context.canonSpread
+          ? {
+              canonSpread: AssistantCanonSpreadSchema.parse(
+                input.context.canonSpread,
+              ),
+            }
+          : {}),
         selection: input.context.selection
           ? {
               start: input.context.selection.start,

@@ -87,7 +87,8 @@ beforeEach(() => {
       dispatchEvent: vi.fn(),
     })),
   });
-  window.localStorage.clear();setLocale("zh-CN");
+  window.localStorage.clear();
+setLocale("zh-CN");
 });
 
 afterEach(() => {
@@ -117,7 +118,7 @@ describe("项目概览", () => {
 
     expect(
       screen.getByRole("link", { name: "在写作台续写此章" }),
-    ).toHaveAttribute("href", "/projects/p-1-tides/studio?outline=n-ch-2");
+    ).toHaveAttribute("href", "/books/p-1-tides/write?outline=n-ch-2");
     expect(screen.getByRole("link", { name: "续写本章" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "整理故事" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "AI 快速创作" })).toBeInTheDocument();
@@ -167,11 +168,11 @@ describe("项目概览", () => {
     await screen.findByText("章节正文已定稿；下一步：处理审稿与修订。");
     expect(screen.getByRole("link", { name: "审稿问题 · 3" })).toHaveAttribute(
       "href",
-      "/projects/p-1-tides/studio?focus=review&document=document-under-review",
+      "/books/p-1-tides/write?focus=review&document=document-under-review",
     );
     expect(screen.getByRole("link", { name: "处理审稿与修订" })).toHaveAttribute(
       "href",
-      "/projects/p-1-tides/studio?focus=review&document=document-under-review",
+      "/books/p-1-tides/write?focus=review&document=document-under-review",
     );
   });
 
@@ -213,7 +214,7 @@ describe("项目概览", () => {
     const restore = screen.getByRole("link", { name: "回到任务现场" });
     expect(restore).toHaveAttribute(
       "href",
-      "/projects/p-1-tides/studio?run=run-abc&document=d-1",
+      "/books/p-1-tides/write/d-1?run=run-abc&document=d-1",
     );
     expect(restore).toHaveTextContent("处理候选与裁定");
   });
@@ -271,7 +272,7 @@ describe("项目概览", () => {
     expect(screen.getByText("等待自动重试")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "回到任务现场" })).toHaveAttribute(
       "href",
-      "/projects/p-1-tides/autopilot?foundation=run-foundation",
+      "/books/p-1-tides/dashboard?task=run-foundation",
     );
   });
 

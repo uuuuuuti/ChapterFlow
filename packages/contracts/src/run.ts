@@ -69,6 +69,9 @@ export const RunStepKindSchema = z.enum([
   "canon.context",
   "canon.candidate",
   "canon.stage",
+  "webnovel.context",
+  "webnovel.candidate",
+  "webnovel.stage",
 ]);
 
 export const ChapterStepKindSchema = RunStepKindSchema.extract([
@@ -94,8 +97,27 @@ export const RunOriginSchema = z
   .object({
     surface: z.string().trim().min(1).max(100),
     documentId: IdSchema.nullable().default(null),
+    /** Optional outline context for non-document actions (planning, checks, and chapter runs). */
+    outlineNodeId: IdSchema.optional(),
+    /** Optimistic version token for an outline node used to start a planning run. */
+    outlineUpdatedAt: TimestampSchema.optional(),
     sessionId: IdSchema.optional(),
     branchId: IdSchema.optional(),
+    /** Optional formal version that the author was looking at when starting the run. */
+    versionId: IdSchema.optional(),
+    /** Story-bible focus that initiated the run, preserved for return navigation. */
+    canonSpread: z
+      .enum([
+        "intent",
+        "outline",
+        "entities",
+        "facts",
+        "relations",
+        "timeline",
+        "foreshadows",
+      ])
+      .optional(),
+    returnTo: z.string().trim().max(500).optional(),
     selection: z
       .object({
         start: z.number().int().nonnegative(),
@@ -103,6 +125,11 @@ export const RunOriginSchema = z
       })
       .nullable()
       .default(null),
+    /** Optional link back to a web-novel check that started this run. */
+    checkIssueId: IdSchema.optional(),
+    checkReportId: IdSchema.optional(),
+    checkReportGeneratedAt: TimestampSchema.optional(),
+    checkDocumentVersionId: IdSchema.nullable().optional(),
   })
   .strict();
 export type RunOrigin = z.infer<typeof RunOriginSchema>;
@@ -175,6 +202,7 @@ export const RunProductResultSchema = z.object({
   settlementCandidate: JsonObjectSchema.nullable(),
   canonChangeSetId: IdSchema.nullable(),
   foundationCandidateSetId: IdSchema.nullable(),
+  webNovelCandidateSetId: IdSchema.nullable().default(null),
   canonCandidateSetId: IdSchema.nullable(),
   editProposalId: IdSchema.nullable(),
   cocreateTurnId: IdSchema.nullable(),
@@ -206,6 +234,22 @@ export const RunAvailableActionSchema = z.enum([
   "regenerate",
   "retry_chapter",
 ]);
+export type RunAvailableAction = z.infer<typeof RunAvailableActionSchema>;
+
+/**
+ * Product-facing explanation of every action that the current run could
+ * expose. `availableActions` remains the compact execution list used by
+ * existing clients; this companion projection lets a client explain why an
+ * action is disabled without reimplementing run policy in the browser.
+ */
+export const RunActionAvailabilitySchema = z
+  .object({
+    action: RunAvailableActionSchema,
+    available: z.boolean(),
+    reasonCode: z.string().nullable(),
+  })
+  .strict();
+export type RunActionAvailability = z.infer<typeof RunActionAvailabilitySchema>;
 
 export const DiscardRunStreamRequestSchema = z.object({
   projectId: IdSchema,
@@ -259,6 +303,13 @@ export const NarrativeRunSchema = z.object({
   updatedAt: TimestampSchema,
   version: z.number().int().nonnegative(),
 });
+
+/** Cursor page used by the native task center; the legacy array endpoint stays available for adapters. */
+export const RunListPageSchema = z.object({
+  items: z.array(NarrativeRunSchema),
+  nextCursor: z.string().nullable(),
+});
+export type RunListPageDto = z.infer<typeof RunListPageSchema>;
 
 export const NarrativeRunStepSchema = z.object({
   id: IdSchema,
@@ -320,6 +371,7 @@ export const BackgroundRunCreatedSchema = RunSnapshotSchema.extend({
   origin: RunOriginSchema.nullable(),
   result: RunProductResultSchema,
   availableActions: z.array(RunAvailableActionSchema),
+  actionAvailability: z.array(RunActionAvailabilitySchema),
 });
 
 /**
@@ -455,6 +507,7 @@ export const RunDetailSchema = RunSnapshotSchema.extend({
     .nullable(),
   result: RunProductResultSchema,
   availableActions: z.array(RunAvailableActionSchema),
+  actionAvailability: z.array(RunActionAvailabilitySchema),
   llmCalls: z.array(LlmCallReceiptSchema),
   contextReceipts: z.array(ContextReceiptViewSchema),
   modelSnapshots: z.array(ModelAssignmentSnapshotViewSchema),

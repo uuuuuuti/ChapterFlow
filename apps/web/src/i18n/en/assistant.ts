@@ -154,7 +154,7 @@ export const assistant: typeof assistantZh = {
     chapterStart: "Start single-chapter writing",
     autopilotStart: "Start AI quick drafting",
     outlinePlanStart: "Plan upcoming chapters",
-    canonCandidateStart: "Generate Canon candidate changes",
+    canonCandidateStart: "Generate story-setting suggestions",
     selectionEditStart: "Edit selected text",
     longGoalStart: "Start compound creation task",
     taskControl: "Control current task",

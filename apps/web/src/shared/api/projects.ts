@@ -3,6 +3,7 @@ import { requestJson, jsonRequest, requestBlob, requestVoid } from "./client";
 import {
   type ProjectLanguage,
   type ProjectCoverMutation,
+  type BookProfileInput,
 } from "@narralume/contracts";
 import { readDriverOverride, currentDriverMode } from "../../kernel/transport";
 
@@ -43,6 +44,7 @@ export async function createProject(input: {
   title: string;
   premise: string | null;
   language?: ProjectLanguage;
+  bookProfile?: BookProfileInput;
 }): Promise<Project> {
   return requestJson<Project>("/api/projects", jsonRequest("POST", input));
 }

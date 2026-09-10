@@ -8,5 +8,6 @@ export * from "./collaboration-recipes.js";
 export * from "./delivery-recipes.js";
 export * from "./assistant-recipes.js";
 export * from "./canon-candidate-recipes.js";
+export * from "./web-novel-candidate-recipes.js";
 export * from "./template-recipe.js";
 export * from "./prompt-defaults.js";

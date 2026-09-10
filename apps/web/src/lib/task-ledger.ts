@@ -2,8 +2,6 @@
    供项目概览在服务端真相之外补一条「回到任务现场」的恢复入口。
    台账只存导航线索，不解析任务内部 Step；真相永远以服务端 overview 为准。 */
 
-import { projectWorkspacePath } from "./project-route";
-
 const LEDGER_KEY = "narralume:task-ledger";
 const LEDGER_CAP = 20;
 
@@ -41,24 +39,26 @@ export function taskHref(
     ? context.origin.sessionId
     : null;
   if (kind === "quick_creation") {
-    return `${projectWorkspacePath(projectId, "autopilot")}?session=${encodeURIComponent(taskId)}`;
+    return `/books/${encodeURIComponent(projectId)}/dashboard?task=${encodeURIComponent(taskId)}`;
   }
   if (kind === "foundation") {
-    return `${projectWorkspacePath(projectId, "autopilot")}?foundation=${encodeURIComponent(taskId)}`;
+    return `/books/${encodeURIComponent(projectId)}/dashboard?task=${encodeURIComponent(taskId)}`;
   }
   if (surface === "cocreate" && sessionId) {
     const params = new URLSearchParams({ mode: "cocreate", session: sessionId });
-    return `${projectWorkspacePath(projectId, "studio")}?${params.toString()}`;
+    return `/books/${encodeURIComponent(projectId)}/write?${params.toString()}`;
   }
   if (kind === "chapter" || surface === "studio" || surface === "writing") {
     const params = new URLSearchParams({ run: taskId });
     if (documentId) params.set("document", documentId);
-    return `${projectWorkspacePath(projectId, "studio")}?${params.toString()}`;
+    return documentId
+      ? `/books/${encodeURIComponent(projectId)}/write/${encodeURIComponent(documentId)}?${params.toString()}`
+      : `/books/${encodeURIComponent(projectId)}/write?${params.toString()}`;
   }
   if (surface === "autopilot" || surface === "project-overview" || surface === "shelf") {
-    return projectWorkspacePath(projectId, "autopilot");
+    return `/books/${encodeURIComponent(projectId)}/dashboard?task=${encodeURIComponent(taskId)}`;
   }
-  return `${projectWorkspacePath(projectId, "runs")}?run=${encodeURIComponent(taskId)}`;
+  return `/books/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(taskId)}`;
 }
 
 function readLedger(): TaskLedgerEntry[] {

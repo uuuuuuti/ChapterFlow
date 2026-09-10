@@ -1,4 +1,4 @@
-import { sha256Hex, randomUuid } from "@narralume/domain";
+import { randomUuid, sha256BytesHex, sha256Hex } from "@narralume/domain";
 
 import {
   AnalyzeImportRequestSchema,
@@ -17,6 +17,8 @@ import {
   PutImportChunkRequestSchema,
   ProjectBackupSchema,
   ProjectQualityReportSchema,
+  ExportBatchSchema,
+  ListExportBatchQuerySchema,
   RestoreBackupRequestSchema,
   StyleProfileSchema,
   UpdateStyleProfileRequestSchema,
@@ -37,6 +39,7 @@ import {
   SqliteProjectRepository,
   SqliteRequestReplayRepository,
   SqliteRunRepository,
+  SqliteExportBatchRepository,
   type NarrativeDatabase,
 } from "@narralume/persistence";
 import { z } from "zod";
@@ -76,6 +79,9 @@ const ExportQuerySchema = z.object({
   versionMode: z.enum(["current", "history"]).default("current"),
   includeAnnotations: QueryBooleanSchema.default(false),
   includeRuns: QueryBooleanSchema.default(false),
+  fromOutlineNodeId: z.string().trim().min(1).optional(),
+  toOutlineNodeId: z.string().trim().min(1).optional(),
+  retryOfBatchId: z.string().trim().min(1).optional(),
 });
 const UploadParamsSchema = z.object({ uploadId: z.string().trim().min(1) });
 const UploadChunkParamsSchema = UploadParamsSchema.extend({
@@ -95,6 +101,7 @@ export function registerDeliveryRoutes(
   const projects = new SqliteProjectRepository(database);
   const requestReplays = new SqliteRequestReplayRepository(database);
   const runs = new SqliteRunRepository(database);
+  const exportBatches = new SqliteExportBatchRepository(database);
   const service = new DeliveryService(database);
 
   app.route("GET", "/api/projects/:projectId/styles", async (request) => {
@@ -411,6 +418,11 @@ export function registerDeliveryRoutes(
     return { status: 201, body: ImportUploadSessionSchema.parse(session) };
   });
 
+  app.route("GET", "/api/import-uploads/:uploadId", async (request) => {
+    const { uploadId } = UploadParamsSchema.parse(request.params);
+    return ImportUploadSessionSchema.parse(service.getUpload(uploadId));
+  });
+
   app.route(
     "PUT",
     "/api/import-uploads/:uploadId/chunks/:chunkIndex",
@@ -641,11 +653,84 @@ export function registerDeliveryRoutes(
     async (request) => {
       const { projectId, format } = ExportParamsSchema.parse(request.params);
       const exportOptions = ExportQuerySchema.parse(request.query);
-      const result = await service.exportProject(
+      const generatedAt = new Date().toISOString();
+      const project = projects.get(projectId);
+      if (!project) {
+        throw new DeliveryRouteError(
+          "project.not_found",
+          "Project not found",
+          404,
+        );
+      }
+      const retryOfBatchId = exportOptions.retryOfBatchId ?? null;
+      if (retryOfBatchId && !exportBatches.get(projectId, retryOfBatchId)) {
+        throw new DeliveryRouteError(
+          "export_batch.not_found",
+          "Retry source export batch was not found",
+          404,
+        );
+      }
+      const exportInput = {
+        versionMode: exportOptions.versionMode,
+        includeAnnotations: exportOptions.includeAnnotations,
+        includeRuns: exportOptions.includeRuns,
+        ...(exportOptions.fromOutlineNodeId
+          ? { fromOutlineNodeId: exportOptions.fromOutlineNodeId }
+          : {}),
+        ...(exportOptions.toOutlineNodeId
+          ? { toOutlineNodeId: exportOptions.toOutlineNodeId }
+          : {}),
+      };
+      let result: Awaited<ReturnType<typeof service.exportProject>>;
+      try {
+        result = await service.exportProject(
+          projectId,
+          format,
+          generatedAt,
+          exportInput,
+        );
+      } catch (error) {
+        try {
+          exportBatches.insert(
+            projectId,
+            {
+              format,
+              status: "failed",
+              versionMode: exportOptions.versionMode,
+              includeAnnotations: exportOptions.includeAnnotations,
+              includeRuns: exportOptions.includeRuns,
+              fromOutlineNodeId: exportOptions.fromOutlineNodeId ?? null,
+              toOutlineNodeId: exportOptions.toOutlineNodeId ?? null,
+              filename: `${project.title || "作品"}.${format}`,
+              byteSize: 0,
+              contentHash: sha256BytesHex(new Uint8Array()),
+              errorCode: exportErrorCode(error),
+              errorMessage: exportErrorMessage(error),
+              retryOfBatchId,
+            },
+            generatedAt,
+          );
+        } catch {
+          // Preserve the original export error if audit persistence itself fails.
+        }
+        throw error;
+      }
+      const batch = exportBatches.insert(
         projectId,
-        format,
-        new Date().toISOString(),
-        exportOptions,
+        {
+          format,
+          status: "completed",
+          versionMode: exportOptions.versionMode,
+          includeAnnotations: exportOptions.includeAnnotations,
+          includeRuns: exportOptions.includeRuns,
+          fromOutlineNodeId: exportOptions.fromOutlineNodeId ?? null,
+          toOutlineNodeId: exportOptions.toOutlineNodeId ?? null,
+          filename: result.filename,
+          byteSize: result.bytes.byteLength,
+          contentHash: sha256BytesHex(result.bytes),
+          retryOfBatchId,
+        },
+        generatedAt,
       );
       return {
         status: 200,
@@ -654,8 +739,23 @@ export function registerDeliveryRoutes(
           "content-type": result.mimeType,
           "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(result.filename)}`,
           "content-length": String(result.bytes.length),
+          "x-export-batch-id": batch.id,
+          "x-export-content-hash": batch.contentHash,
         },
       };
+    },
+  );
+
+  app.route(
+    "GET",
+    "/api/projects/:projectId/export-batches",
+    async (request) => {
+      const { projectId } = ProjectParamsSchema.parse(request.params);
+      requireProject(projects, projectId);
+      const query = ListExportBatchQuerySchema.parse(request.query);
+      return exportBatches
+        .list(projectId, query.limit)
+        .map((batch) => ExportBatchSchema.parse(batch));
     },
   );
 
@@ -753,4 +853,17 @@ function requireProject(projects: SqliteProjectRepository, projectId: string) {
   if (!projects.get(projectId)) {
     throw new DeliveryRouteError("project.not_found", "Project not found", 404);
   }
+}
+
+function exportErrorCode(error: unknown): string {
+  if (error && typeof error === "object" && "code" in error) {
+    const code = (error as { code?: unknown }).code;
+    if (typeof code === "string" && code.trim()) return code;
+  }
+  return "export.failed";
+}
+
+function exportErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  return "导出失败，请检查范围、正文版本和导出格式后重试。";
 }

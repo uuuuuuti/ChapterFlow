@@ -158,7 +158,7 @@ function parseSkillMarkdown(filename: string, markdown: string) {
   const fallbackName = filename.replace(/\.(skill\.)?(md|zip)$/iu, "");
   const scopes = parseSkillScopes(metadata.scopes);
   return {
-    name: metadata.name || fallbackName || "导入 Skill",
+    name: metadata.name || fallbackName || "导入写作技法",
     description: metadata.description || null,
     instructions,
     scopes,

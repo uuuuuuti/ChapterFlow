@@ -25,8 +25,13 @@ export async function previewStoryImport(input: {
   filename: string;
   format: ImportFormat;
   contentBase64: string;
-}): Promise<ImportBatchDetail> {
-  return requestJson("/api/imports/preview", jsonRequest("POST", input));
+}, signal?: AbortSignal): Promise<ImportBatchDetail> {
+  return requestJson(
+    "/api/imports/preview",
+    signal
+      ? { ...jsonRequest("POST", input), signal }
+      : jsonRequest("POST", input),
+  );
 }
 
 export async function uploadStoryFile(
@@ -34,36 +39,86 @@ export async function uploadStoryFile(
   targetProjectId: string | null,
   format: ImportFormat,
   onProgress?: (receivedBytes: number, totalBytes: number) => void,
+  signal?: AbortSignal,
 ): Promise<ImportBatchDetail> {
+  let resumeKey: string | null = null;
+  const ensureNotAborted = () => {
+    if (signal?.aborted) {
+      if (resumeKey && typeof localStorage !== "undefined")
+        localStorage.removeItem(resumeKey);
+      throw new DOMException("导入已取消", "AbortError");
+    }
+  };
   const chunkSize = 2 * 1024 * 1024;
   if (file.size <= chunkSize) {
+    ensureNotAborted();
     const contentBase64 = bytesToBase64(
       new Uint8Array(await file.arrayBuffer()),
     );
+    ensureNotAborted();
     onProgress?.(file.size, file.size);
     return previewStoryImport({
       targetProjectId,
       filename: file.name,
       format,
       contentBase64,
-    });
+    }, signal);
   }
-  const session = await requestJson<ImportUploadSession>(
-    "/api/import-uploads",
-    jsonRequest("POST", {
-      targetProjectId,
-      filename: file.name,
-      format,
-      totalBytes: file.size,
-      chunkSize,
-      expectedHash: null,
-    }),
-  );
+  ensureNotAborted();
+  const fileHash = await sha256(new Uint8Array(await file.arrayBuffer()));
+  resumeKey = `chapterflow:import:upload:${fileHash}`;
+  let session: ImportUploadSession | null = null;
+  const storedSessionId = typeof localStorage === "undefined" ? null : localStorage.getItem(resumeKey);
+  if (storedSessionId) {
+    try {
+      const candidate = await getImportUpload(storedSessionId, signal);
+      if (
+        candidate.status === "uploading" &&
+        candidate.expectedHash === fileHash &&
+        candidate.filename === file.name &&
+        candidate.format === format &&
+        candidate.totalBytes === file.size
+      ) {
+        session = candidate;
+      } else {
+        localStorage.removeItem(resumeKey);
+      }
+    } catch {
+      localStorage.removeItem(resumeKey);
+    }
+  }
+  if (!session) {
+    session = await requestJson<ImportUploadSession>(
+      "/api/import-uploads",
+      signal
+        ? {
+            ...jsonRequest("POST", {
+              targetProjectId,
+              filename: file.name,
+              format,
+              totalBytes: file.size,
+              chunkSize,
+              expectedHash: fileHash,
+            }),
+            signal,
+          }
+        : jsonRequest("POST", {
+            targetProjectId,
+            filename: file.name,
+            format,
+            totalBytes: file.size,
+            chunkSize,
+            expectedHash: fileHash,
+          }),
+    );
+    if (typeof localStorage !== "undefined") localStorage.setItem(resumeKey, session.id);
+  }
   for (
     let offset = 0, index = 0;
     offset < file.size;
     offset += chunkSize, index += 1
   ) {
+    ensureNotAborted();
     const bytes = new Uint8Array(
       await file
         .slice(offset, Math.min(file.size, offset + chunkSize))
@@ -72,21 +127,41 @@ export async function uploadStoryFile(
     const chunkHash = await sha256(bytes);
     await requestJson<ImportUploadSession>(
       `/api/import-uploads/${encodeURIComponent(session.id)}/chunks/${index}`,
-      jsonRequest("PUT", {
-        contentBase64: bytesToBase64(bytes),
-        chunkHash,
-      }),
+      signal
+        ? {
+            ...jsonRequest("PUT", {
+              contentBase64: bytesToBase64(bytes),
+              chunkHash,
+            }),
+            signal,
+          }
+        : jsonRequest("PUT", {
+            contentBase64: bytesToBase64(bytes),
+            chunkHash,
+          }),
     );
     onProgress?.(Math.min(file.size, offset + bytes.byteLength), file.size);
   }
+  ensureNotAborted();
   const result = await requestJson<{
     session: ImportUploadSession;
     detail: ImportBatchDetail;
   }>(
     `/api/import-uploads/${encodeURIComponent(session.id)}/complete`,
-    jsonRequest("POST", {}),
+    signal ? { ...jsonRequest("POST", {}), signal } : jsonRequest("POST", {}),
   );
+  if (typeof localStorage !== "undefined") localStorage.removeItem(resumeKey);
   return result.detail;
+}
+
+export async function getImportUpload(
+  uploadId: string,
+  signal?: AbortSignal,
+): Promise<ImportUploadSession> {
+  return requestJson(
+    `/api/import-uploads/${encodeURIComponent(uploadId)}`,
+    signal ? { signal } : {},
+  );
 }
 
 export async function getStoryImport(
@@ -200,21 +275,37 @@ export async function getProjectExport(
     versionMode: "current" | "history";
     includeAnnotations: boolean;
     includeRuns: boolean;
+    fromOutlineNodeId?: string | null;
+    toOutlineNodeId?: string | null;
+    retryOfBatchId?: string | null;
   } = {
     versionMode: "current",
     includeAnnotations: false,
     includeRuns: false,
   },
-): Promise<{ blob: Blob; filename: string }> {
+): Promise<{ blob: Blob; filename: string; exportBatchId: string | null }> {
   const query = new URLSearchParams({
     versionMode: options.versionMode,
     includeAnnotations: String(options.includeAnnotations),
     includeRuns: String(options.includeRuns),
   });
-  const { blob, filename } = await requestBlob(
+  if (options.fromOutlineNodeId) {
+    query.set("fromOutlineNodeId", options.fromOutlineNodeId);
+  }
+  if (options.toOutlineNodeId) {
+    query.set("toOutlineNodeId", options.toOutlineNodeId);
+  }
+  if (options.retryOfBatchId) {
+    query.set("retryOfBatchId", options.retryOfBatchId);
+  }
+  const { blob, filename, exportBatchId } = await requestBlob(
     `/api/projects/${encodeURIComponent(projectId)}/exports/${encodeURIComponent(format)}?${query}`,
   );
-  return { blob, filename: filename ?? `novel.${format}` };
+  return {
+    blob,
+    filename: filename ?? `novel.${format}`,
+    exportBatchId,
+  };
 }
 
 export async function getSystemBackups(

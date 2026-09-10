@@ -544,7 +544,7 @@ describe("项目协作侧栏", () => {
         screen.getByRole("link", { name: /查看任务现场/ }),
       ).toHaveAttribute(
         "href",
-        "/projects/project-1/runs?run=chapter-run-1",
+        "/books/project-1/tasks/chapter-run-1",
       ),
     );
     expect(fetchMock).toHaveBeenCalledWith(
@@ -609,7 +609,7 @@ describe("项目协作侧栏", () => {
     const link = await screen.findByRole("link", { name: /前往处理/ });
     expect(link).toHaveAttribute(
       "href",
-      "/projects/project-1/studio?run=chapter-run-1&document=document-1",
+      "/books/project-1/tasks/chapter-run-1?run=chapter-run-1&document=document-1",
     );
     // waitingReason 现在是机器码，由前端标签表统一渲染成中文。
     expect(await screen.findByText("正文候选等待采纳")).toBeInTheDocument();

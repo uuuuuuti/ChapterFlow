@@ -2,6 +2,7 @@ import { createCanonFact, type CanonFact } from "@narralume/domain";
 import {
   CanonChangeSetDecisionConflictError,
   SqliteCanonRepository,
+  SqliteDocumentRepository,
   SqliteNarrativeStateRepository,
   SqliteReviewRepository,
   SqliteRunRepository,
@@ -51,6 +52,7 @@ const CoCreateChangesSchema = z.object({
 
 export class SettlementApplicationService {
   private readonly canon: SqliteCanonRepository;
+  private readonly documents: SqliteDocumentRepository;
   private readonly story: SqliteStoryRepository;
   private readonly state: SqliteNarrativeStateRepository;
   private readonly reviews: SqliteReviewRepository;
@@ -58,6 +60,7 @@ export class SettlementApplicationService {
 
   constructor(private readonly database: NarrativeDatabase) {
     this.canon = new SqliteCanonRepository(database);
+    this.documents = new SqliteDocumentRepository(database);
     this.story = new SqliteStoryRepository(database);
     this.state = new SqliteNarrativeStateRepository(
       database,
@@ -88,6 +91,7 @@ export class SettlementApplicationService {
           changeSet.status,
         );
       }
+      this.assertSourceVersionCurrent(changeSet);
       const result = emptyResult(changeSet);
       const settlement = GroundedSettlementSchema.safeParse(changeSet.changes);
       if (settlement.success) {
@@ -129,6 +133,25 @@ export class SettlementApplicationService {
       });
       return result;
     });
+  }
+
+  private assertSourceVersionCurrent(changeSet: CanonChangeSetView): void {
+    if (!changeSet.sourceDocumentId || !changeSet.sourceDocumentVersionId) {
+      return;
+    }
+    const document = this.documents.get(
+      changeSet.projectId,
+      changeSet.sourceDocumentId,
+    );
+    if (
+      !document ||
+      document.currentVersionId !== changeSet.sourceDocumentVersionId
+    ) {
+      throw new SettlementApplicationError(
+        "settlement.source_version_conflict",
+        "The manuscript changed after these story changes were generated; review the latest manuscript and regenerate the story changes",
+      );
+    }
   }
 
   reject(input: {

@@ -2,7 +2,12 @@ import { createProject, transitionProjectPhase } from "@narralume/domain";
 import { NodeNarrativeDatabase } from "../src/node.js";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { MigrationError, SqliteProjectRepository } from "../src/index.js";
+import {
+  MigrationError,
+  SqliteProjectRepository,
+  SqliteDocumentRepository,
+  SqliteWebNovelRepository,
+} from "../src/index.js";
 import { migration001 } from "../src/migrations/001-foundation.js";
 import { migration002 } from "../src/migrations/002-story-kernel.js";
 import { migration003 } from "../src/migrations/003-harness.js";
@@ -72,8 +77,8 @@ function database(): NodeNarrativeDatabase {
 describe("NodeNarrativeDatabase", () => {
   it("applies the B1 migrations idempotently and enforces checksums", () => {
     const db = database();
-    expect(db.currentMigration()).toBe(41);
-    expect(db.migrate()).toBe(41);
+    expect(db.currentMigration()).toBe(62);
+    expect(db.migrate()).toBe(62);
     expect(
       db.raw
         .prepare("SELECT checksum FROM schema_migrations WHERE version = 23")
@@ -172,7 +177,7 @@ describe("NodeNarrativeDatabase", () => {
         project.createdAt,
       );
 
-    expect(db.migrate()).toBe(41);
+    expect(db.migrate()).toBe(62);
     expect(
       db.raw
         .prepare(
@@ -190,7 +195,7 @@ describe("NodeNarrativeDatabase", () => {
       .prepare("UPDATE schema_migrations SET checksum = ? WHERE version = 23")
       .run(MUTATED_MIGRATION_023_CHECKSUM);
 
-    expect(db.migrate()).toBe(41);
+    expect(db.migrate()).toBe(62);
     expect(
       db.raw
         .prepare("SELECT checksum FROM schema_migrations WHERE version = 23")
@@ -306,5 +311,143 @@ describe("repositories", () => {
       transitionProjectPhase(created, "foundation", "2026-08-10T00:01:00.000Z"),
     );
     expect(projects.get("p-1")?.phase).toBe("foundation");
+  });
+
+  it("persists versioned web-novel presets, book profiles, and chapter briefs", () => {
+    const db = database();
+    const projects = new SqliteProjectRepository(db);
+    projects.insert(
+      createProject({
+        id: "p-web-novel",
+        title: "潮汐灯塔",
+        now: "2026-08-10T00:00:00.000Z",
+      }),
+    );
+    db.raw
+      .prepare(
+        `INSERT INTO outline_nodes(
+          id, project_id, parent_id, kind, path, depth, ordinal, title,
+          summary, goal, conflict, outcome, pov_entity_id, story_time, status,
+          metadata_json, created_at, updated_at
+        ) VALUES (?, ?, NULL, 'chapter', ?, 0, 0, ?, NULL, NULL, NULL, NULL, NULL, NULL, 'planned', '{}', ?, ?)`,
+      )
+      .run(
+        "outline-chapter-1",
+        "p-web-novel",
+        "1",
+        "第一章",
+        "2026-08-10T00:00:00.000Z",
+        "2026-08-10T00:00:00.000Z",
+      );
+
+    const repository = new SqliteWebNovelRepository(db);
+    const documents = new SqliteDocumentRepository(db);
+    documents.insert({
+      id: "document-chapter-1",
+      projectId: "p-web-novel",
+      kind: "chapter",
+      title: "第一章",
+      outlineNodeId: "outline-chapter-1",
+      currentVersionId: null,
+      archivedAt: null,
+      createdAt: "2026-08-10T00:00:00.000Z",
+      updatedAt: "2026-08-10T00:00:00.000Z",
+    });
+    const firstVersion = documents.appendVersion(
+      "p-web-novel",
+      "document-chapter-1",
+      {
+        id: "document-version-1",
+        content: "第一版正文",
+        source: "manual",
+        expectedCurrentVersionId: null,
+        now: "2026-08-10T00:01:30.000Z",
+      },
+    );
+    const preset = repository.insertPreset({
+      id: "preset-fast",
+      projectId: null,
+      name: "快节奏悬疑",
+      genre: "都市悬疑",
+      audience: "追更读者",
+      promise: "每章都有新线索",
+      pacing: "fast",
+      targetWordsPerChapter: 3000,
+      updateCadence: "日更",
+      boundaries: ["不靠误会拖延"],
+      checkRules: ["章尾必须留下问题"],
+      defaultTemplate: null,
+      now: "2026-08-10T00:00:00.000Z",
+    });
+    expect(repository.listPresets("p-web-novel")).toContainEqual(preset);
+
+    const profile = repository.upsertBookProfile("p-web-novel", {
+      presetId: preset.id,
+      genre: preset.genre,
+      audience: preset.audience,
+      promise: preset.promise,
+      tone: "克制",
+      endingDirection: null,
+      pov: "第三人称",
+      updateCadence: preset.updateCadence,
+      targetWordsPerChapter: preset.targetWordsPerChapter,
+      boundaries: preset.boundaries,
+      worldRules: ["潮汐会带走记忆"],
+      arcNotes: [],
+      expectedVersion: null,
+      now: "2026-08-10T00:01:00.000Z",
+    });
+    expect(profile.version).toBe(0);
+    expect(repository.getBookProfile("p-web-novel")?.worldRules).toEqual([
+      "潮汐会带走记忆",
+    ]);
+
+    const brief = repository.upsertChapterBrief(
+      "p-web-novel",
+      "outline-chapter-1",
+      {
+        goal: "让主角发现第一条线索",
+        conflict: "证人拒绝开口",
+        payoff: "拿到一张旧船票",
+        hook: "船票上的日期尚未到来",
+        characterIds: [],
+        foreshadowIds: [],
+        timelineIds: [],
+        targetWords: 3000,
+        pacing: "fast",
+        expectedVersion: null,
+        now: "2026-08-10T00:02:00.000Z",
+      },
+    );
+    expect(brief.outlineNodeId).toBe("outline-chapter-1");
+    expect(brief.documentVersionId).toBe(firstVersion.id);
+    const secondVersion = documents.appendVersion(
+      "p-web-novel",
+      "document-chapter-1",
+      {
+        id: "document-version-2",
+        content: "第二版正文",
+        source: "manual",
+        expectedCurrentVersionId: firstVersion.id,
+        now: "2026-08-10T00:02:30.000Z",
+      },
+    );
+    const updatedBrief = repository.upsertChapterBrief(
+      "p-web-novel",
+      "outline-chapter-1",
+      {
+        ...brief,
+        expectedVersion: 0,
+        now: "2026-08-10T00:03:00.000Z",
+      },
+    );
+    expect(updatedBrief.documentVersionId).toBe(secondVersion.id);
+    expect(() =>
+      repository.upsertChapterBrief("p-web-novel", "outline-chapter-1", {
+        ...brief,
+        expectedVersion: 0,
+        now: "2026-08-10T00:04:00.000Z",
+      }),
+    ).toThrow(/updated elsewhere/u);
   });
 });

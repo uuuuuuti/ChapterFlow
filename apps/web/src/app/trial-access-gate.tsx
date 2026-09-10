@@ -197,7 +197,7 @@ export function TrialAccessGate({ children }: { children: ReactNode }) {
   return (
     <main className="trial-access" aria-busy={state === "checking"}>
       <section className="trial-access__card" aria-live="polite">
-        <p className="trial-access__eyebrow mono">NarraLume</p>
+        <p className="trial-access__eyebrow mono">ChapterFlow</p>
         <h1>{t("shell.trial.title")}</h1>
         <p>
           {configurationMissing

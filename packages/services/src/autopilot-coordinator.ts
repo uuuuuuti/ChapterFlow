@@ -408,6 +408,24 @@ export class AutopilotCoordinator {
 
   private nextChapter(sessionId: string) {
     const session = this.automation.requireSession(sessionId);
+    const scopedChapters = this.story
+      .listOutline(session.projectId)
+      .filter((node) => node.kind === "chapter");
+    const startIndex = session.scope.startOutlineNodeId
+      ? scopedChapters.findIndex(
+          (node) => node.id === session.scope.startOutlineNodeId,
+        )
+      : 0;
+    const endIndex = session.scope.endOutlineNodeId
+      ? scopedChapters.findIndex(
+          (node) => node.id === session.scope.endOutlineNodeId,
+        )
+      : scopedChapters.length - 1;
+    const first = startIndex >= 0 ? startIndex : 0;
+    const last = endIndex >= first ? endIndex : scopedChapters.length - 1;
+    const allowed = new Set(
+      scopedChapters.slice(first, last + 1).map((node) => node.id),
+    );
     const resolved = new Set(
       this.automation
         .listRunLinks(sessionId)
@@ -425,6 +443,7 @@ export class AutopilotCoordinator {
         .find(
           (node) =>
             node.kind === "chapter" &&
+            allowed.has(node.id) &&
             node.status === "planned" &&
             !resolved.has(node.id),
         ) ?? null

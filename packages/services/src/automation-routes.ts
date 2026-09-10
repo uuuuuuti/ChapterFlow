@@ -49,6 +49,7 @@ import {
   isTerminalSessionStatus,
   keepBlockedManuscript,
   latestRunReason,
+  requireManuscriptAcceptanceSafe,
   requestManuscriptRevision,
   requestSessionCancellation,
   requireWritingAssignment,
@@ -56,6 +57,7 @@ import {
   resolveSessionFailure,
   sessionProductProjection,
   runProductProjection,
+  validateRunOrigin,
   withRuntimeModelPolicy,
 } from "@narralume/services";
 import { bootstrapProject } from "@narralume/services";
@@ -133,6 +135,7 @@ export function registerAutomationRoutes(
         premise: input.premise ?? input.braindump.slice(0, 2_000),
         language: input.language,
         now,
+        bookProfile: input.bookProfile,
       });
       const createdRun = createFoundationRun({
         runs,
@@ -261,6 +264,9 @@ export function registerAutomationRoutes(
         automation.resolveCandidate(candidateId, {
           status: "discarded",
           ...(input.payload ? { editedPayload: input.payload } : {}),
+          ...(input.expectedUpdatedAt
+            ? { expectedUpdatedAt: input.expectedUpdatedAt }
+            : {}),
           now: new Date().toISOString(),
         }),
       );
@@ -274,6 +280,7 @@ export function registerAutomationRoutes(
         canon,
         candidateId,
         input.payload,
+        input.expectedUpdatedAt,
       ),
     );
   });
@@ -281,15 +288,54 @@ export function registerAutomationRoutes(
   app.route("POST", "/api/candidate-sets/:setId/actions", async (request) => {
     const { setId } = CandidateSetParamsSchema.parse(request.params);
     const input = CandidateSetActionRequestSchema.parse(request.body);
+    const currentSet = automation.requireCandidateSet(setId);
+    if (
+      input.action === "adopt-all" &&
+      currentSet.candidates.some(
+        (candidate) =>
+          candidate.kind === "plan" && candidate.status === "pending",
+      )
+    ) {
+      throw new AutomationServiceError(
+        "foundation.plan.selection_required",
+        "Comparable foundation plans are mutually exclusive; choose one plan before adopting it",
+        409,
+      );
+    }
     if (input.action === "discard-all") {
       return FoundationCandidateSetSchema.parse(
-        automation.discardPendingCandidates(setId, new Date().toISOString()),
+        database.transaction(() => {
+          const detail = automation.requireCandidateSet(setId);
+          for (const candidate of detail.candidates) {
+            if (candidate.status !== "pending") continue;
+            const expected = input.expectedUpdatedAtByCandidate?.[candidate.id];
+            if (expected !== undefined && expected !== candidate.updatedAt) {
+              throw new AutomationServiceError(
+                "foundation_candidate.version.conflict",
+                "One or more foundation candidates changed after this review was opened; refresh before deciding",
+                409,
+              );
+            }
+          }
+          return automation.discardPendingCandidates(
+            setId,
+            new Date().toISOString(),
+          );
+        }),
       );
     }
     database.transaction(() => {
       for (const candidate of automation.requireCandidateSet(setId)
         .candidates) {
         if (candidate.status === "pending") {
+          const expected = input.expectedUpdatedAtByCandidate?.[candidate.id];
+          if (expected !== undefined && expected !== candidate.updatedAt) {
+            throw new AutomationServiceError(
+              "foundation_candidate.version.conflict",
+              "One or more foundation candidates changed after this review was opened; refresh before deciding",
+              409,
+            );
+          }
           adoptCandidate(
             database,
             automation,
@@ -297,6 +343,8 @@ export function registerAutomationRoutes(
             story,
             canon,
             candidate.id,
+            undefined,
+            expected,
           );
         }
       }
@@ -355,7 +403,35 @@ export function registerAutomationRoutes(
       const { projectId } = ProjectParamsSchema.parse(request.params);
       requireProject(projects, projectId);
       const input = CreateAutopilotSessionRequestSchema.parse(request.body);
+      validateRunOrigin(database, projectId, input.origin);
       await options.beforeCreateAutopilotSession?.(input);
+      const outline = story
+        .listOutline(projectId)
+        .filter((node) => node.kind === "chapter");
+      const outlineById = new Map(outline.map((node) => [node.id, node]));
+      const start = input.scope.startOutlineNodeId
+        ? outlineById.get(input.scope.startOutlineNodeId)
+        : null;
+      const end = input.scope.endOutlineNodeId
+        ? outlineById.get(input.scope.endOutlineNodeId)
+        : null;
+      if (
+        (input.scope.startOutlineNodeId && !start) ||
+        (input.scope.endOutlineNodeId && !end)
+      ) {
+        throw new AutomationServiceError(
+          "autopilot.scope.invalid",
+          "The selected autopilot range must refer to chapter nodes in this project",
+          409,
+        );
+      }
+      if (start && end && outline.indexOf(start) > outline.indexOf(end)) {
+        throw new AutomationServiceError(
+          "autopilot.scope.order",
+          "The autopilot start chapter must come before the end chapter",
+          409,
+        );
+      }
       const requestHash = hashRequest(input);
       const sessionId = deterministicRequestId(
         "autopilot-session",
@@ -402,6 +478,7 @@ export function registerAutomationRoutes(
       requireWritingAssignment(database, options.environment);
       const policyInput = { ...input.chapterPolicy };
       const { effectivePolicy, warnings } = resolveEffectivePolicy(policyInput);
+      const compass = automation.getCompass(projectId);
       for (const warning of warnings) {
         request.log.warn({ code: warning.code }, warning.message);
       }
@@ -410,11 +487,19 @@ export function registerAutomationRoutes(
         projectId,
         mode:
           input.approvalMode === "continuous" ? "autopilot" : "chapter-gate",
+        scope: input.scope,
         targetChapters: input.targetChapters,
         windowSize: input.windowSize,
         maxRevisionCycles: input.maxRevisionCycles,
         chapterPolicy: {
           ...effectivePolicy,
+          // Keep this session-only switch alongside the resolved policy so the
+          // coordinator can stop after committing the requested outline
+          // window instead of entering chapter production.
+          ...(policyInput.planningOnly === true ? { planningOnly: true } : {}),
+          ...(compass
+            ? { targetWordsPerChapter: compass.target.wordsPerChapter }
+            : {}),
           explicitPolicyFields: Object.keys(policyInput).sort(),
           planningMode: input.planningMode,
           origin: input.origin,
@@ -509,7 +594,8 @@ export function registerAutomationRoutes(
                 409,
               );
             }
-            const child = runs.getSnapshot(session.currentRunId).run;
+            const childSnapshot = runs.getSnapshot(session.currentRunId);
+            const child = childSnapshot.run;
             if (
               child.status !== "awaiting_user" ||
               child.mode !== "chapter-gate"
@@ -520,6 +606,7 @@ export function registerAutomationRoutes(
                 409,
               );
             }
+            requireManuscriptAcceptanceSafe(database, childSnapshot);
             runs.mergePolicy(
               child.id,
               { chapterApproved: true, autoApplySettlement: true },
@@ -828,7 +915,7 @@ function sessionDetail(
       .map((steer) => StorySteerSchema.parse(steer)),
     reviews: automation.listPlanningReviews(sessionId),
     blockingReview: currentBlockingReview(session, runs, reviews),
-    ...sessionProductProjection(session, runs, story),
+    ...sessionProductProjection(session, runs, story, links),
   });
 }
 
@@ -836,6 +923,7 @@ function toSessionResponse(session: AutopilotSession) {
   return AutopilotSessionSchema.parse({
     ...session,
     approvalMode: session.mode === "autopilot" ? "continuous" : "per_chapter",
+    scope: session.scope,
     origin: isRecord(session.chapterPolicy.origin)
       ? session.chapterPolicy.origin
       : null,

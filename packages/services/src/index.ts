@@ -22,6 +22,7 @@ export {
   committedChangeSetId,
   latestAwaitReason,
   requireAwaitReason,
+  requireManuscriptAcceptanceSafe,
   requireRunInProject,
   requireViablePartial,
   requireWritingAssignment,
@@ -29,6 +30,10 @@ export {
   withRuntimeModelPolicy,
   RunServiceError,
 } from "./run-policy.js";
+export {
+  validateRunOrigin,
+  type RunOriginValidationContext,
+} from "./run-origin.js";
 export {
   requestManuscriptRevision,
   type RequestedRevisionResult,
@@ -114,6 +119,8 @@ export * from "./agent-skill-routes.js";
 export * from "./assistant-routes.js";
 export * from "./automation-routes.js";
 export * from "./canon-candidate-routes.js";
+export * from "./web-novel-candidate-service.js";
+export * from "./web-novel-candidate-routes.js";
 export * from "./delivery-routes.js";
 export * from "./long-novel-routes.js";
 export * from "./project-cover-routes.js";
@@ -123,5 +130,6 @@ export * from "./run-routes.js";
 export * from "./story-routes.js";
 export * from "./studio-routes.js";
 export * from "./template-routes.js";
+export * from "./web-novel-routes.js";
 export { mapRouteError, type ApiErrorPayload } from "./route-error-mapper.js";
 export { RouteTable } from "./route-dispatch.js";

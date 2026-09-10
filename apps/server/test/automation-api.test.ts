@@ -353,6 +353,168 @@ describe("automation API", () => {
     });
   });
 
+  it("persists and validates a bounded chapter scope for continuous creation", async () => {
+    const { app } = await setup();
+    const project = (
+      await app.inject({
+        method: "POST",
+        url: "/api/projects",
+        payload: {
+          requestId: globalThis.crypto.randomUUID(),
+          title: "范围航线",
+          premise: "连续创作只推进作者指定的章节区间。",
+        },
+      })
+    ).json() as { id: string };
+    const bible = (
+      await app.inject({
+        method: "GET",
+        url: `/api/projects/${project.id}/story-bible`,
+      })
+    ).json() as { outline: Array<{ id: string; kind: string }> };
+    const rootId = bible.outline.find((node) => node.kind === "book")!.id;
+    const chapterIds: string[] = [];
+    for (const [ordinal, title] of ["第一章", "第二章", "第三章"].entries()) {
+      const chapter = await app.inject({
+        method: "POST",
+        url: `/api/projects/${project.id}/outline`,
+        payload: {
+          parentId: rootId,
+          kind: "chapter",
+          ordinal,
+          title,
+          summary: `${title}摘要`,
+          goal: `${title}目标`,
+          conflict: `${title}冲突`,
+          metadata: {},
+        },
+      });
+      expect(chapter.statusCode, chapter.body).toBe(201);
+      chapterIds.push((chapter.json() as { id: string }).id);
+    }
+
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/autopilot/sessions`,
+      payload: {
+        requestId: "bounded-autopilot-scope",
+        approvalMode: "continuous",
+        targetChapters: 2,
+        windowSize: 2,
+        scope: {
+          startOutlineNodeId: chapterIds[0],
+          endOutlineNodeId: chapterIds[1],
+        },
+      },
+    });
+    expect(created.statusCode, created.body).toBe(202);
+    const session = created.json() as {
+      id: string;
+      scope: { startOutlineNodeId: string; endOutlineNodeId: string };
+    };
+    expect(session.scope).toEqual({
+      startOutlineNodeId: chapterIds[0],
+      endOutlineNodeId: chapterIds[1],
+    });
+
+    const detail = await app.inject({
+      method: "GET",
+      url: `/api/autopilot/sessions/${session.id}`,
+    });
+    expect(detail.statusCode, detail.body).toBe(200);
+    expect(
+      (detail.json() as { session: typeof session }).session.scope,
+    ).toEqual(session.scope);
+
+    const reversed = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/autopilot/sessions`,
+      payload: {
+        requestId: "reversed-autopilot-scope",
+        scope: {
+          startOutlineNodeId: chapterIds[2],
+          endOutlineNodeId: chapterIds[0],
+        },
+      },
+    });
+    expect(reversed.statusCode).toBe(409);
+    expect(reversed.json()).toMatchObject({
+      error: { code: "autopilot.scope.order" },
+    });
+
+    const unknown = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/autopilot/sessions`,
+      payload: {
+        requestId: "unknown-autopilot-scope",
+        scope: { startOutlineNodeId: "missing", endOutlineNodeId: null },
+      },
+    });
+    expect(unknown.statusCode).toBe(409);
+    expect(unknown.json()).toMatchObject({
+      error: { code: "autopilot.scope.invalid" },
+    });
+  });
+
+  it("rejects a continuous-creation origin from another project", async () => {
+    const { app } = await setup();
+    const createProject = async (requestId: string, title: string) =>
+      (
+        await app.inject({
+          method: "POST",
+          url: "/api/projects",
+          payload: { requestId, title, premise: "来源校验测试" },
+        })
+      ).json() as { id: string };
+    const target = await createProject("origin-target-project", "目标作品");
+    const foreign = await createProject("origin-foreign-project", "另一部作品");
+    const bible = (
+      await app.inject({
+        method: "GET",
+        url: `/api/projects/${foreign.id}/story-bible`,
+      })
+    ).json() as { outline: Array<{ id: string; kind: string }> };
+    const chapter = await app.inject({
+      method: "POST",
+      url: `/api/projects/${foreign.id}/outline`,
+      payload: {
+        parentId: bible.outline.find((node) => node.kind === "book")!.id,
+        kind: "chapter",
+        ordinal: 0,
+        title: "外部章节",
+      },
+    });
+    expect(chapter.statusCode, chapter.body).toBe(201);
+    const document = await app.inject({
+      method: "POST",
+      url: `/api/projects/${foreign.id}/documents`,
+      payload: {
+        requestId: "origin-foreign-document",
+        kind: "chapter",
+        title: "外部章节",
+        outlineNodeId: chapter.json().id,
+      },
+    });
+    expect(document.statusCode, document.body).toBe(201);
+
+    const rejected = await app.inject({
+      method: "POST",
+      url: `/api/projects/${target.id}/autopilot/sessions`,
+      payload: {
+        requestId: "cross-project-origin",
+        origin: {
+          surface: "writing",
+          documentId: document.json().id,
+          selection: null,
+        },
+      },
+    });
+    expect(rejected.statusCode).toBe(404);
+    expect(rejected.json()).toMatchObject({
+      error: { code: "run.origin.document_not_found" },
+    });
+  });
+
   it("creates a project and its foundation task exactly once per requestId", async () => {
     const { app, database } = await setup();
     const payload = {
@@ -366,6 +528,19 @@ describe("automation API", () => {
         targetChapters: 24,
         wordsPerChapter: 2_500,
         volumes: 1,
+      },
+      bookProfile: {
+        genre: "悬疑奇幻",
+        audience: "喜欢规则谜团的读者",
+        promise: "每次点灯都揭开一层秘密",
+        tone: "克制",
+        endingDirection: "找到灯塔的真相",
+        pov: "近距离第三人称",
+        updateCadence: "日更一章",
+        targetWordsPerChapter: 2_500,
+        boundaries: ["不靠巧合解决谜题"],
+        worldRules: ["灯火只能照见被记住的人"],
+        arcNotes: ["第一卷查清失踪名单"],
       },
     };
 
@@ -385,6 +560,18 @@ describe("automation API", () => {
       idempotentReplay: false,
     });
     expect(first.task.run.projectId).toBe(first.project.id);
+    const profile = await app.inject({
+      method: "GET",
+      url: `/api/projects/${first.project.id}/book-profile`,
+    });
+    expect(profile.statusCode, profile.body).toBe(200);
+    expect(profile.json()).toMatchObject({
+      genre: "悬疑奇幻",
+      audience: "喜欢规则谜团的读者",
+      promise: "每次点灯都揭开一层秘密",
+      targetWordsPerChapter: 2_500,
+      boundaries: ["不靠巧合解决谜题"],
+    });
 
     const replayed = await app.inject({
       method: "POST",
@@ -596,16 +783,50 @@ describe("automation API", () => {
     expect(candidateResponse.statusCode).toBe(200);
     const candidateSets = candidateResponse.json() as {
       set: { id: string };
-      candidates: unknown[];
+      candidates: { id: string; kind: string; status: string }[];
     }[];
-    expect(candidateSets[0]?.candidates).toHaveLength(4);
-    const adopted = await app.inject({
+    expect(candidateSets[0]?.candidates).toHaveLength(3);
+    expect(
+      candidateSets[0]?.candidates.every(
+        (candidate) => candidate.kind === "plan",
+      ),
+    ).toBe(true);
+    const adoptAll = await app.inject({
       method: "POST",
       url: `/api/candidate-sets/${candidateSets[0]!.set.id}/actions`,
       payload: { action: "adopt-all" },
     });
+    expect(adoptAll.statusCode, adoptAll.body).toBe(409);
+    expect(adoptAll.json()).toMatchObject({
+      error: { code: "foundation.plan.selection_required" },
+    });
+    const adopted = await app.inject({
+      method: "POST",
+      url: `/api/candidates/${candidateSets[0]!.candidates[0]!.id}/actions`,
+      payload: { action: "adopt" },
+    });
     expect(adopted.statusCode, adopted.body).toBe(200);
-    expect(adopted.json()).toMatchObject({ set: { status: "adopted" } });
+    expect(adopted.json()).toMatchObject({
+      status: "adopted",
+      adoptedRefType: "foundation_plan",
+    });
+    const settled = (
+      await app.inject({
+        method: "GET",
+        url: `/api/projects/${projectId}/foundation/candidates`,
+      })
+    ).json() as { set: { status: string }; candidates: { status: string }[] }[];
+    expect(settled[0]?.set.status).toBe("adopted");
+    expect(
+      settled[0]?.candidates.filter(
+        (candidate) => candidate.status === "adopted",
+      ),
+    ).toHaveLength(1);
+    expect(
+      settled[0]?.candidates.filter(
+        (candidate) => candidate.status === "discarded",
+      ),
+    ).toHaveLength(2);
     expect(
       (
         await app.inject({
@@ -783,6 +1004,14 @@ describe("automation API", () => {
       "chapter",
       "chapter",
     ]);
+    expect(detail.chapterResults).toHaveLength(3);
+    expect(detail.chapterResults[0]).toEqual(
+      expect.objectContaining({
+        runId: expect.any(String),
+        targetWords: expect.any(Number),
+        retryCount: expect.any(Number),
+      }),
+    );
     expect(detail.steers).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -956,18 +1185,16 @@ describe("automation API", () => {
         payload: { baseline?: Record<string, unknown> };
       }>;
     }>;
-    const intentCandidate = candidateSets[0]!.candidates.find(
-      (candidate) => candidate.kind === "intent",
-    )!;
-    const compassCandidate = candidateSets[0]!.candidates.find(
-      (candidate) => candidate.kind === "compass",
-    )!;
-    expect(intentCandidate.payload.baseline).toEqual({
-      intentUpdatedAt: bibleBefore.intent?.updatedAt ?? null,
-    });
-    expect(compassCandidate.payload.baseline).toEqual({
-      compassVersion: compassVersionBefore,
-    });
+    const planCandidates = candidateSets[0]!.candidates.filter(
+      (candidate) => candidate.kind === "plan",
+    );
+    expect(planCandidates).toHaveLength(3);
+    for (const plan of planCandidates) {
+      expect(plan.payload.baseline).toEqual({
+        intentUpdatedAt: bibleBefore.intent?.updatedAt ?? null,
+        compassVersion: compassVersionBefore,
+      });
+    }
 
     const adopt = (candidateId: string) =>
       app.inject({
@@ -975,15 +1202,15 @@ describe("automation API", () => {
         url: `/api/candidates/${candidateId}/actions`,
         payload: { action: "adopt" },
       });
-    const blockedIntent = await adopt(intentCandidate.id);
+    const blockedIntent = await adopt(planCandidates[0]!.id);
     expect(blockedIntent.statusCode, blockedIntent.body).toBe(409);
     expect(blockedIntent.json()).toMatchObject({
       error: { code: "foundation_candidate.intent.stale" },
     });
-    const blockedCompass = await adopt(compassCandidate.id);
+    const blockedCompass = await adopt(planCandidates[1]!.id);
     expect(blockedCompass.statusCode, blockedCompass.body).toBe(409);
     expect(blockedCompass.json()).toMatchObject({
-      error: { code: "foundation_candidate.compass.stale" },
+      error: { code: "foundation_candidate.intent.stale" },
     });
   });
 
@@ -1044,9 +1271,9 @@ describe("automation API", () => {
       .getSnapshot(runId)
       .steps.find((step) => step.kind === "foundation.generate")
       ?.outputArtifact as {
-      compass?: { target?: Record<string, number> };
+      plans?: { compass?: { target?: Record<string, number> } }[];
     } | null;
-    expect(artifact?.compass?.target).toEqual({
+    expect(artifact?.plans?.[0]?.compass?.target).toEqual({
       chapters: 18,
       wordsPerChapter: 3_200,
       volumes: 2,
@@ -1844,9 +2071,7 @@ function automationModel(
 
 function scriptedValue(purpose: string, request?: unknown): unknown {
   if (purpose === "book-foundation") {
-    return {
-      title: "雾港记忆候选",
-      rationale: "以可验证的遗忘规则推动人物选择。",
+    const shared = {
       intent: {
         promise: "每次遗忘都留下代价",
         themes: ["记忆", "责任"],
@@ -1888,6 +2113,34 @@ function scriptedValue(purpose: string, request?: unknown): unknown {
             fear: null,
             secret: "规则源头",
           },
+        },
+      ],
+    };
+    return {
+      plans: [
+        {
+          key: "memory-mystery",
+          title: "雾港失名案",
+          rationale: "以可验证的遗忘规则推动人物选择。",
+          angle: "规则悬疑：每一次找回名字都会交换另一段记忆。",
+          riskNotes: ["规则解释过多会拖慢前期节奏"],
+          ...shared,
+        },
+        {
+          key: "family-relationship",
+          title: "灯塔父女",
+          rationale: "把规则冲突落到父女之间的隐瞒与偿还。",
+          angle: "关系驱动：林昼必须决定要不要记住父亲真正做过的事。",
+          riskNotes: ["家庭线需要持续提供外部行动压力"],
+          ...shared,
+        },
+        {
+          key: "port-ensemble",
+          title: "沉默港口",
+          rationale: "用群像追查让每个失踪者都成为一条因果线。",
+          angle: "群像冒险：港口共同体用沉默保护一条不能公开的航线。",
+          riskNotes: ["群像角色过多时需要严格控制视角切换"],
+          ...shared,
         },
       ],
     };

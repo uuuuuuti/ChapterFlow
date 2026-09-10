@@ -1,6 +1,7 @@
 import {
   type RunOriginInput,
   type NarrativeRun,
+  type RunListPage,
   type RunDetail,
   type RunActionRequest,
   type RunSnapshot,
@@ -16,6 +17,7 @@ import {
 } from "./types";
 import {
   type ModelExecutionPolicy,
+  type BookProfileInput,
   type ChapterRunCreatedDto,
   type ContinueRunStreamRequest,
   type AdoptRunStreamResponse,
@@ -32,6 +34,10 @@ export async function createChapterRun(
     targetOutlineNodeId: string;
     planningMode?: "auto" | "confirm";
     origin?: RunOriginInput | null;
+    scope?: {
+      startOutlineNodeId: string | null;
+      endOutlineNodeId: string | null;
+    };
     maxRevisionCycles: number;
     /** 稀疏覆盖：只包含用户显式改过的字段。 */
     policy?: ModelExecutionPolicy;
@@ -49,6 +55,19 @@ export async function getProjectRuns(
 ): Promise<NarrativeRun[]> {
   return requestJson(
     `/api/projects/${encodeURIComponent(projectId)}/runs`,
+    signal ? { signal } : {},
+  );
+}
+
+export async function getProjectRunsPage(
+  projectId: string,
+  cursor?: string,
+  signal?: AbortSignal,
+): Promise<RunListPage> {
+  const params = new URLSearchParams({ limit: "50" });
+  if (cursor) params.set("cursor", cursor);
+  return requestJson(
+    `/api/projects/${encodeURIComponent(projectId)}/runs/page?${params.toString()}`,
     signal ? { signal } : {},
   );
 }
@@ -163,6 +182,7 @@ export async function createProjectWithFoundation(input: {
   premise?: string | null;
   language?: string;
   braindump: string;
+  bookProfile?: BookProfileInput;
   policy?: ModelExecutionPolicy;
   preferences?: {
     genre: string | null;
@@ -193,20 +213,31 @@ export async function resolveFoundationCandidate(
   candidateId: string,
   action: "adopt" | "discard",
   payload?: Record<string, unknown>,
+  expectedUpdatedAt?: string,
 ): Promise<FoundationCandidate> {
   return requestJson(
     `/api/candidates/${encodeURIComponent(candidateId)}/actions`,
-    jsonRequest("POST", { action, ...(payload ? { payload } : {}) }),
+    jsonRequest("POST", {
+      action,
+      ...(payload ? { payload } : {}),
+      ...(expectedUpdatedAt ? { expectedUpdatedAt } : {}),
+    }),
   );
 }
 
 export async function resolveFoundationCandidateSet(
   setId: string,
   action: "adopt-all" | "discard-all",
+  expectedUpdatedAtByCandidate?: Record<string, string>,
 ): Promise<FoundationCandidateSet> {
   return requestJson(
     `/api/candidate-sets/${encodeURIComponent(setId)}/actions`,
-    jsonRequest("POST", { action }),
+    jsonRequest("POST", {
+      action,
+      ...(expectedUpdatedAtByCandidate
+        ? { expectedUpdatedAtByCandidate }
+        : {}),
+    }),
   );
 }
 

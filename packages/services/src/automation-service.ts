@@ -6,7 +6,11 @@ import {
   type ModelExecutionPolicy,
 } from "@narralume/contracts";
 import { createCanonEntity } from "@narralume/domain";
-import type { AutopilotSession, RunSnapshot } from "@narralume/domain";
+import type {
+  AutopilotRunLink,
+  AutopilotSession,
+  RunSnapshot,
+} from "@narralume/domain";
 import { buildFoundationRecipe } from "@narralume/harness";
 import {
   type SqliteAutomationRepository,
@@ -20,7 +24,11 @@ import {
 import { z } from "zod";
 
 import { randomUuid } from "./internal/crypto.js";
-import { isRecord, withRuntimeModelPolicy } from "./run-policy.js";
+import {
+  isRecord,
+  runProductProjection,
+  withRuntimeModelPolicy,
+} from "./run-policy.js";
 import { ServiceError } from "./service-error.js";
 
 export class AutomationServiceError extends ServiceError {
@@ -48,6 +56,21 @@ const IntentCandidatePayloadSchema = z.object({
   boundaries: z.array(z.string()),
   endingDirection: z.string().nullable(),
   currentFocus: z.string().nullable(),
+});
+
+const FoundationPlanCandidatePayloadSchema = z.object({
+  key: z.string().trim().min(1),
+  title: z.string().min(1),
+  rationale: z.string().min(1),
+  angle: z.string().min(1),
+  riskNotes: z.array(z.string()),
+  intent: IntentCandidatePayloadSchema,
+  compass: UpdateCompassRequestSchema,
+  entities: z.array(CreateCanonEntityRequestSchema).min(1),
+  baseline: z.object({
+    intentUpdatedAt: z.string().nullable(),
+    compassVersion: z.number().int().nonnegative().nullable(),
+  }),
 });
 
 /** 从会话 chapterPolicy 还原生效策略（含创建时显式字段与停靠模式）。 */
@@ -253,16 +276,135 @@ export function adoptCandidate(
   canon: SqliteCanonRepository,
   candidateId: string,
   editedPayload?: Readonly<Record<string, unknown>>,
+  expectedUpdatedAt?: string,
 ) {
   return database.transaction(() => {
     const candidate = automation.requireCandidate(candidateId);
     if (candidate.status !== "pending") return candidate;
+    if (
+      expectedUpdatedAt !== undefined &&
+      candidate.updatedAt !== expectedUpdatedAt
+    ) {
+      throw new AutomationServiceError(
+        "foundation_candidate.version.conflict",
+        "The foundation candidate changed after it was opened; refresh before deciding",
+        409,
+      );
+    }
     const payload =
       editedPayload ?? candidate.editedPayload ?? candidate.payload;
     const now = new Date().toISOString();
     let adoptedRefType: string;
     let adoptedRefId: string;
-    if (candidate.kind === "intent") {
+    if (candidate.kind === "plan") {
+      const input = FoundationPlanCandidatePayloadSchema.parse(payload);
+      const currentIntent = story.getAuthorIntent(candidate.projectId);
+      const currentCompass = automation.getCompass(candidate.projectId);
+      // A plan is one atomic route through the foundation. Both source
+      // documents must still match the generation baseline before any part
+      // of the route is written.
+      if (
+        (currentIntent?.updatedAt ?? null) !==
+        baselineValue(candidate.payload, "intentUpdatedAt")
+      ) {
+        throw new AutomationServiceError(
+          "foundation_candidate.intent.stale",
+          "The author intent changed after the plan was generated; keep the current content and regenerate the plans",
+          409,
+        );
+      }
+      if (
+        (currentCompass?.version ?? null) !==
+        baselineValue(candidate.payload, "compassVersion")
+      ) {
+        throw new AutomationServiceError(
+          "foundation_candidate.compass.stale",
+          "The story compass changed after the plan was generated; keep the current content and regenerate the plans",
+          409,
+        );
+      }
+      const locked = new Set(currentIntent?.lockedFields ?? []);
+      story.upsertAuthorIntent({
+        projectId: candidate.projectId,
+        promise: locked.has("promise")
+          ? (currentIntent?.promise ?? null)
+          : input.intent.promise,
+        themes: locked.has("themes")
+          ? (currentIntent?.themes ?? [])
+          : input.intent.themes,
+        audience: locked.has("audience")
+          ? (currentIntent?.audience ?? null)
+          : input.intent.audience,
+        tone: locked.has("tone")
+          ? (currentIntent?.tone ?? null)
+          : input.intent.tone,
+        boundaries: locked.has("boundaries")
+          ? (currentIntent?.boundaries ?? [])
+          : input.intent.boundaries,
+        endingDirection: locked.has("endingDirection")
+          ? (currentIntent?.endingDirection ?? null)
+          : input.intent.endingDirection,
+        currentFocus: locked.has("currentFocus")
+          ? (currentIntent?.currentFocus ?? null)
+          : input.intent.currentFocus,
+        lockedFields: currentIntent?.lockedFields ?? [],
+        updatedAt: now,
+      });
+      automation.upsertCompass({
+        projectId: candidate.projectId,
+        ...input.compass,
+        version: currentCompass?.version ?? 1,
+        updatedAt: now,
+      });
+      for (const entityInput of input.entities) {
+        const existing = canon
+          .listEntities(candidate.projectId, { includeRetired: true })
+          .find(
+            (entity) =>
+              entity.type === entityInput.type &&
+              entity.name === entityInput.name,
+          );
+        if (!existing) {
+          canon.insertEntity(
+            createCanonEntity({
+              id: randomUuid(),
+              projectId: candidate.projectId,
+              type: entityInput.type,
+              name: entityInput.name,
+              aliases: entityInput.aliases,
+              description: entityInput.description ?? null,
+              attributes: entityInput.attributes,
+              now,
+            }),
+          );
+        }
+      }
+      adoptedRefType = "foundation_plan";
+      adoptedRefId = candidate.id;
+      const project = projects.get(candidate.projectId);
+      if (!project) {
+        throw new AutomationServiceError(
+          "project.not_found",
+          "Project not found",
+          404,
+        );
+      }
+      if (project.phase === "idea") {
+        projects.update({ ...project, phase: "foundation", updatedAt: now });
+      }
+      const adopted = automation.resolveCandidate(candidateId, {
+        status: "adopted",
+        ...(editedPayload ? { editedPayload } : {}),
+        adoptedRefType,
+        adoptedRefId,
+        ...(expectedUpdatedAt ? { expectedUpdatedAt } : {}),
+        now,
+      });
+      // Comparable plans are mutually exclusive. Resolving one closes the
+      // remaining routes so another tab cannot later commit a second world.
+      automation.discardPendingCandidates(candidate.setId, now);
+      return adopted;
+    } else if (candidate.kind === "intent") {
       const input = IntentCandidatePayloadSchema.parse(payload);
       const current = story.getAuthorIntent(candidate.projectId);
       // 候选保存了生成时的意图基线；生成后人工修改过的意图不能被旧候选覆盖。
@@ -363,6 +505,7 @@ export function adoptCandidate(
       ...(editedPayload ? { editedPayload } : {}),
       adoptedRefType,
       adoptedRefId,
+      ...(expectedUpdatedAt ? { expectedUpdatedAt } : {}),
       now,
     });
   });
@@ -372,6 +515,7 @@ export function sessionProductProjection(
   session: AutopilotSession,
   runs: SqliteRunRepository,
   story: SqliteStoryRepository,
+  links: readonly AutopilotRunLink[] = [],
 ) {
   const child = session.currentRunId
     ? runs.getSnapshot(session.currentRunId)
@@ -385,6 +529,9 @@ export function sessionProductProjection(
     stopReason,
     child?.run.status ?? null,
   );
+  const chapterResults = links
+    .filter((link) => link.role === "chapter")
+    .map((link) => projectChapterResult(session, link, links, runs));
   return {
     origin: isRecord(session.chapterPolicy.origin)
       ? session.chapterPolicy.origin
@@ -399,7 +546,118 @@ export function sessionProductProjection(
       : null,
     stopReason,
     availableActions,
+    chapterResults,
   };
+}
+
+function projectChapterResult(
+  session: AutopilotSession,
+  link: AutopilotRunLink,
+  links: readonly AutopilotRunLink[],
+  runs: SqliteRunRepository,
+) {
+  const snapshot = runs.getRun(link.runId)
+    ? runs.getSnapshot(link.runId)
+    : null;
+  const manuscript = snapshot
+    ? ([...snapshot.steps]
+        .reverse()
+        .find(
+          (step) =>
+            step.status === "succeeded" &&
+            (step.kind === "revision.generate" ||
+              step.kind === "draft.generate"),
+        )?.outputArtifact ?? null)
+    : null;
+  const review = snapshot
+    ? ([...snapshot.steps]
+        .reverse()
+        .find(
+          (step) =>
+            step.status === "succeeded" &&
+            (step.kind === "semantic.review" ||
+              step.kind === "deterministic.check"),
+        )?.outputArtifact ?? null)
+    : null;
+  const actualWords = manuscript
+    ? (numberField(manuscript, "characters") ??
+      (typeof manuscript.content === "string"
+        ? [...manuscript.content].length
+        : null))
+    : null;
+  const scores = review ? numericScores(review.scores) : [];
+  const checkScore = scores.length
+    ? Math.round(
+        (scores.reduce((sum, value) => sum + value, 0) / scores.length) * 10,
+      ) / 10
+    : null;
+  const qualityVerdict = review ? stringField(review, "verdict") : null;
+  const targetWords = numberField(
+    session.chapterPolicy,
+    "targetWordsPerChapter",
+  );
+  const previousAttempts = links.filter(
+    (candidate) =>
+      candidate.role === "chapter" &&
+      candidate.outlineNodeId === link.outlineNodeId &&
+      candidate.sequence < link.sequence,
+  ).length;
+  const stepRetries = snapshot
+    ? snapshot.steps.reduce(
+        (sum, step) => sum + Math.max(0, step.attempt - 1),
+        0,
+      )
+    : 0;
+  const error = snapshot
+    ? ([...snapshot.steps].reverse().find((step) => step.error)?.error ?? null)
+    : null;
+  const actionAvailability = snapshot
+    ? runProductProjection(snapshot, [], {
+        parentTask: { kind: "autopilot", id: session.id },
+      }).actionAvailability
+    : [];
+  return {
+    runId: link.runId,
+    outlineNodeId: link.outlineNodeId,
+    sequence: link.sequence,
+    status: link.outcome ?? snapshot?.run.status ?? "pending",
+    targetWords,
+    actualWords,
+    checkScore,
+    qualityVerdict:
+      qualityVerdict === "pass" ||
+      qualityVerdict === "revise" ||
+      qualityVerdict === "block"
+        ? qualityVerdict
+        : null,
+    retryCount: previousAttempts + stepRetries,
+    error,
+    actionAvailability,
+  };
+}
+
+function numberField(
+  record: Readonly<Record<string, unknown>>,
+  key: string,
+): number | null {
+  const value = record[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function stringField(
+  record: Readonly<Record<string, unknown>>,
+  key: string,
+): string | null {
+  const value = record[key];
+  return typeof value === "string" ? value : null;
+}
+
+function numericScores(value: unknown): number[] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  return Object.values(value).filter(
+    (score): score is number =>
+      typeof score === "number" && Number.isFinite(score),
+  );
 }
 
 /** The parent session owns its parked reason. The child may later be paused or

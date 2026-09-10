@@ -1,4 +1,5 @@
 import {
+  CanonCandidateEvidenceSchema,
   CanonCandidateItemSchema,
   CanonSpreadSchema,
 } from "@narralume/contracts";
@@ -12,6 +13,7 @@ export const CanonCandidateModelItemSchema = z
     title: z.string().trim().min(1).max(500),
     rationale: z.string().trim().min(1).max(10_000),
     impact: z.array(z.string().trim().min(1).max(2_000)).max(12),
+    evidence: z.array(CanonCandidateEvidenceSchema).max(8).default([]),
     afterJson: z.string().max(100_000).nullable(),
   })
   .strict();
@@ -65,6 +67,35 @@ export const CANON_CANDIDATE_MODEL_CONTRACT: JsonSchemaContract = {
               maxItems: 12,
               items: { type: "string", minLength: 1 },
             },
+            evidence: {
+              type: "array",
+              maxItems: 8,
+              items: {
+                type: "object",
+                additionalProperties: false,
+                required: ["sourceType", "sourceId", "label", "quote"],
+                properties: {
+                  sourceType: {
+                    type: "string",
+                    enum: [
+                      "outline",
+                      "entity",
+                      "fact",
+                      "relation",
+                      "timeline",
+                      "foreshadow",
+                      "document",
+                      "profile",
+                      "brief",
+                    ],
+                  },
+                  sourceId: { type: "string", minLength: 1 },
+                  label: { type: "string", minLength: 1 },
+                  quote: { type: "string", minLength: 1 },
+                  versionId: { anyOf: [{ type: "string" }, { type: "null" }] },
+                },
+              },
+            },
             afterJson: {
               anyOf: [{ type: "string" }, { type: "null" }],
             },
@@ -106,6 +137,20 @@ export const CanonCandidateChangesSchema = z
     instruction: z.string(),
     summary: z.string(),
     baseFingerprint: z.string(),
+    sourceOutlineNodeId: z
+      .string()
+      .trim()
+      .min(1)
+      .max(300)
+      .nullable()
+      .optional(),
+    sourceOutlineUpdatedAt: z
+      .string()
+      .trim()
+      .min(1)
+      .max(200)
+      .nullable()
+      .optional(),
     items: z.array(PersistedCanonCandidateItemSchema),
   })
   .strict();

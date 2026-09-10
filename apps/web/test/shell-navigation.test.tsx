@@ -18,13 +18,15 @@ describe("项目导航", () => {
 
   it("未选择作品时进入目标工作区的空状态", () => {
     const view = render(<MemoryRouter>{NaviLink(studio, null, shelf, "/shelf")}</MemoryRouter>);
-    expect(view.getByRole("link", { name: "前往写作" })).toHaveAttribute("href", "/studio");
-    expect(workspaceByPath("/studio")).toBe(studio);
+    expect(view.getByRole("link", { name: "前往写作" })).toHaveAttribute("href", "/books");
+    expect(workspaceByPath("/books")).toBe(WORKSPACES[0]);
   });
 
   it("选择作品后生成真实工作区链接", () => {
     const view = render(<MemoryRouter>{NaviLink(studio, "project-1", shelf, "/shelf")}</MemoryRouter>);
-    expect(view.getByRole("link", { name: "前往写作" })).toHaveAttribute("href", "/projects/project-1/studio");
+    expect(view.getByRole("link", { name: "前往写作" })).toHaveAttribute("href", "/books/project-1/write");
+    expect(workspaceByPath("/projects/project-1/studio")).toBe(studio);
+    expect(workspaceByPath("/books/project-1/write")).toBe(studio);
   });
 });
 
