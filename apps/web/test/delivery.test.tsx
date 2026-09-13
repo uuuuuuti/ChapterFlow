@@ -310,7 +310,9 @@ describe("交付", () => {
     });
     const init = call[1];
     const body = JSON.parse(String(init?.body));
-    expect(Object.keys(body)).toEqual(["label"]);
-    expect(body.label).toBe("临时备份");
+    expect(body).toMatchObject({
+      label: "临时备份",
+      requestId: expect.any(String),
+    });
   });
 });

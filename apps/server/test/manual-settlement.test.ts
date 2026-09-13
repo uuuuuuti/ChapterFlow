@@ -409,6 +409,22 @@ describe("手动章节结算", () => {
     expect(versions).toHaveLength(1);
   });
 
+  it("作者命名的正式版本同样绑定到结算 Run", async () => {
+    settlementWithCandidates = false;
+    const { app } = await setup();
+    const world = await createChapterWorld(app);
+    await appendVersion(
+      app,
+      world.projectId,
+      world.documentId,
+      "manual:作者最终修订",
+    );
+    const runs = await listRuns(app, world.projectId);
+    expect(
+      runs.filter((run) => run.recipe === "manual-settlement"),
+    ).toHaveLength(1);
+  });
+
   it("空结算不建变更集（避免裁定面板噪音）", async () => {
     settlementWithCandidates = false;
     const { app } = await setup();

@@ -120,11 +120,20 @@ export function DeliveryWorkspace() {
   const [restoreTarget, setRestoreTarget] = useState<ProjectBackup | null>(null);
   const [restoredProjectId, setRestoredProjectId] = useState<string | null>(null);
   const restoreRequestRef = useRef<{ backupId: string; requestId: string } | null>(null);
+  const backupRequestRef = useRef<{ label: string; requestId: string } | null>(null);
   const [exportError, setExportError] = useState<unknown>(null);
 
   const projectBackupCreateMutation = useMutation({
-    mutationFn: (label: string) => createProjectBackup(projectId!, label),
+    mutationFn: (label: string) => {
+      const existing = backupRequestRef.current;
+      if (!existing || existing.label !== label) {
+        backupRequestRef.current = { label, requestId: crypto.randomUUID() };
+      }
+      const request = backupRequestRef.current;
+      return createProjectBackup(projectId!, label, request!.requestId);
+    },
     onSuccess: () => {
+      backupRequestRef.current = null;
       setProjectBackupLabel("");
       void queryClient.invalidateQueries({ queryKey: ["project", projectId, "backups"] });
     },

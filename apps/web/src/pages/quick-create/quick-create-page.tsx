@@ -61,7 +61,10 @@ export function QuickCreatePage() {
   const story = useStory(projectId);
   const requestedStartOutlineNodeId = searchParams.get("fromOutline");
   const chapters = useMemo(
-    () => (story.data?.outline ?? []).filter((node) => node.kind === "chapter"),
+    () =>
+      (story.data?.outline ?? []).filter(
+        (node) => node.kind === "chapter" && node.status !== "abandoned",
+      ),
     [story.data?.outline],
   );
   const selectedId = searchParams.get("session");
@@ -318,7 +321,7 @@ function QuickCreateSetup({
       <form onSubmit={submit}>
       <label>确认方式<select value={approvalMode} onChange={(event) => setApprovalMode(event.target.value as typeof approvalMode)}><option value="per_chapter">逐章确认</option><option value="continuous">连续推进（按设定自动运行）</option></select></label>
       <label>目标章节<input type="number" min={1} max={AUTOMATION_LIMITS.targetChapters} value={targetChapters} onChange={(event) => setTargetChapters(Number(event.target.value))} /></label>
-      <div className="cf-form-grid"><label>起始章节<select aria-label="起始章节" value={startOutlineNodeId} onChange={(event) => setStartOutlineNodeId(event.target.value)}><option value="">从下一未完成章节开始</option>{chapters.map((chapter) => <option key={chapter.id} value={chapter.id}>{chapter.title}</option>)}</select>{initialStartOutlineNodeId ? <small>已从当前写作章节带入起点，可随时调整。</small> : null}</label><label>结束章节<select aria-label="结束章节" value={endOutlineNodeId} onChange={(event) => setEndOutlineNodeId(event.target.value)}><option value="">不设结束章节</option>{chapters.map((chapter) => <option key={chapter.id} value={chapter.id}>{chapter.title}</option>)}</select></label></div>
+      <div className="cf-form-grid"><label>起始章节<select aria-label="起始章节" value={startOutlineNodeId} onChange={(event) => setStartOutlineNodeId(event.target.value)}><option value="">从下一未完成章节开始</option>{chapters.map((chapter, index) => <option key={chapter.id} value={chapter.id}>第 {index + 1} 章 · {chapter.title}</option>)}</select>{initialStartOutlineNodeId ? <small>已从当前写作章节带入起点，可随时调整。</small> : null}</label><label>结束章节<select aria-label="结束章节" value={endOutlineNodeId} onChange={(event) => setEndOutlineNodeId(event.target.value)}><option value="">不设结束章节</option>{chapters.map((chapter, index) => <option key={chapter.id} value={chapter.id}>第 {index + 1} 章 · {chapter.title}</option>)}</select></label></div>
       <details className="cf-quick-create-advanced"><summary>高级选项</summary>
         <label>章纲规划<select value={planningMode} onChange={(event) => setPlanningMode(event.target.value as typeof planningMode)}><option value="confirm">先确认章纲</option><option value="auto">自动规划</option></select></label>
         <div className="cf-form-grid"><label>规划窗口<input type="number" min={1} max={AUTOMATION_LIMITS.planningWindow} value={windowSize} onChange={(event) => setWindowSize(Number(event.target.value))} /></label><label>最多修订轮次<input type="number" min={0} max={AUTOMATION_LIMITS.revisionCycles} value={maxRevisionCycles} onChange={(event) => setMaxRevisionCycles(Number(event.target.value))} /></label></div>
@@ -421,6 +424,29 @@ function SessionDetailPanel({
     setSteerText("");
   };
   const currentRunId = session.currentRunId;
+  const batchReview = detail.batchReview;
+  const batchReviewStale = batchReview?.stale === true;
+  const batchReviewVerdict =
+    typeof batchReview?.verdict === "string" ? batchReview.verdict : null;
+  const batchReviewSummary =
+    typeof batchReview?.summary === "string" ? batchReview.summary : null;
+  const batchReviewChapters = Array.isArray(batchReview?.chapters)
+    ? batchReview.chapters.length
+    : 0;
+  const batchReviewIssues = Array.isArray(batchReview?.issues)
+    ? batchReview.issues.filter(
+        (issue): issue is Record<string, unknown> =>
+          Boolean(issue && typeof issue === "object" && !Array.isArray(issue)),
+      )
+    : [];
+  const batchReviewDroppedIssueCount = (() => {
+    const diagnostics = batchReview?.groundingDiagnostics;
+    if (!diagnostics || typeof diagnostics !== "object" || Array.isArray(diagnostics))
+      return 0;
+    const count = (diagnostics as Record<string, unknown>).droppedIssueCount;
+    return typeof count === "number" ? count : 0;
+  })();
+  const visibleBatchReviewIssues = batchReviewStale ? [] : batchReviewIssues;
   const has = (name: string) => detail.availableActions.includes(name as never);
   const chapterById = new Map(chapters.map((chapter) => [chapter.id, chapter]));
   const scopedStart = scope.startOutlineNodeId
@@ -489,7 +515,10 @@ function SessionDetailPanel({
   const visibleChapterResults = chapterResults.slice(
     currentResultPage * CHAPTER_RESULT_PAGE_SIZE,
     (currentResultPage + 1) * CHAPTER_RESULT_PAGE_SIZE,
-  );
+  ).map((item, index) => ({
+    ...item,
+    chapterNumber: currentResultPage * CHAPTER_RESULT_PAGE_SIZE + index + 1,
+  }));
   const resultLabel = (status: string) =>
     status === "completed"
       ? "已完成"
@@ -570,6 +599,25 @@ function SessionDetailPanel({
           </div>
         </section>
       ) : null}
+      {batchReview ? (
+        <section className="cf-inline-warning cf-quick-create-batch-review" aria-label="前五章联合审阅">
+          {batchReviewStale ? <AlertTriangle size={16} /> : <Check size={16} />}
+          <div>
+            <strong>前五章联合审阅：{batchReviewStale ? "待重新审阅" : batchReviewVerdict === "block" ? "阻断" : batchReviewVerdict === "warning" ? "有警告" : "通过"}</strong>
+            <p>{batchReviewStale ? "章节正式版本已变化，上一份联合审阅不再代表当前正文；继续航次后会按当前版本重新检查。" : `${batchReviewSummary ?? "已完成五个当前版本的联合审阅。"} · 已绑定 ${batchReviewChapters} 个当前版本${batchReviewDroppedIssueCount > 0 ? ` · ${batchReviewDroppedIssueCount} 条无法逐字定位的模型问题未计入` : ""}`}</p>
+            {visibleBatchReviewIssues.length ? (
+              <ul>
+                {visibleBatchReviewIssues.slice(0, 5).map((issue, index) => (
+                  <li key={typeof issue.id === "string" ? issue.id : index}>
+                    {typeof issue.message === "string" ? issue.message : "联合审阅发现待处理问题"}
+                    {typeof issue.documentVersionId === "string" ? ` · 版本 ${issue.documentVersionId.slice(0, 8)}` : ""}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
       <div className="cf-actions cf-quick-create-actions">
         {has("pause") ? <button className="cf-button" disabled={actionPending} onClick={() => onAction({ action: "pause" })}><CirclePause size={15} />暂停</button> : null}
         {has("resume") ? <button className="cf-primary" disabled={actionPending} onClick={() => onAction({ action: "resume" })}><CirclePlay size={15} />继续</button> : null}
@@ -599,9 +647,9 @@ function SessionDetailPanel({
             <button type="button" className="cf-button" onClick={exportBatchReport}>导出批次报告 CSV</button>
           </div>
           <div className="cf-quick-create-result-list">
-            {visibleChapterResults.map(({ link, run, title, status, targetWords, actualWords, checkScore, retryCount, qualityVerdict, actionAvailability }) => (
+            {visibleChapterResults.map(({ link, run, title, status, targetWords, actualWords, checkScore, retryCount, qualityVerdict, actionAvailability, chapterNumber }) => (
               <div className="cf-list-row" key={link.runId}>
-                <div><strong>{title}</strong><p>{resultLabel(status)} · 第 {link.sequence + 1} 项{link.processedAt ? ` · ${formatSessionTime(link.processedAt)}` : ""}</p><small>{targetWords !== null ? `目标 ${formatCount(targetWords)} 字 · ` : ""}{actualWords !== null ? `实际 ${formatCount(actualWords)} 字 · ` : ""}{checkScore !== null ? `检查 ${checkScore} 分 · ` : ""}重试 {retryCount} 次{qualityVerdict ? ` · ${qualityVerdict === "pass" ? "检查通过" : qualityVerdict === "revise" ? "需要修改" : "检查阻塞"}` : ""}</small>{link.outcome && link.outcome !== status ? <small>批次结果：{link.outcome}</small> : null}{run?.status === "failed_recoverable" ? <small className="cf-error-text-inline">任务可恢复，先打开任务查看失败步骤。</small> : null}</div>
+                <div><strong>{title}</strong><p>{resultLabel(status)} · 第 {chapterNumber} 章{link.processedAt ? ` · ${formatSessionTime(link.processedAt)}` : ""}</p><small>{targetWords !== null ? `目标 ${formatCount(targetWords)} 字 · ` : ""}{actualWords !== null ? `实际 ${formatCount(actualWords)} 字 · ` : ""}{checkScore !== null ? `检查 ${checkScore} 分 · ` : ""}重试 {retryCount} 次{qualityVerdict ? ` · ${qualityVerdict === "pass" ? "检查通过" : qualityVerdict === "revise" ? "需要修改" : "检查阻塞"}` : ""}</small>{link.outcome && link.outcome !== status ? <small>批次结果：{link.outcome}</small> : null}{run?.status === "failed_recoverable" ? <small className="cf-error-text-inline">任务可恢复，先打开任务查看失败步骤。</small> : null}</div>
                 <div className="cf-actions"><Link className="cf-text-link" to={`/books/${session.projectId}/tasks/${link.runId}?returnTo=${encodeURIComponent(`/books/${session.projectId}/quick-create?session=${session.id}`)}`}>打开任务</Link>{link.outlineNodeId ? <Link className="cf-text-link" to={`/books/${session.projectId}/write?outline=${encodeURIComponent(link.outlineNodeId)}`}>打开写作台</Link> : null}</div>
                 {actionAvailability?.some((item) => item.available) ? <small className="cf-quick-create-result-actions">本章可处理：{actionAvailability.filter((item) => item.available).map((item) => chapterActionLabel(item.action)).join("、")}</small> : actionAvailability?.length ? <small className="cf-quick-create-result-actions">本章暂无单独动作，先查看任务详情。</small> : null}
               </div>

@@ -37,6 +37,7 @@ const DEFAULT_ATTEMPTS: Readonly<Record<RunStepKind, number>> = {
   "steer.classify": 5,
   "arc.review": 5,
   "volume.review": 5,
+  "batch.review": 5,
   "cocreate.context": 2,
   "cocreate.respond": 5,
   "cocreate.stage": 1,

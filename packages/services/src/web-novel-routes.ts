@@ -25,7 +25,10 @@ import {
   PublishRecordSchema,
   UpdateNovelCheckIssueRequestSchema,
 } from "@narralume/contracts";
-import { randomUuid } from "@narralume/domain";
+import {
+  effectiveManuscriptCharacterCount,
+  randomUuid,
+} from "@narralume/domain";
 import {
   CreativePersistenceError,
   PersistenceNotFoundError,
@@ -530,7 +533,7 @@ export function registerWebNovelRoutes(
           documentVersionId: document?.currentVersionId ?? null,
         });
         const content = version?.content ?? "";
-        const characters = effectiveCharacterCount(content);
+        const characters = effectiveManuscriptCharacterCount(content);
         manuscriptCharacters += characters;
         if (!content.trim()) {
           issues.push(
@@ -969,8 +972,4 @@ function requireExportBatch(
 
 function now(): string {
   return new Date().toISOString();
-}
-
-function effectiveCharacterCount(value: string): number {
-  return Array.from(value.replace(/\s/gu, "")).length;
 }

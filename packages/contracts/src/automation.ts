@@ -373,6 +373,7 @@ export const AutopilotSessionDetailSchema = z.object({
   chapterResults: z.array(AutopilotChapterResultSchema),
   steers: z.array(StorySteerSchema),
   reviews: z.array(PlanningReviewSchema),
+  batchReview: JsonObjectSchema.nullable(),
   origin: RunOriginSchema.nullable(),
   approvalMode: z.enum(["continuous", "per_chapter"]),
   currentChapter: z

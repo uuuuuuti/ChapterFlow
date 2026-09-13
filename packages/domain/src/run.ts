@@ -41,7 +41,8 @@ export type AutomationStepKind =
   | "outline.commit"
   | "steer.classify"
   | "arc.review"
-  | "volume.review";
+  | "volume.review"
+  | "batch.review";
 
 export type CollaborationStepKind =
   | "cocreate.context"

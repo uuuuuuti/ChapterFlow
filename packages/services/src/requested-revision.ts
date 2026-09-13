@@ -59,7 +59,11 @@ export function requestManuscriptRevision(
     ![
       "chapter_commit_approval_required",
       "critical_review_unresolved",
+      "critical_deterministic_issue_unresolved",
+      "deterministic_quality_gate_blocked",
+      "quality_gate_incomplete",
       "quality_gate_blocked",
+      "quality_gate_version_mismatch",
       "semantic_review_blocked",
       "revision_limit_reached",
     ].includes(sourceAwaitReason ?? "")

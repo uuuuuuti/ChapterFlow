@@ -1,4 +1,8 @@
-import { randomUuid, sha256Hex } from "@narralume/domain";
+import {
+  effectiveManuscriptCharacterCount,
+  randomUuid,
+  sha256Hex,
+} from "@narralume/domain";
 import { AUTOMATION_DEFAULTS } from "@narralume/contracts";
 import { decodeBase64 as decodeBase64Bytes } from "./internal/bytes.js";
 import { declaredUncompressedSize } from "./internal/zip.js";
@@ -1141,7 +1145,7 @@ export class DeliveryService {
       projectId,
       label,
       bundleHash: hash(bundleJson),
-      sizeBytes: bundleJson.length,
+      sizeBytes: textToBytes(bundleJson).length,
       createdAt: now,
       restoredProjectId: null,
       counts: bundle.manifest.counts as Record<string, number>,
@@ -1160,10 +1164,18 @@ export class DeliveryService {
       );
     }
     const bundle = BundleSchema.parse(JSON.parse(stored.bundleJson));
+    const existingProjectId = stored.backup.restoredProjectId;
+    if (existingProjectId && this.projects.get(existingProjectId)) {
+      return {
+        projectId: existingProjectId,
+        backup: stored.backup,
+        counts: bundle.manifest.counts,
+      };
+    }
     return this.database.transaction(() => {
       const { projectId, counts } = this.restoreBundle(
         bundle,
-        title ?? `${bundle.project.title} · 备份恢复`,
+        title ?? `${bundle.project.title} · 恢复副本 ${backupId.slice(0, 8)}`,
         now,
       );
       const expected = bundle.manifest.counts;
@@ -1197,12 +1209,56 @@ export class DeliveryService {
     );
   }
 
-  qualityReport(projectId: string, now: string): ProjectQualityReport {
+  qualityReport(
+    projectId: string,
+    now: string,
+    range: {
+      fromOutlineNodeId?: string | null;
+      toOutlineNodeId?: string | null;
+    } = {},
+  ): ProjectQualityReport {
     const project = this.projects.get(projectId);
     if (!project)
       throw new DeliveryServiceError("project.not_found", "Project not found");
     const outline = this.story.listOutline(projectId);
-    const documents = this.documents.list(projectId);
+    const allDocuments = this.documents.list(projectId);
+    const chapters = outline.filter((node) => node.kind === "chapter");
+    const hasRange = Boolean(range.fromOutlineNodeId || range.toOutlineNodeId);
+    const selectedDocumentIds = hasRange
+      ? this.resolveExportDocumentIds(
+          {
+            versionMode: "current",
+            includeAnnotations: false,
+            includeRuns: false,
+            ...(range.fromOutlineNodeId
+              ? { fromOutlineNodeId: range.fromOutlineNodeId }
+              : {}),
+            ...(range.toOutlineNodeId
+              ? { toOutlineNodeId: range.toOutlineNodeId }
+              : {}),
+          },
+          allDocuments,
+          outline,
+        )
+      : null;
+    const documents = selectedDocumentIds
+      ? allDocuments.filter((document) => selectedDocumentIds.has(document.id))
+      : allDocuments;
+    const fromIndex = range.fromOutlineNodeId
+      ? chapters.findIndex((chapter) => chapter.id === range.fromOutlineNodeId)
+      : 0;
+    const toIndex = range.toOutlineNodeId
+      ? chapters.findIndex((chapter) => chapter.id === range.toOutlineNodeId)
+      : chapters.length - 1;
+    if (hasRange && (fromIndex < 0 || toIndex < 0 || fromIndex > toIndex)) {
+      throw new DeliveryServiceError(
+        "quality.range.invalid",
+        "Quality range must reference chapters in ascending order",
+      );
+    }
+    const scopedChapters = hasRange
+      ? chapters.slice(fromIndex, toIndex + 1)
+      : chapters;
     const versions = documents.flatMap((document) =>
       this.documents.listVersions(projectId, document.id),
     );
@@ -1219,6 +1275,92 @@ export class DeliveryService {
       .filter((version): version is NonNullable<typeof version> =>
         Boolean(version),
       );
+    const strictCurrentEvidence = hasRange;
+    const currentVersionEvidence = scopedChapters.map((chapter) => {
+      const document = documents.find(
+        (candidate) =>
+          candidate.kind === "chapter" &&
+          candidate.outlineNodeId === chapter.id,
+      );
+      const version = document?.currentVersionId
+        ? this.documents.getVersion(
+            projectId,
+            document.id,
+            document.currentVersionId,
+          )
+        : null;
+      const reviewPasses = version
+        ? count(
+            this.database,
+            `SELECT COUNT(*) AS count FROM review_reports
+             WHERE project_id = ? AND document_version_id = ?
+               AND reviewed_content_hash = ? AND verdict = 'pass'`,
+            projectId,
+            version.id,
+            version.contentHash,
+          )
+        : 0;
+      const summaries = version
+        ? count(
+            this.database,
+            `SELECT COUNT(*) AS count FROM narrative_summaries
+             WHERE project_id = ? AND scope_type = 'chapter' AND scope_id = ?
+               AND source_hash = ?`,
+            projectId,
+            chapter.id,
+            version.contentHash,
+          )
+        : 0;
+      return {
+        chapter,
+        document,
+        version,
+        reviewPasses,
+        summaries,
+      };
+    });
+    const requiresBatchJointReview = hasRange && scopedChapters.length === 5;
+    const expectedBatchVersions = currentVersionEvidence.map((evidence) => ({
+      outlineNodeId: evidence.chapter.id,
+      documentId: evidence.document?.id ?? null,
+      versionId: evidence.version?.id ?? null,
+      contentHash: evidence.version?.contentHash ?? null,
+    }));
+    const batchJointReview = requiresBatchJointReview
+      ? (this.state
+          .listLatestSummaries(projectId, "session")
+          .filter(
+            (summary) =>
+              summary.stateDelta.kind === "first-five-joint-review" &&
+              summary.stateDelta.sourceHash === summary.sourceHash,
+          )
+          .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+          .find((summary) => {
+            const chapters = summary.stateDelta.chapters;
+            if (!Array.isArray(chapters) || chapters.length !== 5) return false;
+            return chapters.every((entry, index) => {
+              if (!entry || typeof entry !== "object" || Array.isArray(entry))
+                return false;
+              const candidate = entry as Record<string, unknown>;
+              const expected = expectedBatchVersions[index];
+              if (!expected) return false;
+              return (
+                candidate.outlineNodeId === expected.outlineNodeId &&
+                candidate.documentId === expected.documentId &&
+                candidate.versionId === expected.versionId &&
+                candidate.contentHash === expected.contentHash
+              );
+            });
+          }) ?? null)
+      : null;
+    const batchJointReviewVerdict = batchJointReview
+      ? stringField(batchJointReview.stateDelta, "verdict")
+      : null;
+    const batchJointReviewIssueCount = batchJointReview
+      ? Array.isArray(batchJointReview.stateDelta.issues)
+        ? batchJointReview.stateDelta.issues.length
+        : 0
+      : 0;
     const facts = this.canon.listEffectiveFacts(projectId, {
       includeCandidates: true,
     });
@@ -1233,16 +1375,34 @@ export class DeliveryService {
     );
     const metrics = {
       outlineNodes: outline.length,
-      chapters: outline.filter((node) => node.kind === "chapter").length,
+      chapters: scopedChapters.length,
       committedChapters: outline.filter(
-        (node) => node.kind === "chapter" && node.status === "committed",
+        (node) =>
+          node.kind === "chapter" &&
+          scopedChapters.some((chapter) => chapter.id === node.id) &&
+          node.status === "committed",
       ).length,
       documents: documents.length,
       versions: versions.length,
       manuscriptCharacters: currentVersions.reduce(
-        (sum, version) => sum + effectiveCharacterCount(version.content),
+        (sum, version) =>
+          sum + effectiveManuscriptCharacterCount(version.content),
         0,
       ),
+      currentVersionReviewPasses: currentVersionEvidence.reduce(
+        (sum, evidence) => sum + Math.min(evidence.reviewPasses, 1),
+        0,
+      ),
+      currentVersionSettlements: currentVersionEvidence.reduce(
+        (sum, evidence) => sum + Math.min(evidence.summaries, 1),
+        0,
+      ),
+      batchJointReview: batchJointReview
+        ? ["pass", "warning"].includes(batchJointReviewVerdict ?? "")
+          ? 1
+          : 0
+        : 0,
+      batchJointReviewIssues: batchJointReviewIssueCount,
       entities: entities.length,
       facts: facts.length,
       candidateFacts: facts.filter((fact) => fact.authority === "candidate")
@@ -1314,6 +1474,71 @@ export class DeliveryService {
         );
       }
     }
+    if (strictCurrentEvidence) {
+      for (const evidence of currentVersionEvidence) {
+        if (!evidence.document || !evidence.version) {
+          add(
+            "workflow",
+            "error",
+            `章节《${evidence.chapter.title}》没有可核对的当前正文版本`,
+            "先保存该章正式正文，再进行审阅与结算",
+            "outline",
+            evidence.chapter.id,
+          );
+          continue;
+        }
+        if (evidence.reviewPasses === 0) {
+          add(
+            "workflow",
+            "error",
+            `章节《${evidence.chapter.title}》当前版本 ${evidence.version.id} 尚无同版本通过审阅`,
+            "对当前版本重新执行一致性审阅；旧版本的报告不能替代本版本",
+            "document",
+            evidence.document.id,
+          );
+        }
+        if (evidence.summaries === 0) {
+          add(
+            "workflow",
+            "error",
+            `章节《${evidence.chapter.title}》当前版本 ${evidence.version.id} 尚无同版本结算摘要`,
+            "完成结算并写入该版本的摘要/事实状态，再导出首发材料",
+            "document",
+            evidence.document.id,
+          );
+        }
+      }
+    }
+    if (requiresBatchJointReview) {
+      if (!batchJointReview) {
+        add(
+          "workflow",
+          "error",
+          "首发前五章没有绑定当前版本的联合审阅证据",
+          "先完成前五章联合审阅；旧版本或不完整批次不能替代当前首发范围",
+          "session",
+          null,
+        );
+      } else if (!["pass", "warning"].includes(batchJointReviewVerdict ?? "")) {
+        add(
+          "continuity",
+          "error",
+          `前五章联合审阅仍为阻断：${batchJointReview.summary}`,
+          "修订联合审阅指出的连续性问题，并针对新的当前版本重新审阅",
+          "session",
+          null,
+        );
+      } else if (batchJointReviewVerdict === "warning") {
+        add(
+          "continuity",
+          "warning",
+          `前五章联合审阅有 ${batchJointReviewIssueCount} 项警告：${batchJointReview.summary}`,
+          "逐项确认警告属于有意保留，或在下一轮连载修订",
+          "session",
+          null,
+        );
+      }
+    }
     if (metrics.candidateFacts > 0)
       add(
         "canon",
@@ -1365,7 +1590,9 @@ export class DeliveryService {
         id: "chapter-plan",
         label: "章节结构已建立",
         passed: metrics.chapters > 0,
-        message: "至少建立一个章节节点，确保导出结构可验证。",
+        message: hasRange
+          ? `当前首发范围包含 ${metrics.chapters} 章；范围外章节不参与本次检查。`
+          : "至少建立一个章节节点，确保导出结构可验证。",
         targetType: "outline",
         targetId: null,
       },
@@ -1378,16 +1605,52 @@ export class DeliveryService {
         message:
           metrics.chapters === 0
             ? "尚无可提交的章节。"
-            : `已提交 ${metrics.committedChapters}/${metrics.chapters} 章；未完成章节不能被软评分掩盖。`,
+            : `当前范围已提交 ${metrics.committedChapters}/${metrics.chapters} 章；未完成章节不能被软评分掩盖。`,
         targetType: "outline",
         targetId: null,
       },
       {
         id: "manuscript-present",
         label: "正文已形成可交付工件",
-        passed: metrics.manuscriptCharacters >= 1_000,
-        message: `当前正文 ${metrics.manuscriptCharacters} 字符；达到 1,000 字符后才进入交付判断。`,
+        passed:
+          metrics.manuscriptCharacters >=
+          (metrics.chapters >= 5 ? metrics.chapters * 2_000 : 1_000),
+        message: `当前检查范围正文 ${metrics.manuscriptCharacters} 字符；${metrics.chapters >= 5 ? `至少需要 ${metrics.chapters * 2_000} 字符` : "达到 1,000 字符后才进入交付判断"}。`,
         targetType: "document",
+        targetId: null,
+      },
+      {
+        id: "current-version-evidence",
+        label: "当前版本已审阅并结算",
+        passed:
+          !strictCurrentEvidence ||
+          currentVersionEvidence.every(
+            (evidence) =>
+              Boolean(evidence.version) &&
+              evidence.reviewPasses > 0 &&
+              evidence.summaries > 0,
+          ),
+        message: strictCurrentEvidence
+          ? `当前范围已核对 ${metrics.currentVersionReviewPasses}/${metrics.chapters} 章审阅、${metrics.currentVersionSettlements}/${metrics.chapters} 章结算；报告和摘要必须绑定当前版本。`
+          : "选择具体首发范围后，将核对每章当前版本的审阅和结算绑定。",
+        targetType: "document",
+        targetId: null,
+      },
+      {
+        id: "batch-joint-review",
+        label: "前五章联合审阅已通过",
+        passed:
+          !requiresBatchJointReview ||
+          Boolean(
+            batchJointReview &&
+            ["pass", "warning"].includes(batchJointReviewVerdict ?? ""),
+          ),
+        message: requiresBatchJointReview
+          ? batchJointReview
+            ? `联合审阅绑定五个当前版本，结论为 ${batchJointReviewVerdict ?? "未知"}；${batchJointReviewIssueCount} 项具体问题已记录。`
+            : "首发五章必须完成绑定当前版本的联合审阅。"
+          : "选择恰好五章的首发范围后，将核对联合审阅证据。",
+        targetType: "session",
         targetId: null,
       },
       {
@@ -3593,7 +3856,7 @@ function candidatesFromText(
           title: section.title,
           kind: sections.length > 1 ? "chapter" : "manuscript",
           content: section.content,
-          characters: effectiveCharacterCount(section.content),
+          characters: effectiveManuscriptCharacterCount(section.content),
         },
         now,
       ),
@@ -4393,10 +4656,6 @@ function projectPhase(value: string): ProjectPhase {
   ].includes(value)
     ? (value as ProjectPhase)
     : "idea";
-}
-
-function effectiveCharacterCount(value: string): number {
-  return Array.from(value.replace(/\s/gu, "")).length;
 }
 
 function timelineVisibility(value: string | null) {

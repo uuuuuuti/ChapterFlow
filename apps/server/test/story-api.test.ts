@@ -128,6 +128,56 @@ describe("story kernel API", () => {
         .prepare("SELECT COUNT(*) AS count FROM documents WHERE project_id = ?")
         .get(projectId),
     ).toEqual({ count: 1 });
+
+    const versionRequest = {
+      requestId: "manual-version-replay",
+      content: "同一提交只应形成一个正式版本。",
+      source: "manual:幂等测试",
+      expectedCurrentVersionId: null,
+    };
+    const firstVersion = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/documents/${firstDocument.json().id}/versions`,
+      payload: versionRequest,
+    });
+    const replayedVersion = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/documents/${firstDocument.json().id}/versions`,
+      payload: versionRequest,
+    });
+    expect(firstVersion.statusCode, firstVersion.body).toBe(201);
+    expect(replayedVersion.statusCode, replayedVersion.body).toBe(201);
+    expect(replayedVersion.json()).toEqual(firstVersion.json());
+    expect(
+      database.raw
+        .prepare(
+          "SELECT COUNT(*) AS count FROM document_versions WHERE document_id = ?",
+        )
+        .get(firstDocument.json().id),
+    ).toEqual({ count: 1 });
+    const secondClick = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/documents/${firstDocument.json().id}/versions`,
+      payload: { ...versionRequest, requestId: "manual-version-second-click" },
+    });
+    expect(secondClick.statusCode, secondClick.body).toBe(201);
+    expect(secondClick.json()).toEqual(firstVersion.json());
+    expect(
+      database.raw
+        .prepare(
+          "SELECT COUNT(*) AS count FROM document_versions WHERE document_id = ?",
+        )
+        .get(firstDocument.json().id),
+    ).toEqual({ count: 1 });
+    const versionConflict = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/documents/${firstDocument.json().id}/versions`,
+      payload: { ...versionRequest, content: "同一个 requestId 不能换正文。" },
+    });
+    expect(versionConflict.statusCode).toBe(409);
+    expect(versionConflict.json()).toMatchObject({
+      error: { code: "document.version.idempotency_conflict" },
+    });
   });
 
   it("creates a chapter outline and manuscript atomically with replay protection", async () => {

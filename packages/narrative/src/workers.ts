@@ -1,4 +1,7 @@
-import { sha256Hex } from "@narralume/domain";
+import {
+  effectiveManuscriptCharacterCount,
+  sha256Hex,
+} from "@narralume/domain";
 
 import {
   ContextCompiler,
@@ -799,7 +802,7 @@ export class ChapterWorkerSuite {
           finishReason: result.finishReason,
           partial: true,
           recoveryActions: ["continue", "adopt", "regenerate"],
-          partialCharacters: effectiveCharacterCount(generated),
+          partialCharacters: effectiveManuscriptCharacterCount(generated),
           partialHash: sha256(generated),
         },
         usage: result.usage,
@@ -818,13 +821,13 @@ export class ChapterWorkerSuite {
       artifactKind: "chapter-draft",
       output: {
         content,
-        characters: effectiveCharacterCount(content),
+        characters: effectiveManuscriptCharacterCount(content),
         paragraphs: paragraphs(content).length,
         contentHash: sha256(content),
         ...(continuationPrefix
           ? {
               continuationPrefixCharacters:
-                effectiveCharacterCount(continuationPrefix),
+                effectiveManuscriptCharacterCount(continuationPrefix),
             }
           : {}),
       },
@@ -852,7 +855,7 @@ export class ChapterWorkerSuite {
       "maxChapterCharacters",
       3_500,
     );
-    const characterCount = effectiveCharacterCount(content);
+    const characterCount = effectiveManuscriptCharacterCount(content);
     if (characterCount < minCharacters) {
       issues.push({
         code: "draft.too_short",
@@ -964,6 +967,12 @@ export class ChapterWorkerSuite {
     const documentReview = this.documentReviewTarget(snapshot);
     const content = documentReview?.content ?? finalContent(snapshot);
     const context = requiredArtifact(snapshot, "context.compile");
+    const liveTarget = snapshot.run.targetOutlineNodeId
+      ? this.story.getOutlineNode(
+          snapshot.run.projectId,
+          snapshot.run.targetOutlineNodeId,
+        )
+      : null;
     const plan = documentReview
       ? {
           chapterTitle: documentReview.outlineNode.title,
@@ -971,9 +980,20 @@ export class ChapterWorkerSuite {
           summary: documentReview.outlineNode.summary,
           mode: "review-current-version",
         }
-      : snapshot.run.recipe === "chapter-candidate-revision"
-        ? this.requestedRevisionPlan(snapshot)
-        : requiredArtifact(snapshot, "scene.plan");
+      : snapshot.run.recipe === "chapter-candidate-revision" &&
+          liveTarget?.kind === "chapter"
+        ? {
+            chapterTitle: liveTarget.title,
+            goal: liveTarget.goal,
+            summary: liveTarget.summary,
+            conflict: liveTarget.conflict,
+            outcome: liveTarget.outcome,
+            chapterBrief: liveTarget.metadata.chapterBrief ?? null,
+            mode: "review-current-outline",
+          }
+        : snapshot.run.recipe === "chapter-candidate-revision"
+          ? this.requestedRevisionPlan(snapshot)
+          : requiredArtifact(snapshot, "scene.plan");
     const locator = documentReview
       ? new ParagraphLocator(content, {
           documentVersionId: documentReview.version.id,
@@ -993,6 +1013,7 @@ export class ChapterWorkerSuite {
             role: "user",
             content: [
               "<semantic-review-output-contract>只返回严格 JSON；最多报告 3 个最重要问题，每个问题最多引用 3 个证据段落，message 和 suggestedDirection 保持简短具体；没有可举证问题时返回 issues=[]。不要复述正文、上下文或整段证据，必须在有限输出内完整闭合 JSON。</semantic-review-output-contract>",
+              "<semantic-review-priority>正典和上下文中标记为 locked/confirmed 的事实高于历史 scene-plan 的预期结果；作者已经保存的当前章纲高于旧 scene-plan。只报告正文实际违反当前权威事实或当前章纲的问题，不要把作者批准的计划调整当成目标未完成。每个问题的证据必须真正证明 message 所说的违反；如果引用段落明确写出了某项约束已保持，就不能用同一段落声称该约束被违反。无法排除误读时降为建议或不报告，不得 block。</semantic-review-priority>",
               "<compiled-context>",
               purposeContextText(context, "semantic-review"),
               "</compiled-context>",
@@ -1016,8 +1037,12 @@ export class ChapterWorkerSuite {
       ),
       signal,
     );
+    const filtered = filterSemanticReviewIssues(result.value, locator, {
+      revision: snapshot.run.recipe === "chapter-candidate-revision",
+      currentPlan: plan,
+    });
     const grounded = groundReviewEvidence(
-      deriveReviewResult(result.value),
+      deriveReviewResult(filtered.review),
       locator,
     );
     const reportId = `${step.id}:report`;
@@ -1051,8 +1076,10 @@ export class ChapterWorkerSuite {
       artifactKind: "semantic-review",
       output: {
         ...grounded,
+        contentHash: locator.contentHash,
         issues: persistedIssues,
         reportId,
+        reviewDiagnostics: filtered.diagnostics,
         generation: { mode: result.mode, attempts: result.attempts },
       },
       usage: result.usage,
@@ -1147,7 +1174,7 @@ export class ChapterWorkerSuite {
         details: {
           finishReason: result.finishReason,
           partial: true,
-          partialCharacters: effectiveCharacterCount(content),
+          partialCharacters: effectiveManuscriptCharacterCount(content),
           partialHash: sha256(content),
         },
         usage: result.usage,
@@ -1174,12 +1201,12 @@ export class ChapterWorkerSuite {
           reason,
           baseHash: sha256(baseContent),
           contentHash: sha256(baseContent),
-          characters: effectiveCharacterCount(baseContent),
+          characters: effectiveManuscriptCharacterCount(baseContent),
         },
         usage: result.usage,
       };
     }
-    const characters = effectiveCharacterCount(content);
+    const characters = effectiveManuscriptCharacterCount(content);
     const minimumCharacters = policyNumber(
       snapshot.run.policy,
       "minChapterCharacters",
@@ -1225,7 +1252,7 @@ export class ChapterWorkerSuite {
         proposalId,
         baseHash: sha256(baseContent),
         contentHash: sha256(content),
-        characters: effectiveCharacterCount(content),
+        characters: effectiveManuscriptCharacterCount(content),
         diff: buildTextDiff(baseContent, content),
       },
       usage: result.usage,
@@ -1958,6 +1985,112 @@ function reviewSemanticIssues(
   return issues;
 }
 
+/**
+ * A model can quote a paragraph that explicitly preserves a canon constraint
+ * and still describe that same paragraph as a violation. It is unsafe to let
+ * that internally contradictory report create an author-decision block. Keep
+ * the raw model call in the run record, but remove only issues that have
+ * direct counter-evidence in their own quoted paragraphs. Revision reviews
+ * also ignore complaints that refer only to the historical scene plan after
+ * the author has saved a current outline.
+ */
+function filterSemanticReviewIssues(
+  review: ReviewResult,
+  locator: ParagraphLocator,
+  options: {
+    revision: boolean;
+    currentPlan: Record<string, unknown>;
+  },
+): {
+  review: ReviewResult;
+  diagnostics: {
+    filteredIssueCount: number;
+    filteredIssues: Array<{
+      index: number;
+      category: string;
+      severity: string;
+      reason: string;
+    }>;
+  };
+} {
+  const filteredIssues: Array<{
+    index: number;
+    category: string;
+    severity: string;
+    reason: string;
+  }> = [];
+  const issues = review.issues.filter((issue, index) => {
+    const evidence = locator
+      .locate(issue.evidenceParagraphs)
+      .map((paragraph) => paragraph.quote)
+      .join("\n");
+    const message = issue.message.replace(/\s+/gu, "");
+    const normalizedEvidence = evidence.replace(/\s+/gu, "");
+    const evidencePreservesUnfinishedTransfer =
+      /移交人(?:栏)?[^。；\n]{0,48}(?:未完成|未落|没动|悬着|悬空|停在|只亮|空着|未形成)/u.test(
+        normalizedEvidence,
+      );
+    const claimsFinishedTransfer =
+      /(?:移交人(?:栏)?[^。；\n]{0,48}(?:完整|完成|填满|补完|写入)|(?:完整|完成|填满|补完).{0,24}移交人)/u.test(
+        message,
+      );
+    if (claimsFinishedTransfer && evidencePreservesUnfinishedTransfer) {
+      filteredIssues.push({
+        index: index + 1,
+        category: issue.category,
+        severity: issue.severity,
+        reason: "evidence_explicitly_preserves_unfinished_transfer",
+      });
+      return false;
+    }
+
+    const evidenceShowsReceiverCausality =
+      /(?:接收人栏|接收人).{0,60}(?:填满|走满|亮到底|写死|完成)/u.test(
+        normalizedEvidence,
+      ) &&
+      /(?:基座裂|井口(?:开启|裂|打开)|闩.{0,12}滑开)/u.test(
+        normalizedEvidence,
+      ) &&
+      /(?:旧工号|磁条|工号牌).{0,40}(?:接收人|字段)/u.test(normalizedEvidence);
+    const claimsReceiverCausalityMissing =
+      /(?:接收人|身份校验).{0,70}(?:未|没有|无法|缺少|不足|不够).{0,70}(?:开启|触发|因果|依据|判定)/u.test(
+        message,
+      );
+    if (claimsReceiverCausalityMissing && evidenceShowsReceiverCausality) {
+      filteredIssues.push({
+        index: index + 1,
+        category: issue.category,
+        severity: issue.severity,
+        reason: "evidence_explicitly_shows_receiver_opening_chain",
+      });
+      return false;
+    }
+
+    const planMode = options.currentPlan.mode;
+    if (
+      options.revision &&
+      planMode === "review-current-outline" &&
+      /场景计划|场景规划|scene[- ]plan/i.test(issue.message)
+    ) {
+      filteredIssues.push({
+        index: index + 1,
+        category: issue.category,
+        severity: issue.severity,
+        reason: "historical_scene_plan_is_not_current_outline",
+      });
+      return false;
+    }
+    return true;
+  });
+  return {
+    review: { ...review, issues },
+    diagnostics: {
+      filteredIssueCount: filteredIssues.length,
+      filteredIssues,
+    },
+  };
+}
+
 function groundReviewEvidence(
   review: DerivedReviewResult,
   locator: ParagraphLocator,
@@ -2343,10 +2476,6 @@ export function isRevisionNoop(base: string, candidate: string): boolean {
 
 function normalizeLineEndings(value: string): string {
   return value.replace(/\r\n?/gu, "\n");
-}
-
-function effectiveCharacterCount(value: string): number {
-  return Array.from(value.replace(/\s/gu, "")).length;
 }
 
 function repeatedPhraseEvidence(

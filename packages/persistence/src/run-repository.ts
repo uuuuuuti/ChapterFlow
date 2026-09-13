@@ -559,6 +559,22 @@ export class SqliteRunRepository {
           "UPDATE runs SET budget_used_json = ?, updated_at = ?, version = version + 1 WHERE id = ?",
         )
         .run(JSON.stringify(next), now, runId);
+      const exceeded = batchBudgetExceeded(run.policy, next);
+      if (exceeded) {
+        this.database.raw
+          .prepare(
+            `UPDATE runs SET status = 'failed', finished_at = ?, current_step_id = NULL,
+             updated_at = ?, version = version + 1 WHERE id = ? AND status NOT IN ('completed', 'cancelled')`,
+          )
+          .run(now, now, runId);
+        this.appendEvent(
+          runId,
+          stepId,
+          "run.budget_exceeded",
+          { field: exceeded.field, limit: exceeded.limit, usage: next },
+          now,
+        );
+      }
       this.appendEvent(runId, stepId, "budget.recorded", { ...usage }, now);
     });
   }
@@ -1038,6 +1054,25 @@ const ZERO_USAGE: RunBudgetUsage = {
   costUsd: 0,
   wallTimeMs: 0,
 };
+
+function batchBudgetExceeded(
+  policy: Readonly<Record<string, unknown>>,
+  usage: RunBudgetUsage,
+): { field: string; limit: number } | null {
+  const fields = [
+    ["inputTokens", "batchMaxInputTokens"],
+    ["outputTokens", "batchMaxOutputTokens"],
+    ["calls", "batchMaxCalls"],
+    ["wallTimeMs", "batchMaxWallTimeMs"],
+    ["costUsd", "batchMaxCostUsd"],
+  ] as const;
+  for (const [field, policyKey] of fields) {
+    const limit = policy[policyKey];
+    if (typeof limit === "number" && usage[field] >= limit)
+      return { field, limit };
+  }
+  return null;
+}
 
 function mapRun(row: RunRow): NarrativeRun {
   return {

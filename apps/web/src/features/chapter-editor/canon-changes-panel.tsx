@@ -7,6 +7,7 @@ import {
   decideCanonChangeSet,
   getCanonChangeSets,
 } from "../../shared/api/review";
+import { retryDocumentSettlement } from "../../shared/api/writing";
 import type { CanonChangeSetView, StoryDocument } from "../../shared/api/types";
 import { queryKeys } from "../../shared/query/keys";
 import { ConflictRecovery, ErrorNote } from "../../shared/ui";
@@ -36,6 +37,37 @@ export function CanonChangesPanel({
   const runs = useQuery({
     queryKey: queryKeys.runs(projectId),
     queryFn: ({ signal }) => getProjectRuns(projectId, signal),
+  });
+  const settlementRuns = (runs.data ?? []).filter(
+    (run) =>
+      run.recipe === "manual-settlement" &&
+      runOriginDocumentId(run.policy) === document.id,
+  );
+  const currentVersionId = document.currentVersionId;
+  const failedCurrentSettlement = [...settlementRuns]
+    .reverse()
+    .find(
+      (run) =>
+        run.status === "failed" &&
+        run.policy.documentVersionId === currentVersionId,
+    );
+  const retrySettlement = useMutation({
+    mutationFn: () => {
+      if (!currentVersionId) throw new Error("当前正文还没有正式版本");
+      return retryDocumentSettlement(
+        projectId,
+        document.id,
+        currentVersionId,
+        `${document.id}:${currentVersionId}:settlement-retry:${failedCurrentSettlement?.id ?? "missing"}`,
+      );
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        client.invalidateQueries({ queryKey: queryKeys.canonChangeSets(projectId) }),
+        client.invalidateQueries({ queryKey: queryKeys.runs(projectId) }),
+        client.invalidateQueries({ queryKey: queryKeys.project(projectId) }),
+      ]);
+    },
   });
   const decision = useMutation({
     mutationFn: (input: { changeSet: CanonChangeSetView; action: "apply" | "reject" }) =>
@@ -85,7 +117,12 @@ export function CanonChangesPanel({
   );
   const candidates = (changes.data ?? []).filter(
     (changeSet) =>
-      changeSet.status === "candidate" && relatedRunIds.has(changeSet.runId),
+      changeSet.status === "candidate" &&
+      relatedRunIds.has(changeSet.runId) &&
+      changeSet.sourceDocumentVersionId === currentVersionId,
+  );
+  const activeSettlement = settlementRuns.find((run) =>
+    ["pending", "running", "paused", "awaiting_user", "failed_recoverable"].includes(run.status),
   );
 
   return (
@@ -110,6 +147,9 @@ export function CanonChangesPanel({
       ) : null}
       {conflictNotice ? <p className="cf-editor-notice" role="status">{conflictNotice}</p> : null}
       {decision.isError && !decisionConflict ? <ErrorNote error={decision.error} /> : null}
+      {activeSettlement ? <p className="cf-editor-notice" role="status">正在从当前版本提取设定变化，完成后会回到这里。</p> : null}
+      {failedCurrentSettlement ? <div className="cf-editor-notice" data-tone="failed"><p>当前版本的设定变化提取失败，正文和版本仍然保留。</p><div className="cf-actions"><Link to={`/books/${projectId}/tasks/${failedCurrentSettlement.id}`}>查看失败任务</Link><button disabled={retrySettlement.isPending} onClick={() => retrySettlement.mutate()}>{retrySettlement.isPending ? "正在重试…" : "重试当前版本结算"}</button></div></div> : null}
+      {retrySettlement.isError ? <ErrorNote error={retrySettlement.error} /> : null}
       {candidates.length === 0 ? (
         <div className="cf-empty cf-canon-empty">
           <Check size={28} />
@@ -190,8 +230,21 @@ function flattenChanges(changes: Record<string, unknown>): Array<{ path: string;
       return;
     }
     if (value === undefined) return;
-    result.push({ path, value: Array.isArray(value) ? value.join("、") : String(value) });
+    result.push({ path, value: formatChangeValue(value) });
   };
   visit(changes, "");
   return result.filter((item) => item.path).slice(0, 12);
+}
+
+function formatChangeValue(value: unknown): string {
+  if (value === null) return "空值";
+  if (Array.isArray(value)) {
+    return value.map((item) => formatChangeValue(item)).join("、");
+  }
+  if (typeof value === "object") {
+    return Object.entries(value as Record<string, unknown>)
+      .map(([key, nested]) => `${key}：${formatChangeValue(nested)}`)
+      .join("；");
+  }
+  return String(value);
 }

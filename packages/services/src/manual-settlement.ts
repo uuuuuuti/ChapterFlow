@@ -55,6 +55,10 @@ export function startManualSettlementRun(input: {
     steps: recipe.steps,
     now: new Date().toISOString(),
   });
-  input.coordinatorWake();
+  // A version commit may itself be nested in a transaction. Wake the worker
+  // only after the immutable version and settlement run are visible, otherwise
+  // a very fast worker can observe a half-committed request and create a
+  // duplicate recovery path.
+  database.afterCommit(() => input.coordinatorWake());
   return runId;
 }

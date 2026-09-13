@@ -90,6 +90,15 @@ const PlannedChapterSchema = z.object({
   povName: z.string().nullable(),
   storyTime: z.string().nullable(),
   hook: z.string().min(1),
+  // V1 chapter-brief fields. They remain optional for compatibility with
+  // older saved recipes; commitOutline supplies deterministic fallbacks and
+  // persists the complete brief envelope in outline metadata.
+  location: z.string().trim().min(1).max(300).nullable().optional(),
+  informationRevealed: z.array(z.string().trim().min(1)).max(12).optional(),
+  lockedFacts: z.array(z.string().trim().min(1)).max(20).optional(),
+  foreshadowSeeds: z.array(z.string().trim().min(1)).max(12).optional(),
+  characterNames: z.array(z.string().trim().min(1)).max(12).optional(),
+  targetWords: z.number().int().positive().max(100_000).optional(),
 });
 
 export const RollingOutlineProposalSchema = z.object({
@@ -155,6 +164,35 @@ export const PlanningReviewResultSchema = z.object({
   compassAdjustments: z.array(z.string()).max(12),
 });
 export type PlanningReviewResult = z.infer<typeof PlanningReviewResultSchema>;
+
+/** The first-release batch review is deliberately separate from an arc/volume
+ * retrospective: its evidence is bound to exactly five current document
+ * versions, so an old review cannot be mistaken for the acceptance result. */
+export const BatchReviewResultSchema = z.object({
+  verdict: z.enum(["pass", "warning", "block"]),
+  summary: z.string().min(1).max(800),
+  scores: z.object({
+    causality: z.number().min(0).max(100),
+    characterKnowledge: z.number().min(0).max(100),
+    continuity: z.number().min(0).max(100),
+    constraints: z.number().min(0).max(100),
+    prose: z.number().min(0).max(100),
+  }),
+  issues: z
+    .array(
+      z.object({
+        severity: z.enum(["warning", "block"]),
+        chapterOrdinal: z.number().int().min(1).max(5),
+        category: z.string().min(1).max(80),
+        message: z.string().min(1).max(500),
+        evidenceQuote: z.string().min(1).max(300),
+        rationale: z.string().min(1).max(500),
+      }),
+    )
+    .max(12),
+  recommendations: z.array(z.string().min(1).max(300)).max(8),
+});
+export type BatchReviewResult = z.infer<typeof BatchReviewResultSchema>;
 
 const FOUNDATION_INTENT_JSON = {
   type: "object",
@@ -352,6 +390,18 @@ export const ROLLING_OUTLINE_CONTRACT: JsonSchemaContract = {
             povName: { type: ["string", "null"] },
             storyTime: { type: ["string", "null"] },
             hook: { type: "string" },
+            location: { type: ["string", "null"] },
+            informationRevealed: {
+              type: "array",
+              items: { type: "string" },
+            },
+            lockedFacts: { type: "array", items: { type: "string" } },
+            foreshadowSeeds: {
+              type: "array",
+              items: { type: "string" },
+            },
+            characterNames: { type: "array", items: { type: "string" } },
+            targetWords: { type: "integer", minimum: 1 },
           },
         },
       },
@@ -422,6 +472,69 @@ export const PLANNING_REVIEW_CONTRACT: JsonSchemaContract = {
       },
       recommendations: { type: "array", items: { type: "string" } },
       compassAdjustments: { type: "array", items: { type: "string" } },
+    },
+  },
+};
+
+export const BATCH_REVIEW_CONTRACT: JsonSchemaContract = {
+  name: "first_five_joint_review",
+  strict: true,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    required: ["verdict", "summary", "scores", "issues", "recommendations"],
+    properties: {
+      verdict: { type: "string", enum: ["pass", "warning", "block"] },
+      summary: { type: "string", maxLength: 800 },
+      scores: {
+        type: "object",
+        additionalProperties: false,
+        required: [
+          "causality",
+          "characterKnowledge",
+          "continuity",
+          "constraints",
+          "prose",
+        ],
+        properties: Object.fromEntries(
+          [
+            "causality",
+            "characterKnowledge",
+            "continuity",
+            "constraints",
+            "prose",
+          ].map((key) => [key, { type: "number", minimum: 0, maximum: 100 }]),
+        ),
+      },
+      issues: {
+        type: "array",
+        maxItems: 12,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "severity",
+            "chapterOrdinal",
+            "category",
+            "message",
+            "evidenceQuote",
+            "rationale",
+          ],
+          properties: {
+            severity: { type: "string", enum: ["warning", "block"] },
+            chapterOrdinal: { type: "integer", minimum: 1, maximum: 5 },
+            category: { type: "string", maxLength: 80 },
+            message: { type: "string", maxLength: 500 },
+            evidenceQuote: { type: "string", minLength: 1, maxLength: 300 },
+            rationale: { type: "string", maxLength: 500 },
+          },
+        },
+      },
+      recommendations: {
+        type: "array",
+        maxItems: 8,
+        items: { type: "string", maxLength: 300 },
+      },
     },
   },
 };

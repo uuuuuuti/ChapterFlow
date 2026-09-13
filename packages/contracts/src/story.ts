@@ -628,6 +628,8 @@ export const CreateChapterResultSchema = z.object({
   document: DocumentSchema,
 });
 export const AppendDocumentVersionRequestSchema = z.object({
+  /** 客户端重试同一次手动提交时复用；缺省保留旧 API 的非幂等兼容行为。 */
+  requestId: IdSchema.optional(),
   content: z.string().max(5_000_000),
   source: z.string().trim().min(1).max(100).default("manual"),
   expectedCurrentVersionId: IdSchema.nullable().optional(),

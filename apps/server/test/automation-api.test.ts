@@ -1004,7 +1004,9 @@ describe("automation API", () => {
       "chapter",
       "chapter",
     ]);
-    expect(detail.chapterResults).toHaveLength(3);
+    // The interrupted chapter still has three historical links, but the
+    // product projection exposes one effective result per outline node.
+    expect(detail.chapterResults).toHaveLength(2);
     expect(detail.chapterResults[0]).toEqual(
       expect.objectContaining({
         runId: expect.any(String),

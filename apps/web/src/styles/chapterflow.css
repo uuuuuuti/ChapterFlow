@@ -669,6 +669,7 @@
 .cf-create-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 15px; margin-top: 28px; }
 .cf-create-option { display: block; text-align: left; min-height: 230px; cursor: pointer; transition: transform .18s ease, box-shadow .18s ease; }
 .cf-create-option:hover { transform: translateY(-2px); box-shadow: 0 10px 25px #294b7d12; }
+.cf-create-option > * { pointer-events: none; }
 .cf-create-option-icon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; background: var(--cf-soft); color: #2878ff; font-size: 20px; margin-bottom: 20px; }
 .cf-create-option h2 { margin-bottom: 7px; }
 .cf-create-option p { min-height: 74px; font-size: 12px; }

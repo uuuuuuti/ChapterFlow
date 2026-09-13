@@ -57,11 +57,23 @@ export class ProjectOverviewService {
     const chapters = this.story
       .listOutline(projectId)
       .filter((node) => node.kind === "chapter");
+    const allDocuments = this.documents.list(projectId);
     const chapterDocuments = new Map(
-      this.documents
-        .list(projectId, "chapter")
-        .filter((document) => document.outlineNodeId)
+      allDocuments
+        .filter(
+          (document) => document.kind === "chapter" && document.outlineNodeId,
+        )
         .map((document) => [document.outlineNodeId!, document]),
+    );
+    const currentDocumentVersionIds = new Set(
+      allDocuments
+        .map((document) => document.currentVersionId)
+        .filter((versionId): versionId is string => Boolean(versionId)),
+    );
+    const currentDocumentIdByVersion = new Map(
+      allDocuments
+        .filter((document) => document.currentVersionId)
+        .map((document) => [document.currentVersionId!, document.id]),
     );
     const chapterViews = new Map(
       chapters.map((chapter) => {
@@ -109,30 +121,59 @@ export class ProjectOverviewService {
       .flatMap((set) => set.candidates)
       .filter((candidate) => candidate.status === "pending");
     const reports = this.reviews.listProjectReports(projectId);
-    const reviewIssues = reports.flatMap((report) => {
-      // 只有已经绑定到正文的报告，才能在写作台中定位和裁定。
-      // 任务中途失败留下的候选审稿仍保留在运行证据里，但不能冒充产品待办。
-      if (!report.documentId) return [];
-      const run = this.runs.getRun(report.runId);
-      if (run?.status === "cancelled") return [];
-      return report.issues
-        .filter((issue) => issue.status === "open")
-        .map((issue) => ({
-          reportId: report.id,
-          documentId: report.documentId!,
-          issue,
-        }));
-    });
+    const latestCurrentReports = new Map<string, (typeof reports)[number]>();
+    for (const report of reports) {
+      const reportDocumentId =
+        report.documentId ??
+        currentDocumentIdByVersion.get(report.documentVersionId ?? "") ??
+        null;
+      if (
+        !reportDocumentId ||
+        !report.documentVersionId ||
+        !currentDocumentVersionIds.has(report.documentVersionId) ||
+        latestCurrentReports.has(report.documentVersionId)
+      ) {
+        continue;
+      }
+      latestCurrentReports.set(report.documentVersionId, report);
+    }
+    const reviewIssues = [...latestCurrentReports.values()].flatMap(
+      (report) => {
+        // 只有已经绑定到正文的报告，才能在写作台中定位和裁定。
+        // 任务中途失败留下的候选审稿仍保留在运行证据里，但不能冒充产品待办。
+        const run = this.runs.getRun(report.runId);
+        if (run?.status === "cancelled") return [];
+        return report.issues
+          .filter((issue) => issue.status === "open")
+          .map((issue) => ({
+            reportId: report.id,
+            documentId:
+              report.documentId ??
+              currentDocumentIdByVersion.get(report.documentVersionId ?? "") ??
+              "",
+            issue,
+          }));
+      },
+    );
     const revisionProposals = this.reviews
       .listRevisionProposals(projectId)
       .filter(
-        (proposal) => proposal.status === "proposed" && proposal.documentId,
+        (proposal) =>
+          proposal.status === "proposed" &&
+          proposal.documentId &&
+          proposal.baseDocumentVersionId !== null &&
+          currentDocumentVersionIds.has(proposal.baseDocumentVersionId),
       );
     const reviewDocumentId =
       revisionProposals[0]?.documentId ?? reviewIssues[0]?.documentId ?? null;
     const canonChangeSets = this.reviews
       .listCanonChangeSets(projectId)
-      .filter((changeSet) => changeSet.status === "candidate");
+      .filter(
+        (changeSet) =>
+          changeSet.status === "candidate" &&
+          changeSet.sourceDocumentVersionId !== null &&
+          currentDocumentVersionIds.has(changeSet.sourceDocumentVersionId),
+      );
 
     return {
       project,

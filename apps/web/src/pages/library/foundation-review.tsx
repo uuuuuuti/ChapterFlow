@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, LoaderCircle, X } from "lucide-react";
+import { Check, LoaderCircle, RotateCcw, X } from "lucide-react";
 import { useState } from "react";
 import type {
   FoundationCandidate,
@@ -7,6 +7,7 @@ import type {
 import {
   getFoundationCandidates,
   getRunDetail,
+  retryFoundation,
   resolveFoundationCandidate,
   resolveFoundationCandidateSet,
 } from "../../shared/api/automation";
@@ -31,6 +32,8 @@ export function FoundationReview({
   onComplete: () => void;
 }) {
   const client = useQueryClient();
+  const [currentRunId, setCurrentRunId] = useState(runId);
+  const retryRequestId = useState(() => crypto.randomUUID())[0];
   const candidates = useQuery({
     queryKey: queryKeys.foundation(projectId),
     queryFn: ({ signal }) => getFoundationCandidates(projectId, signal),
@@ -42,12 +45,27 @@ export function FoundationReview({
     },
   });
   const run = useQuery({
-    queryKey: queryKeys.run(runId),
-    queryFn: ({ signal }) => getRunDetail(projectId, runId, signal),
+    queryKey: queryKeys.run(currentRunId),
+    queryFn: ({ signal }) => getRunDetail(projectId, currentRunId, signal),
     refetchInterval: (query) =>
       query.state.data && liveRunStatuses.has(query.state.data.run.status)
         ? 1_500
         : false,
+  });
+  const retry = useMutation({
+    mutationFn: () =>
+      retryFoundation(projectId, {
+        requestId: retryRequestId,
+        sourceRunId: currentRunId,
+      }),
+    onSuccess: async (value) => {
+      setCurrentRunId(value.run.id);
+      await Promise.all([
+        client.invalidateQueries({ queryKey: queryKeys.foundation(projectId) }),
+        client.invalidateQueries({ queryKey: queryKeys.project(projectId) }),
+        client.invalidateQueries({ queryKey: queryKeys.story(projectId) }),
+      ]);
+    },
   });
   const resolve = useMutation({
     mutationFn: (input: {
@@ -89,14 +107,14 @@ export function FoundationReview({
       if (value.set.status === "adopted") onComplete();
     },
   });
-  const error = candidates.error ?? run.error ?? resolve.error ?? resolveSet.error;
+  const error = candidates.error ?? run.error ?? retry.error ?? resolve.error ?? resolveSet.error;
   const activeSet = candidates.data?.find((value) =>
     ["open", "partially_adopted", "adopted"].includes(value.set.status),
   );
   const isPlanSet = Boolean(
     activeSet?.candidates.some((candidate) => candidate.kind === "plan"),
   );
-  const pending = resolve.isPending || resolveSet.isPending;
+  const pending = retry.isPending || resolve.isPending || resolveSet.isPending;
 
   return (
     <section className="cf-card cf-foundation-review" aria-label="AI 开书候选审核">
@@ -114,7 +132,10 @@ export function FoundationReview({
       {run.data?.run.status === "failed" ? (
         <div className="cf-inline-warning" role="alert">
           <strong>AI 开书任务失败</strong>
-          <p>候选没有写入正式作品。可以回到上一步重新提交，或先进入空白作品手工补全。</p>
+          <p>候选没有写入正式作品；原始作品和这次失败记录都已保留，可以在当前作品上安全重试。</p>
+          <button type="button" className="cf-primary" disabled={pending} onClick={() => retry.mutate()}>
+            {retry.isPending ? <LoaderCircle size={15} /> : <RotateCcw size={15} />}重新运行 AI 开书
+          </button>
         </div>
       ) : null}
       {!activeSet && run.data?.run.status !== "failed" ? (

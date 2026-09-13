@@ -39,6 +39,29 @@ export const ModelExecutionPolicySchema = z
       .max(100_000)
       .optional(),
     planningMaxOutputTokens: z.number().int().min(500).max(100_000).optional(),
+    // V1 batch-level ceilings. These are persisted with an autopilot session
+    // and are consumed across every planning/chapter child run, including
+    // retries and resumed runs.
+    batchMaxInputTokens: z
+      .number()
+      .int()
+      .positive()
+      .max(100_000_000)
+      .optional(),
+    batchMaxOutputTokens: z
+      .number()
+      .int()
+      .positive()
+      .max(20_000_000)
+      .optional(),
+    batchMaxCalls: z.number().int().positive().max(10_000).optional(),
+    batchMaxWallTimeMs: z
+      .number()
+      .int()
+      .positive()
+      .max(7_200_000_000)
+      .optional(),
+    batchMaxCostUsd: z.number().nonnegative().nullable().optional(),
     minChapterCharacters: z.number().int().min(100).max(100_000).optional(),
     maxChapterCharacters: z.number().int().min(100).max(100_000).optional(),
     /** Session-level mode used by the normal quick-create planning flow. */
@@ -126,6 +149,11 @@ export const EffectivePolicySchema = z.object({
   planningMaxOutputTokens: z.number().int().positive(),
   minChapterCharacters: z.number().int().positive(),
   maxChapterCharacters: z.number().int().positive(),
+  batchMaxInputTokens: z.number().int().positive().optional(),
+  batchMaxOutputTokens: z.number().int().positive().optional(),
+  batchMaxCalls: z.number().int().positive().optional(),
+  batchMaxWallTimeMs: z.number().int().positive().optional(),
+  batchMaxCostUsd: z.number().nonnegative().nullable().optional(),
 });
 export type EffectivePolicy = z.infer<typeof EffectivePolicySchema>;
 

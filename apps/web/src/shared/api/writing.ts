@@ -91,6 +91,7 @@ export async function appendDocumentVersion(
   projectId: string,
   documentId: string,
   input: {
+    requestId?: string;
     content: string;
     source: string;
     expectedCurrentVersionId: string | null;
@@ -99,6 +100,22 @@ export async function appendDocumentVersion(
   return requestJson(
     `/api/projects/${encodeURIComponent(projectId)}/documents/${encodeURIComponent(documentId)}/versions`,
     jsonRequest("POST", input),
+  );
+}
+
+export async function retryDocumentSettlement(
+  projectId: string,
+  documentId: string,
+  versionId: string,
+  requestId: string,
+): Promise<{
+  runId: string;
+  idempotentReplay: boolean;
+  alreadyCompleted: boolean;
+}> {
+  return requestJson(
+    `/api/projects/${encodeURIComponent(projectId)}/documents/${encodeURIComponent(documentId)}/versions/${encodeURIComponent(versionId)}/settlement/retry`,
+    jsonRequest("POST", { requestId }),
   );
 }
 

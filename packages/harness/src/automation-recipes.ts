@@ -35,10 +35,7 @@ export function buildSteerClassificationRecipe(
 }
 
 export function buildClosingReviewRecipe(runId: string): AutomationRecipe {
-  return recipe(runId, "closing-review", [
-    ["arc", "arc.review", 5],
-    ["volume", "volume.review", 5],
-  ]);
+  return recipe(runId, "closing-review", [["batch", "batch.review", 5]]);
 }
 
 function recipe(

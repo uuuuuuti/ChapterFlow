@@ -227,9 +227,16 @@ export async function discardStoryImport(
 export async function getProjectQuality(
   projectId: string,
   signal?: AbortSignal,
+  range?: { fromOutlineNodeId?: string; toOutlineNodeId?: string },
 ): Promise<ProjectQualityReport> {
+  const query = new URLSearchParams();
+  if (range?.fromOutlineNodeId)
+    query.set("fromOutlineNodeId", range.fromOutlineNodeId);
+  if (range?.toOutlineNodeId)
+    query.set("toOutlineNodeId", range.toOutlineNodeId);
+  const suffix = query.toString() ? `?${query.toString()}` : "";
   return requestJson(
-    `/api/projects/${encodeURIComponent(projectId)}/quality`,
+    `/api/projects/${encodeURIComponent(projectId)}/quality${suffix}`,
     signal ? { signal } : {},
   );
 }
@@ -247,10 +254,11 @@ export async function getProjectBackups(
 export async function createProjectBackup(
   projectId: string,
   label: string,
+  requestId?: string,
 ): Promise<ProjectBackup> {
   return requestJson(
     `/api/projects/${encodeURIComponent(projectId)}/backups`,
-    jsonRequest("POST", { label }),
+    jsonRequest("POST", { label, ...(requestId ? { requestId } : {}) }),
   );
 }
 

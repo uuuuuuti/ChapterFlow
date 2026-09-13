@@ -143,18 +143,18 @@ describe("routeRun", () => {
     });
   });
 
-  it("lets chapter-gate reach manuscript approval with non-critical issues", () => {
+  it("does not settle a chapter while semantic review still needs revision", () => {
     const snapshot = makeSnapshot(0);
     succeedThrough(snapshot, "run-1:review:0");
     setOutput(snapshot, "run-1:check:0", { verdict: "pass" });
     setOutput(snapshot, "run-1:review:0", { verdict: "revise" });
-    expect(routeRun(snapshot)).toEqual({
-      type: "start_step",
-      stepId: "run-1:settle",
+    expect(routeRun(snapshot)).toMatchObject({
+      type: "await_user",
+      reason: "revision_limit_reached",
     });
   });
 
-  it("lets autopilot continue with a non-critical review marker", () => {
+  it("does not let autopilot turn a review marker into a committed chapter", () => {
     const snapshot = makeSnapshot(0);
     snapshot.run.mode = "autopilot";
     succeedThrough(snapshot, "run-1:review:0");
@@ -163,9 +163,9 @@ describe("routeRun", () => {
       verdict: "revise",
       issues: [{ severity: "major" }],
     });
-    expect(routeRun(snapshot)).toEqual({
-      type: "start_step",
-      stepId: "run-1:settle",
+    expect(routeRun(snapshot)).toMatchObject({
+      type: "await_user",
+      reason: "revision_limit_reached",
     });
   });
 
@@ -579,5 +579,9 @@ function setOutput(
   stepId: string,
   output: Record<string, unknown>,
 ): void {
-  snapshot.steps.find((step) => step.id === stepId)!.outputArtifact = output;
+  const step = snapshot.steps.find((candidate) => candidate.id === stepId)!;
+  step.outputArtifact =
+    step.kind === "deterministic.check" || step.kind === "semantic.review"
+      ? { contentHash: "content-1", ...output }
+      : output;
 }

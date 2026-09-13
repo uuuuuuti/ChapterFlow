@@ -228,7 +228,7 @@ describe("SqliteRunRepository", () => {
           output:
             step.kind === "deterministic.check" ||
             step.kind === "semantic.review"
-              ? { verdict: "pass", issues: [] }
+              ? { verdict: "pass", issues: [], contentHash: "content-1" }
               : { kind: step.kind, ok: true },
           artifactKind: step.kind,
           usage: {
@@ -319,6 +319,27 @@ describe("SqliteRunRepository", () => {
       costUsd: 0,
       wallTimeMs: 2_000,
     });
+  });
+
+  it("parks a run when a persisted batch ceiling is crossed", () => {
+    seedRun(0);
+    database.raw
+      .prepare("UPDATE runs SET policy_json = ? WHERE id = ?")
+      .run(JSON.stringify({ batchMaxCalls: 1 }), "run-1");
+    runs.leaseNext("worker-a", now, 30_000);
+    const step = runs.startStep("run-1", "run-1:context", now);
+    runs.succeedStep("run-1", step.id, { ok: true }, "context", now);
+    runs.recordBudget(
+      "run-1",
+      step.id,
+      { inputTokens: 0, outputTokens: 0, calls: 1, costUsd: 0, wallTimeMs: 1 },
+      now,
+    );
+    const snapshot = runs.getSnapshot("run-1");
+    expect(snapshot.run.status).toBe("failed");
+    expect(
+      snapshot.events.some((event) => event.type === "run.budget_exceeded"),
+    ).toBe(true);
   });
 });
 

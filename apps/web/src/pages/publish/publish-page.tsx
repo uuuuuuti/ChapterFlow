@@ -30,18 +30,23 @@ export function PublishPage() {
   const overview = useProjectOverview(projectId);
   const story = useStory(projectId);
   const chapters = useMemo(
-    () => (story.data?.outline ?? []).filter((node) => node.kind === "chapter"),
+    () =>
+      (story.data?.outline ?? []).filter(
+        (node) => node.kind === "chapter" && node.status !== "abandoned",
+      ),
     [story.data?.outline],
   );
-  const quality = useQuery({ queryKey: queryKeys.quality(projectId), queryFn: ({ signal }) => getProjectQuality(projectId, signal) });
   const backups = useQuery({ queryKey: queryKeys.projectBackups(projectId), queryFn: ({ signal }) => getProjectBackups(projectId, signal) });
   const [format, setFormat] = useState<ExportFormat>("markdown");
   const [versionMode, setVersionMode] = useState<"current" | "history">("current");
   const [fromOutlineNodeId, setFromOutlineNodeId] = useState("");
   const [toOutlineNodeId, setToOutlineNodeId] = useState("");
+  const rangeInitialized = useRef(false);
   const [includeAnnotations, setIncludeAnnotations] = useState(false);
   const [label, setLabel] = useState("");
   const [restoreTarget, setRestoreTarget] = useState<ProjectBackup | null>(null);
+  const restoreRequestRef = useRef<{ backupId: string; requestId: string } | null>(null);
+  const backupRequestRef = useRef<{ key: string; label: string; requestId: string } | null>(null);
   const [restoredProjectId, setRestoredProjectId] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
   const [preview, setPreview] = useState<{
@@ -88,6 +93,19 @@ export function PublishPage() {
   const [record, setRecord] = useState({ platform: "", chapter: "", publishedAt: new Date().toISOString().slice(0, 10), url: "", status: "published" as PublishRecord["status"], exportBatchId: "" });
   const startIndex = chapters.findIndex((chapter) => chapter.id === fromOutlineNodeId);
   const endIndex = chapters.findIndex((chapter) => chapter.id === toOutlineNodeId);
+  useEffect(() => {
+    if (rangeInitialized.current || chapters.length < 5) return;
+    rangeInitialized.current = true;
+    setFromOutlineNodeId(chapters[0]!.id);
+    setToOutlineNodeId(chapters[4]!.id);
+  }, [chapters]);
+  const quality = useQuery({
+    queryKey: queryKeys.quality(projectId, fromOutlineNodeId || null, toOutlineNodeId || null),
+    queryFn: ({ signal }) => getProjectQuality(projectId, signal, {
+      ...(fromOutlineNodeId ? { fromOutlineNodeId } : {}),
+      ...(toOutlineNodeId ? { toOutlineNodeId } : {}),
+    }),
+  });
   const invalidRange =
     story.isSuccess &&
     ((fromOutlineNodeId && startIndex < 0) ||
@@ -128,8 +146,45 @@ export function PublishPage() {
       void client.invalidateQueries({ queryKey: queryKeys.exportBatches(projectId) });
     },
   });
-  const backupMutation = useMutation({ mutationFn: () => createProjectBackup(projectId, label.trim() || `发布前备份 ${new Date().toLocaleString("zh-CN")}`), onSuccess: async () => { setLabel(""); setNotice("作品备份已创建。"); await client.invalidateQueries({ queryKey: queryKeys.projectBackups(projectId) }); } });
-  const restoreMutation = useMutation({ mutationFn: (backup: ProjectBackup) => restoreProjectBackup(backup.id, crypto.randomUUID()), onSuccess: async ({ projectId: nextProjectId }) => { setRestoreTarget(null); setRestoredProjectId(nextProjectId); setNotice(`备份已恢复为作品 ${nextProjectId}，可以继续检查。`); await client.invalidateQueries({ queryKey: queryKeys.projects }); } });
+  const backupMutation = useMutation({
+    mutationFn: () => {
+      const key = label.trim() || "<default>";
+      const existing = backupRequestRef.current;
+      if (existing?.key !== key) {
+        backupRequestRef.current = {
+          key,
+          label: label.trim() || `发布前备份 ${new Date().toLocaleString("zh-CN")}`,
+          requestId: crypto.randomUUID(),
+        };
+      }
+      const request = backupRequestRef.current!;
+      return createProjectBackup(projectId, request.label, request.requestId);
+    },
+    onSuccess: async () => {
+      backupRequestRef.current = null;
+      setLabel("");
+      setNotice("作品备份已创建。");
+      await client.invalidateQueries({ queryKey: queryKeys.projectBackups(projectId) });
+    },
+  });
+  const restoreMutation = useMutation({
+    mutationFn: (backup: ProjectBackup) => {
+      const existing = restoreRequestRef.current;
+      const requestId = existing?.backupId === backup.id ? existing.requestId : crypto.randomUUID();
+      restoreRequestRef.current = { backupId: backup.id, requestId };
+      return restoreProjectBackup(backup.id, requestId);
+    },
+    onSuccess: async ({ projectId: nextProjectId }) => {
+      restoreRequestRef.current = null;
+      setRestoreTarget(null);
+      setRestoredProjectId(nextProjectId);
+      setNotice(`备份已恢复为作品 ${nextProjectId}，可以继续检查。`);
+      await Promise.all([
+        client.invalidateQueries({ queryKey: queryKeys.projects }),
+        client.invalidateQueries({ queryKey: queryKeys.projectBackups(projectId) }),
+      ]);
+    },
+  });
   const addRecord = async (event: FormEvent) => {
     event.preventDefault();
     if (!record.platform.trim() || !record.chapter.trim()) return;
@@ -189,7 +244,7 @@ export function PublishPage() {
   const project = overview.data?.project;
   if (overview.isPending) return <div className="cf-page" role="status">正在打开发布页…</div>;
   if (overview.isError) return <div className="cf-page"><ResourceErrorState error={overview.error} backHref="/books" backLabel="回到作品库" title="找不到这本作品的发布页" description="发布页所属的作品可能已经被移除，或当前链接已经过期。" /></div>;
-  return <div className="cf-page cf-publish-page"><div className="cf-page-title"><div><Link className="cf-text-link" to={`/books/${projectId}/dashboard`}>← {project?.title ?? "作品"}</Link><h1>发布</h1><p>检查、导出、备份，然后手动上传到你选择的平台。</p></div><div className="cf-actions"><Link className="cf-button" to={`/books/${projectId}/advanced?tool=assets`}>管理创作资产</Link><Link className="cf-button" to="/settings/storage#system-backups">管理系统备份</Link></div></div>{notice ? <div className="cf-notice" role="status">{notice}{restoredProjectId ? <> <Link className="cf-text-link" to={`/books/${restoredProjectId}/dashboard`}>打开恢复作品</Link></> : null}</div> : null}<div className="cf-publish-grid"><section className="cf-card"><div className="cf-section-title"><div><h2>发布前检查</h2><p>检查结果只提供建议，不会阻止你手工导出。</p></div><ShieldCheck size={24} /></div>{quality.isPending ? <p role="status">正在检查作品…</p> : quality.isError ? <ErrorNote error={quality.error} /> : quality.data ? <><div className="cf-quality-score"><strong>{quality.data.score}</strong><span>分 · {quality.data.readiness === "ready" ? "可以导出" : quality.data.readiness === "needs_attention" ? "建议先处理问题" : "存在阻塞项"}</span></div><div className="cf-quality-gates">{quality.data.gates.map((gate) => <div key={gate.id}><span className={gate.passed ? "is-passed" : "is-warning"}>{gate.passed ? <CheckCircle2 size={15} /> : "!"}</span><div><strong>{gate.label}</strong><p>{gate.message}</p></div></div>)}</div></> : null}</section><section className="cf-card">
+  return <div className="cf-page cf-publish-page"><div className="cf-page-title"><div><Link className="cf-text-link" to={`/books/${projectId}/dashboard`}>← {project?.title ?? "作品"}</Link><h1>发布</h1><p>先核对当前版本的质量门，再导出并手动上传到你选择的平台。</p></div><div className="cf-actions"><Link className="cf-button" to={`/books/${projectId}/advanced?tool=assets`}>管理创作资产</Link><Link className="cf-button" to="/settings/storage#system-backups">管理系统备份</Link></div></div>{notice ? <div className="cf-notice" role="status">{notice}{restoredProjectId ? <> <Link className="cf-text-link" to={`/books/${restoredProjectId}/dashboard`}>打开恢复作品</Link></> : null}</div> : null}<div className="cf-publish-grid"><section className="cf-card"><div className="cf-section-title"><div><h2>发布前检查</h2><p>首发范围必须通过当前版本、审阅、结算和正文长度检查；作者仍可另行保存手工导出。</p></div><ShieldCheck size={24} /></div>{quality.isPending ? <p role="status">正在检查作品…</p> : quality.isError ? <ErrorNote error={quality.error} /> : quality.data ? <><div className="cf-quality-score"><strong>{quality.data.score}</strong><span>分 · {quality.data.readiness === "ready" ? "可以导出" : quality.data.readiness === "needs_attention" ? "建议先处理问题" : "存在阻塞项"}</span></div><p className="cf-export-context" role="note">检查范围：{rangeLabel}</p><div className="cf-quality-gates">{quality.data.gates.map((gate) => <div key={gate.id}><span className={gate.passed ? "is-passed" : "is-warning"}>{gate.passed ? <CheckCircle2 size={15} /> : "!"}</span><div><strong>{gate.label}</strong><p>{gate.message}</p></div></div>)}</div>{quality.data.issues.length ? <details className="cf-quality-issues"><summary>查看 {quality.data.issues.length} 项具体问题</summary><ul>{quality.data.issues.map((issue) => <li key={issue.id}><strong>{issue.severity === "error" ? "阻断" : issue.severity === "warning" ? "警告" : "提示"}：{issue.message}</strong><span>{issue.suggestion}</span></li>)}</ul></details> : null}</> : null}</section><section className="cf-card">
   <div className="cf-section-title">
     <div>
       <h2>导出作品</h2>
@@ -207,7 +262,7 @@ export function PublishPage() {
       }}
     >
       <option value="markdown">Markdown</option>
-      <option value="text">纯文本</option>
+      <option value="text">纯文本（TXT）</option>
       <option value="docx">DOCX</option>
       <option value="epub">EPUB</option>
       <option value="narrative-bundle">文织备份包</option>
@@ -225,7 +280,7 @@ export function PublishPage() {
         <option value="">从开头</option>
         {chapters.map((chapter) => (
           <option key={chapter.id} value={chapter.id}>
-            {chapter.title}
+            第 {chapters.indexOf(chapter) + 1} 章 · {chapter.title}
           </option>
         ))}
       </select>
@@ -241,7 +296,7 @@ export function PublishPage() {
         <option value="">到结尾</option>
         {chapters.map((chapter) => (
           <option key={chapter.id} value={chapter.id}>
-            {chapter.title}
+            第 {chapters.indexOf(chapter) + 1} 章 · {chapter.title}
           </option>
         ))}
       </select>
@@ -303,7 +358,94 @@ export function PublishPage() {
   </div>
   {previewMutation.isError ? <div className="cf-actions"><ErrorNote error={previewMutation.error} title="导出预览失败" /><button type="button" className="cf-button" onClick={() => previewMutation.mutate()}>重试预览</button></div> : null}
   {exportMutation.isError ? <div className="cf-actions"><ErrorNote error={exportMutation.error} title="导出未完成" /><button type="button" className="cf-button" onClick={() => exportMutation.mutate({ format, options: exportOptions })}>重试导出</button></div> : null}
-</section></div><section className="cf-card cf-export-batch-history"><div className="cf-section-title"><div><h2>导出批次</h2><p>每次预览或下载都会留下文件上下文，可绑定到手动发布记录。</p></div><FileDown size={22} /></div>{exportBatches.isError ? <ErrorNote error={exportBatches.error} title="导出批次读取失败" /> : exportBatches.isPending ? <p role="status">正在读取导出批次…</p> : exportBatches.data?.length ? <div className="cf-publish-record-list">{exportBatches.data.map((batch) => <div className="cf-list-row" key={batch.id}><div><strong>{batch.status === "failed" ? "导出失败 · " + batch.filename : batch.filename}</strong><p>{new Date(batch.createdAt).toLocaleString("zh-CN")} · {batch.format} · {batch.versionMode === "history" ? "含历史版本" : "当前版本"} · {batch.fromOutlineNodeId || batch.toOutlineNodeId ? (batch.fromOutlineNodeId ? "指定起章" : "开头") + " → " + (batch.toOutlineNodeId ? "指定止章" : "结尾") : "全书"}</p><small>{batch.status === "failed" ? (batch.errorCode ?? "export.failed") + " · " + (batch.errorMessage ?? "请检查导出范围后重试。") + " · " : "SHA-256 " + batch.contentHash.slice(0, 16) + " · "}{formatBytes(batch.byteSize)} · 批次 {batch.id.slice(0, 8)}{batch.retryOfBatchId ? " · 重试自 " + batch.retryOfBatchId.slice(0, 8) : ""}</small></div>{batch.status === "failed" ? <button type="button" className="cf-text-link" onClick={() => exportMutation.mutate({ format: batch.format, options: { versionMode: batch.versionMode, includeAnnotations: batch.includeAnnotations, includeRuns: batch.includeRuns, ...(batch.fromOutlineNodeId ? { fromOutlineNodeId: batch.fromOutlineNodeId } : {}), ...(batch.toOutlineNodeId ? { toOutlineNodeId: batch.toOutlineNodeId } : {}), retryOfBatchId: batch.id } })}>重试导出</button> : <button type="button" className="cf-text-link" onClick={() => { setRecord((current) => ({ ...current, exportBatchId: batch.id })); setNotice("已选择导出批次 " + batch.id.slice(0, 8) + "，保存发布记录后即可追溯。"); }}>关联到记录</button>}</div>)}</div> : <p>还没有导出批次。先预览或下载一次导出文件。</p>}</section><section className="cf-card cf-publish-records"><div className="cf-section-title"><div><h2>手动发布记录</h2><p>记录你在哪个平台发布了哪一章，不会自动上传或登录第三方平台。</p></div><Plus size={22} /></div>{remoteRecords.isError ? <ErrorNote error={remoteRecords.error} title="发布记录同步失败" /> : null}<form className="cf-form-grid" onSubmit={addRecord}><label>{editingRecordId ? "编辑平台" : "平台"}<input required value={record.platform} onChange={(event) => setRecord((current) => ({ ...current, platform: event.target.value }))} placeholder="例如：起点、番茄、个人站点" /></label><label>{editingRecordId ? "编辑章节或范围" : "章节或范围"}<input required value={record.chapter} onChange={(event) => setRecord((current) => ({ ...current, chapter: event.target.value }))} placeholder="例如：第 1—3 章" /></label><label>发布日期<input type="date" value={record.publishedAt} onChange={(event) => setRecord((current) => ({ ...current, publishedAt: event.target.value }))} /></label><label>发布链接（可选）<input type="url" value={record.url} onChange={(event) => setRecord((current) => ({ ...current, url: event.target.value }))} placeholder="https://…" /></label><label>状态<select value={record.status} onChange={(event) => setRecord((current) => ({ ...current, status: event.target.value as PublishRecord["status"] }))}><option value="published">已发布</option><option value="scheduled">已排期</option><option value="draft">待发布</option></select></label><label>关联导出批次<select aria-label="关联导出批次" value={record.exportBatchId} onChange={(event) => setRecord((current) => ({ ...current, exportBatchId: event.target.value }))}><option value="">不关联</option>{exportBatches.data?.map((batch) => <option key={batch.id} value={batch.id}>{new Date(batch.createdAt).toLocaleString("zh-CN")} · {batch.format} · {formatBytes(batch.byteSize)}</option>)}</select></label><div className="cf-actions"><button className="cf-primary"><Plus size={15} />{editingRecordId ? "保存修改" : "保存记录"}</button>{editingRecordId ? <button type="button" className="cf-button" onClick={() => { setEditingRecordId(null); setRecord({ platform: "", chapter: "", publishedAt: new Date().toISOString().slice(0, 10), url: "", status: "published", exportBatchId: "" }); }}>取消编辑</button> : null}</div></form><div className="cf-publish-record-list">{effectiveRecords.length ? effectiveRecords.map((item) => <div className="cf-list-row" key={item.id}><div><strong>{item.platform} · {item.chapter}</strong><p>{item.publishedAt} · {item.status === "published" ? "已发布" : item.status === "scheduled" ? "已排期" : "待发布"}{item.exportBatchId ? <> · 已关联导出 {item.exportBatchId.slice(0, 8)}</> : null}{item.url ? <> · <a href={item.url} target="_blank" rel="noreferrer">打开链接</a></> : null}</p></div><div className="cf-actions"><button className="cf-text-link" onClick={() => { setEditingRecordId(item.id); setRecord({ platform: item.platform, chapter: item.chapter, publishedAt: item.publishedAt, url: item.url, status: item.status, exportBatchId: item.exportBatchId ?? "" }); }}>编辑</button><button className="cf-text-danger" aria-label={`删除 ${item.platform} ${item.chapter}`} onClick={() => void removeRecord(item.id)}><Trash2 size={15} /></button></div></div>) : <p>还没有发布记录。</p>}</div></section><section className="cf-card cf-backup-section"><div className="cf-section-title"><div><h2>作品备份</h2><p>导出前创建一份可回溯的作品快照。</p></div><Archive size={24} /></div><div className="cf-backup-create"><input aria-label="备份说明" value={label} onChange={(event) => setLabel(event.target.value)} placeholder="例如：第 20 章发布前" /><button className="cf-button" disabled={backupMutation.isPending} onClick={() => backupMutation.mutate()}>{backupMutation.isPending ? "正在备份…" : "创建备份"}</button></div>{backupMutation.isError ? <ErrorNote error={backupMutation.error} /> : null}<div className="cf-backup-list">{backups.isPending ? <p role="status">正在读取备份…</p> : backups.data?.length ? backups.data.map((backup) => <div className="cf-list-row" key={backup.id}><div><strong>{backup.label}</strong><p>{new Date(backup.createdAt).toLocaleString("zh-CN")} · {formatBytes(backup.sizeBytes)} · {backup.bundleHash.slice(0, 10)}</p></div><button className="cf-button" onClick={() => setRestoreTarget(backup)}>恢复为新作品</button></div>) : <p>还没有作品备份。</p>}</div></section>{restoreTarget ? <ConfirmDialog title="从备份恢复为新作品？" confirmLabel="开始恢复" pending={restoreMutation.isPending} onCancel={() => setRestoreTarget(null)} onConfirm={() => restoreMutation.mutate(restoreTarget)}><p>原作品不会被覆盖，系统会创建一个新的恢复作品。</p></ConfirmDialog> : null}{preview ? <div className="cf-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setPreview(null); }}><section className="cf-modal cf-publish-preview" role="dialog" aria-modal="true" aria-labelledby="cf-publish-preview-title"><header><div><h2 id="cf-publish-preview-title">导出预览</h2><p>{preview.filename} · {formatBytes(preview.sizeBytes)}</p></div><button type="button" className="cf-modal-close" aria-label="关闭预览" onClick={() => setPreview(null)}>×</button></header>{preview.artifact ? <ExportArtifactSummary artifact={preview.artifact} /> : null}<pre>{preview.content ?? "已完成结构检查。下载文件后可在对应编辑器中进行最终版式校对。"}</pre><footer><button type="button" className="cf-primary" onClick={() => setPreview(null)}>关闭</button></footer></section></div> : null}</div>;
+  </section>
+  </div>
+
+  <section className="cf-card cf-export-batch-history">
+    <div className="cf-section-title">
+      <div>
+        <h2>导出批次</h2>
+        <p>每次预览或下载都会留下文件上下文，可绑定到手动发布记录。</p>
+      </div>
+      <FileDown size={22} />
+    </div>
+    {exportBatches.isError ? <ErrorNote error={exportBatches.error} title="导出批次读取失败" /> : exportBatches.isPending ? <p role="status">正在读取导出批次…</p> : exportBatches.data?.length ? (
+      <div className="cf-publish-record-list">
+        {exportBatches.data.map((batch) => (
+          <div className="cf-list-row" key={batch.id}>
+            <div>
+              <strong>{batch.status === "failed" ? "导出失败 · " + batch.filename : batch.filename}</strong>
+              <p>{new Date(batch.createdAt).toLocaleString("zh-CN")} · {batch.format} · {batch.versionMode === "history" ? "含历史版本" : "当前版本"} · {batch.fromOutlineNodeId || batch.toOutlineNodeId ? (batch.fromOutlineNodeId ? "指定起章" : "开头") + " → " + (batch.toOutlineNodeId ? "指定止章" : "结尾") : "全书"}</p>
+              <small>{batch.status === "failed" ? (batch.errorCode ?? "export.failed") + " · " + (batch.errorMessage ?? "请检查导出范围后重试。") + " · " : "SHA-256 " + batch.contentHash.slice(0, 16) + " · "}{formatBytes(batch.byteSize)} · 批次 {batch.id.slice(0, 8)}{batch.retryOfBatchId ? " · 重试自 " + batch.retryOfBatchId.slice(0, 8) : ""}</small>
+            </div>
+            {batch.status === "failed" ? (
+              <button type="button" className="cf-text-link" onClick={() => exportMutation.mutate({ format: batch.format, options: { versionMode: batch.versionMode, includeAnnotations: batch.includeAnnotations, includeRuns: batch.includeRuns, ...(batch.fromOutlineNodeId ? { fromOutlineNodeId: batch.fromOutlineNodeId } : {}), ...(batch.toOutlineNodeId ? { toOutlineNodeId: batch.toOutlineNodeId } : {}), retryOfBatchId: batch.id } })}>重试导出</button>
+            ) : (
+              <button type="button" className="cf-text-link" onClick={() => { setRecord((current) => ({ ...current, exportBatchId: batch.id })); setNotice("已选择导出批次 " + batch.id.slice(0, 8) + "，保存发布记录后即可追溯。"); }}>关联到记录</button>
+            )}
+          </div>
+        ))}
+      </div>
+    ) : <p>还没有导出批次。先预览或下载一次导出文件。</p>}
+  </section>
+
+  <section className="cf-card cf-publish-records">
+    <div className="cf-section-title">
+      <div>
+        <h2>手动发布记录</h2>
+        <p>记录你在哪个平台发布了哪一章，不会自动上传或登录第三方平台。</p>
+      </div>
+      <Plus size={22} />
+    </div>
+    {remoteRecords.isError ? <ErrorNote error={remoteRecords.error} title="发布记录同步失败" /> : null}
+    <form className="cf-form-grid" onSubmit={addRecord}>
+      <label>{editingRecordId ? "编辑平台" : "平台"}<input required value={record.platform} onChange={(event) => setRecord((current) => ({ ...current, platform: event.target.value }))} placeholder="例如：起点、番茄、个人站点" /></label>
+      <label>{editingRecordId ? "编辑章节或范围" : "章节或范围"}<input required value={record.chapter} onChange={(event) => setRecord((current) => ({ ...current, chapter: event.target.value }))} placeholder="例如：第 1—3 章" /></label>
+      <label>发布日期<input type="date" value={record.publishedAt} onChange={(event) => setRecord((current) => ({ ...current, publishedAt: event.target.value }))} /></label>
+      <label>发布链接（可选）<input type="url" value={record.url} onChange={(event) => setRecord((current) => ({ ...current, url: event.target.value }))} placeholder="https://…" /></label>
+      <label>状态<select value={record.status} onChange={(event) => setRecord((current) => ({ ...current, status: event.target.value as PublishRecord["status"] }))}><option value="published">已发布</option><option value="scheduled">已排期</option><option value="draft">待发布</option></select></label>
+      <label>关联导出批次<select aria-label="关联导出批次" value={record.exportBatchId} onChange={(event) => setRecord((current) => ({ ...current, exportBatchId: event.target.value }))}><option value="">不关联</option>{exportBatches.data?.map((batch) => <option key={batch.id} value={batch.id}>{new Date(batch.createdAt).toLocaleString("zh-CN")} · {batch.format} · {formatBytes(batch.byteSize)}</option>)}</select></label>
+      <div className="cf-actions">
+        <button className="cf-primary"><Plus size={15} />{editingRecordId ? "保存修改" : "保存记录"}</button>
+        {editingRecordId ? <button type="button" className="cf-button" onClick={() => { setEditingRecordId(null); setRecord({ platform: "", chapter: "", publishedAt: new Date().toISOString().slice(0, 10), url: "", status: "published", exportBatchId: "" }); }}>取消编辑</button> : null}
+      </div>
+    </form>
+    <div className="cf-publish-record-list">
+      {effectiveRecords.length ? effectiveRecords.map((item) => (
+        <div className="cf-list-row" key={item.id}>
+          <div><strong>{item.platform} · {item.chapter}</strong><p>{item.publishedAt} · {item.status === "published" ? "已发布" : item.status === "scheduled" ? "已排期" : "待发布"}{item.exportBatchId ? <> · 已关联导出 {item.exportBatchId.slice(0, 8)}</> : null}{item.url ? <> · <a href={item.url} target="_blank" rel="noreferrer">打开链接</a></> : null}</p></div>
+          <div className="cf-actions"><button type="button" className="cf-text-link" onClick={() => { setEditingRecordId(item.id); setRecord({ platform: item.platform, chapter: item.chapter, publishedAt: item.publishedAt, url: item.url, status: item.status, exportBatchId: item.exportBatchId ?? "" }); }}>编辑</button><button type="button" className="cf-text-danger" aria-label={`删除 ${item.platform} ${item.chapter}`} onClick={() => void removeRecord(item.id)}><Trash2 size={15} /></button></div>
+        </div>
+      )) : <p>还没有发布记录。</p>}
+    </div>
+  </section>
+
+  <section className="cf-card cf-backup-section">
+    <div className="cf-section-title">
+      <div>
+        <h2>作品备份</h2>
+        <p>导出前创建一份可回溯的作品快照；同一备份恢复成功后不会再次创建副本。</p>
+      </div>
+      <Archive size={24} />
+    </div>
+    <div className="cf-backup-create">
+      <input aria-label="备份说明" value={label} onChange={(event) => setLabel(event.target.value)} placeholder="例如：第 20 章发布前" />
+      <button type="button" className="cf-button" disabled={backupMutation.isPending} onClick={() => backupMutation.mutate()}>{backupMutation.isPending ? "正在备份…" : "创建备份"}</button>
+    </div>
+    {backupMutation.isError ? <ErrorNote error={backupMutation.error} /> : null}
+    <div className="cf-backup-list">
+      {backups.isPending ? <p role="status">正在读取备份…</p> : backups.data?.length ? backups.data.map((backup) => (
+        <div className="cf-list-row" key={backup.id}>
+          <div><strong>{backup.label}{backup.restoredProjectId ? " · 已恢复" : ""}</strong><p>{new Date(backup.createdAt).toLocaleString("zh-CN")} · {formatBytes(backup.sizeBytes)} · {backup.bundleHash.slice(0, 10)}</p></div>
+          {backup.restoredProjectId ? <Link className="cf-text-link" to={`/books/${backup.restoredProjectId}/dashboard`}>打开恢复作品</Link> : <button type="button" className="cf-button" onClick={() => setRestoreTarget(backup)}>恢复为新作品</button>}
+        </div>
+      )) : <p>还没有作品备份。</p>}
+    </div>
+  </section>
+
+  {restoreTarget ? <ConfirmDialog title="从备份恢复为新作品？" confirmLabel="开始恢复" pending={restoreMutation.isPending} onCancel={() => setRestoreTarget(null)} onConfirm={() => restoreMutation.mutate(restoreTarget)}><p>原作品不会被覆盖；如果该备份之前已经恢复成功，系统会打开原恢复作品，不再创建重复副本。</p></ConfirmDialog> : null}
+  {preview ? <div className="cf-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setPreview(null); }}><section className="cf-modal cf-publish-preview" role="dialog" aria-modal="true" aria-labelledby="cf-publish-preview-title"><header><div><h2 id="cf-publish-preview-title">导出预览</h2><p>{preview.filename} · {formatBytes(preview.sizeBytes)}</p></div><button type="button" className="cf-modal-close" aria-label="关闭预览" onClick={() => setPreview(null)}>×</button></header>{preview.artifact ? <ExportArtifactSummary artifact={preview.artifact} /> : null}<pre>{preview.content ?? "已完成结构检查。下载文件后可在对应编辑器中进行最终版式校对。"}</pre><footer><button type="button" className="cf-primary" onClick={() => setPreview(null)}>关闭</button></footer></section></div> : null}
+</div>;
 }
 
 export type ExportArtifactCheck = {

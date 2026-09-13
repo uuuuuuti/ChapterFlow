@@ -58,7 +58,38 @@ export function OutlinePage() {
   const [batchOrdinal, setBatchOrdinal] = useState(0);
   const [lastOperation, setLastOperation] = useState<OutlineOperationDto | null>(null);
   const [showAiCandidates, setShowAiCandidates] = useState(false);
-  const nodes = useMemo(() => story.data?.outline ?? [], [story.data?.outline]);
+  const allNodes = useMemo(() => story.data?.outline ?? [], [story.data?.outline]);
+  const nodes = useMemo(() => {
+    const boundDocumentNodeIds = new Set(
+      (story.data?.documents ?? [])
+        .map((document) => document.outlineNodeId)
+        .filter((id): id is string => Boolean(id)),
+    );
+    const hasVisibleDescendant = (parentId: string): boolean =>
+      allNodes.some(
+        (node) =>
+          node.parentId === parentId &&
+          (node.kind === "chapter"
+            ? node.status !== "abandoned" || boundDocumentNodeIds.has(node.id)
+            : hasVisibleDescendant(node.id)),
+      );
+    return allNodes.filter((node) => {
+      if (node.kind === "book") return true;
+      if (node.kind === "chapter") {
+        return node.status !== "abandoned" || boundDocumentNodeIds.has(node.id);
+      }
+      if (node.kind === "volume") {
+        // Keep an empty non-abandoned volume visible as a valid move target;
+        // an empty historical arc is still hidden with its old children.
+        return node.status !== "abandoned";
+      }
+      if (node.kind === "arc") {
+        return hasVisibleDescendant(node.id);
+      }
+      return node.status !== "abandoned";
+    });
+  }, [allNodes, story.data?.documents]);
+  const hiddenNodeCount = allNodes.length - nodes.length;
   const selected = nodes.find((node) => node.id === selectedId) ?? nodes.find((node) => node.kind === "chapter") ?? nodes[0];
   const roots = nodes.filter((node) => node.parentId === null).sort(byOrdinal);
   const selectedNodes = nodes.filter((node) => selectedIds.includes(node.id));
@@ -333,7 +364,7 @@ export function OutlinePage() {
           <label>摘要<textarea aria-label="摘要" rows={2} value={quickSummary} onChange={(event) => setQuickSummary(event.target.value)} placeholder="这一节点发生什么？" /></label>
           <div className="cf-quick-form-actions"><button className="cf-primary" disabled={quickSave.isPending || !quickTitle.trim()}>{quickSave.isPending ? "正在保存…" : "保存"}</button>{quickStatus ? <span role="status">{quickStatus}</span> : null}</div>
         </form>
-        {nodes.filter((node) => node.kind === "chapter").length ? <label className="cf-quick-select">编辑对象<select aria-label="编辑对象" value={selected?.id ?? ""} onChange={(event) => setSelectedId(event.target.value)}>{nodes.filter((node) => node.kind === "chapter").map((node) => <option key={node.id} value={node.id}>{node.title}</option>)}</select></label> : null}
+        {nodes.filter((node) => node.kind === "chapter").length ? <label className="cf-quick-select">编辑对象<select aria-label="编辑对象" value={selected?.id ?? ""} onChange={(event) => setSelectedId(event.target.value)}>{nodes.filter((node) => node.kind === "chapter").map((node, index) => <option key={node.id} value={node.id}>第 {index + 1} 章 · {node.title}</option>)}</select></label> : null}
         {selected?.kind === "chapter" ? <Link className="cf-text-link" to={`/books/${projectId}/write?outline=${encodeURIComponent(selected.id)}`}>去写作台写本章</Link> : null}
       </section>
       {selectedNodes.length ? (
@@ -359,7 +390,7 @@ export function OutlinePage() {
       ) : null}
       <div className="cf-outline-layout">
         <aside className="cf-card cf-outline-tree" aria-label="大纲树">
-          <header><strong>故事结构</strong><small>{nodes.length} 个节点</small></header>
+            <header><strong>故事结构</strong><small>{nodes.length} 个当前节点{hiddenNodeCount ? ` · ${hiddenNodeCount} 个历史节点已保留` : ""}</small></header>
           <div className="cf-outline-scroll">
             {roots.map((node) => (
               <OutlineBranch
@@ -507,7 +538,20 @@ function OutlineBranch({
           onDrop={(event) => { event.preventDefault(); onDrop(node.id); }}
           onClick={() => onSelect(node.id)}
         >
-          {hasChildren ? <span className="cf-outline-toggle" role="button" aria-label={collapsed.includes(node.id) ? "展开" : "收起"} onClick={(event) => { event.stopPropagation(); onToggle(node.id); }}>{collapsed.includes(node.id) ? <ChevronRight size={14} /> : <ChevronDown size={14} />}</span> : <span className="cf-outline-spacer" />}
+          {hasChildren ? <span
+            className="cf-outline-toggle"
+            role="button"
+            tabIndex={0}
+            aria-expanded={!collapsed.includes(node.id)}
+            aria-label={collapsed.includes(node.id) ? "展开" : "收起"}
+            onClick={(event) => { event.stopPropagation(); onToggle(node.id); }}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter" && event.key !== " ") return;
+              event.preventDefault();
+              event.stopPropagation();
+              onToggle(node.id);
+            }}
+          >{collapsed.includes(node.id) ? <ChevronRight size={14} /> : <ChevronDown size={14} />}</span> : <span className="cf-outline-spacer" />}
           {node.kind === "chapter" ? <FileText size={14} /> : <Folder size={14} />}
           <span>{node.title}</span><small>{kindLabels[node.kind]}</small>
         </button>
@@ -553,6 +597,9 @@ function OutlineEditor({
   const [goal, setGoal] = useState(node.goal ?? "");
   const [conflict, setConflict] = useState(node.conflict ?? "");
   const [outcome, setOutcome] = useState(node.outcome ?? "");
+  const [hook, setHook] = useState(
+    typeof node.metadata.hook === "string" ? node.metadata.hook : "",
+  );
   const [parentId, setParentId] = useState(node.parentId ?? "");
   const [povEntityId, setPovEntityId] = useState(node.povEntityId ?? "");
   const [foreshadowIds, setForeshadowIds] = useState(() =>
@@ -567,12 +614,13 @@ function OutlineEditor({
   );
   const siblingIndex = siblings.findIndex((sibling) => sibling.id === node.id);
   return (
-    <form className="cf-outline-form" onSubmit={(event) => { event.preventDefault(); onSave({ title: title.trim(), summary: summary.trim() || null, goal: goal.trim() || null, conflict: conflict.trim() || null, outcome: outcome.trim() || null }); }}>
+    <form className="cf-outline-form" onSubmit={(event) => { event.preventDefault(); onSave({ title: title.trim(), summary: summary.trim() || null, goal: goal.trim() || null, conflict: conflict.trim() || null, outcome: outcome.trim() || null, metadata: { ...node.metadata, hook: hook.trim() || null } }); }}>
       <div className="cf-outline-editor-head"><div><span className="cf-badge">{kindLabels[node.kind]}</span><h2>{node.title}</h2><small>节点路径：{node.path}</small></div><div className="cf-actions"><button type="button" className="cf-button" disabled={moving || siblingIndex <= 0} onClick={() => onMove(node, siblingIndex - 1)}>上移</button><button type="button" className="cf-button" disabled={moving || siblingIndex < 0 || siblingIndex >= siblings.length - 1} onClick={() => onMove(node, siblingIndex + 1)}>下移</button><button type="button" className="cf-icon-danger" aria-label="删除节点" onClick={onDelete}><Trash2 size={17} /></button></div></div>
       <label>标题<input aria-label="编辑标题" value={title} onChange={(event) => setTitle(event.target.value)} maxLength={200} required /></label>
       <label>本节点作用<textarea rows={3} value={summary} onChange={(event) => setSummary(event.target.value)} placeholder="这一段故事为什么存在？" /></label>
       <div className="cf-form-grid"><label>目标<textarea rows={4} value={goal} onChange={(event) => setGoal(event.target.value)} placeholder="主角要完成什么？" /></label><label>核心冲突<textarea rows={4} value={conflict} onChange={(event) => setConflict(event.target.value)} placeholder="什么力量阻止他？" /></label></div>
       <label>结果与章尾钩子<textarea rows={4} value={outcome} onChange={(event) => setOutcome(event.target.value)} placeholder="这一节点结束时，故事发生了什么变化？" /></label>
+      <label>追踪钩子<input aria-label="追踪钩子" value={hook} onChange={(event) => setHook(event.target.value)} placeholder="供连续创作与联合审阅核对的具体钩子" maxLength={2000} /></label>
       {entities.some((entity) => entity.type === "character") || foreshadows.length || timelines.length ? (
         <section className="cf-outline-associations" aria-label="人物、伏笔与时间线关联">
           {entities.some((entity) => entity.type === "character") ? <label>本节点视角人物<select aria-label="本节点视角人物" value={povEntityId} onChange={(event) => setPovEntityId(event.target.value)}><option value="">暂不指定</option>{entities.filter((entity) => entity.type === "character").map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select></label> : <small>还没有人物，可先到作品设定中创建；当前仍可关联伏笔和时间线。</small>}

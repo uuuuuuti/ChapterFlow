@@ -26,6 +26,7 @@ import { buildSteerClassificationRecipe } from "@narralume/harness";
 import {
   SqliteAutomationRepository,
   SqliteCanonRepository,
+  SqliteDocumentRepository,
   SqliteProjectRepository,
   SqliteProjectCreationRepository,
   SqliteRequestReplayRepository,
@@ -69,6 +70,12 @@ const CandidateParamsSchema = z.object({
 });
 const CandidateSetParamsSchema = z.object({ setId: z.string().trim().min(1) });
 const SessionParamsSchema = z.object({ sessionId: z.string().trim().min(1) });
+const FoundationRetryRequestSchema = z
+  .object({
+    requestId: z.string().trim().min(1),
+    sourceRunId: z.string().trim().min(1),
+  })
+  .strict();
 
 export interface RegisterAutomationRouteOptions {
   coordinator: AutopilotCoordinator;
@@ -90,6 +97,7 @@ export function registerAutomationRoutes(
   const projectCreations = new SqliteProjectCreationRepository(database);
   const runs = new SqliteRunRepository(database);
   const story = new SqliteStoryRepository(database);
+  const documents = new SqliteDocumentRepository(database);
   const canon = new SqliteCanonRepository(database);
   const reviews = new SqliteReviewRepository(database);
   const requestReplays = new SqliteRequestReplayRepository(database);
@@ -253,6 +261,111 @@ export function registerAutomationRoutes(
       return automation
         .listCandidateSets(projectId)
         .map((detail) => FoundationCandidateSetSchema.parse(detail));
+    },
+  );
+
+  app.route(
+    "POST",
+    "/api/projects/:projectId/foundation/retry",
+    async (request) => {
+      const { projectId } = ProjectParamsSchema.parse(request.params);
+      const input = FoundationRetryRequestSchema.parse(request.body);
+      const project = requireProject(projects, projectId);
+      const source = runs.getRun(input.sourceRunId);
+      if (!source || source.projectId !== projectId) {
+        throw new AutomationServiceError(
+          "foundation.retry.source_not_found",
+          "The failed foundation task no longer belongs to this project",
+          404,
+        );
+      }
+      if (source.recipe !== "book-foundation") {
+        throw new AutomationServiceError(
+          "foundation.retry.invalid_source",
+          "Only a failed AI book-foundation task can be retried",
+          422,
+        );
+      }
+      if (!["failed", "failed_recoverable"].includes(source.status)) {
+        throw new AutomationServiceError(
+          "foundation.retry.invalid_status",
+          "The foundation task is not in a retryable state",
+          409,
+        );
+      }
+      requireWritingAssignment(database, options.environment);
+      const retryRunId = deterministicRequestId(
+        "foundation-retry",
+        projectId,
+        `${input.sourceRunId}:${input.requestId}`,
+      );
+      const replay = runs.getRun(retryRunId)
+        ? runs.getSnapshot(retryRunId)
+        : null;
+      if (replay) {
+        return {
+          status: 202,
+          body: BackgroundRunCreatedSchema.parse({
+            ...replay,
+            ...runProductProjection(replay),
+          }),
+        };
+      }
+      const braindump =
+        typeof source.policy.braindump === "string"
+          ? source.policy.braindump
+          : "";
+      const preferences = isRecord(source.policy.preferences)
+        ? source.policy.preferences
+        : {};
+      if (!braindump.trim()) {
+        throw new AutomationServiceError(
+          "foundation.retry.source_material_missing",
+          "The failed task does not contain enough source material to retry",
+          422,
+        );
+      }
+      const now = new Date().toISOString();
+      const root = story
+        .listOutline(projectId)
+        .find((node) => node.kind === "book");
+      const snapshot = database.transaction(() => {
+        const created = createFoundationRun({
+          runs,
+          runId: retryRunId,
+          projectId,
+          rootOutlineNodeId: root?.id ?? null,
+          braindump,
+          preferences,
+          // Rebuild the foundation-specific ceiling from the current V1
+          // contract; an old failed run may have persisted the former 8K cap.
+          policy: {
+            contextWindow: 128_000,
+            foundationMaxOutputTokens: 32_000,
+            maxRepairAttempts: 1,
+            retryOfRunId: input.sourceRunId,
+            retryRequestId: input.requestId,
+          },
+          environment: options.environment,
+          now,
+        });
+        if (project.phase === "idea") {
+          projects.update({
+            ...project,
+            phase: "foundation",
+            updatedAt: now,
+          });
+        }
+        return created;
+      });
+      if (options.enableBackgroundWorker) options.runCoordinator.wake();
+      return {
+        status: 202,
+        body: BackgroundRunCreatedSchema.parse({
+          ...snapshot,
+          ...runProductProjection(snapshot),
+        }),
+      };
     },
   );
 
@@ -476,7 +589,27 @@ export function registerAutomationRoutes(
         );
       }
       requireWritingAssignment(database, options.environment);
-      const policyInput = { ...input.chapterPolicy };
+      const policyInput = {
+        // A V1 session is always finite. Authors can lower these ceilings in
+        // the request; a retry or restart never receives a fresh allowance.
+        batchMaxInputTokens: 6_000_000,
+        batchMaxOutputTokens: 1_500_000,
+        batchMaxCalls: 300,
+        batchMaxWallTimeMs: 18_000_000,
+        ...input.chapterPolicy,
+        // Deep/legacy presets allow larger retry and revision counts. The V1
+        // batch contract caps transient retries and quality repair loops so a
+        // malformed response cannot spend the entire batch budget.
+        maxRetries: Math.min(input.chapterPolicy.maxRetries ?? 2, 2),
+        ...(input.chapterPolicy.maxRepairAttempts === undefined
+          ? {}
+          : {
+              maxRepairAttempts: Math.min(
+                input.chapterPolicy.maxRepairAttempts,
+                2,
+              ),
+            }),
+      };
       const { effectivePolicy, warnings } = resolveEffectivePolicy(policyInput);
       const compass = automation.getCompass(projectId);
       for (const warning of warnings) {
@@ -490,7 +623,7 @@ export function registerAutomationRoutes(
         scope: input.scope,
         targetChapters: input.targetChapters,
         windowSize: input.windowSize,
-        maxRevisionCycles: input.maxRevisionCycles,
+        maxRevisionCycles: Math.min(input.maxRevisionCycles, 2),
         chapterPolicy: {
           ...effectivePolicy,
           // Keep this session-only switch alongside the resolved policy so the
@@ -533,7 +666,14 @@ export function registerAutomationRoutes(
 
   app.route("GET", "/api/autopilot/sessions/:sessionId", async (request) => {
     const { sessionId } = SessionParamsSchema.parse(request.params);
-    return sessionDetail(automation, runs, story, reviews, sessionId);
+    return sessionDetail(
+      automation,
+      runs,
+      story,
+      documents,
+      reviews,
+      sessionId,
+    );
   });
 
   app.route(
@@ -559,7 +699,14 @@ export function registerAutomationRoutes(
                 409,
               );
             }
-            return sessionDetail(automation, runs, story, reviews, sessionId);
+            return sessionDetail(
+              automation,
+              runs,
+              story,
+              documents,
+              reviews,
+              sessionId,
+            );
           }
 
           const session = automation.requireSession(sessionId);
@@ -628,6 +775,7 @@ export function registerAutomationRoutes(
             automation,
             runs,
             story,
+            documents,
             reviews,
             sessionId,
           );
@@ -701,7 +849,14 @@ export function registerAutomationRoutes(
         options.runCoordinator.wake();
         options.coordinator.wake();
       }
-      return sessionDetail(automation, runs, story, reviews, sessionId);
+      return sessionDetail(
+        automation,
+        runs,
+        story,
+        documents,
+        reviews,
+        sessionId,
+      );
     },
   );
 
@@ -727,7 +882,14 @@ export function registerAutomationRoutes(
         input.action,
       );
       if (options.enableBackgroundWorker) options.coordinator.wake();
-      return sessionDetail(automation, runs, story, reviews, sessionId);
+      return sessionDetail(
+        automation,
+        runs,
+        story,
+        documents,
+        reviews,
+        sessionId,
+      );
     },
   );
 
@@ -874,7 +1036,14 @@ export function registerAutomationRoutes(
       if (options.enableBackgroundWorker) options.coordinator.wake();
       return {
         steer: StorySteerSchema.parse(decision.steer),
-        detail: sessionDetail(automation, runs, story, reviews, sessionId),
+        detail: sessionDetail(
+          automation,
+          runs,
+          story,
+          documents,
+          reviews,
+          sessionId,
+        ),
       };
     },
   );
@@ -887,7 +1056,14 @@ export function registerAutomationRoutes(
       const processed = await options.coordinator.advanceSession(sessionId);
       return {
         processed,
-        detail: sessionDetail(automation, runs, story, reviews, sessionId),
+        detail: sessionDetail(
+          automation,
+          runs,
+          story,
+          documents,
+          reviews,
+          sessionId,
+        ),
       };
     },
   );
@@ -897,6 +1073,7 @@ function sessionDetail(
   automation: SqliteAutomationRepository,
   runs: SqliteRunRepository,
   story: SqliteStoryRepository,
+  documents: SqliteDocumentRepository,
   reviews: SqliteReviewRepository,
   sessionId: string,
 ) {
@@ -915,7 +1092,7 @@ function sessionDetail(
       .map((steer) => StorySteerSchema.parse(steer)),
     reviews: automation.listPlanningReviews(sessionId),
     blockingReview: currentBlockingReview(session, runs, reviews),
-    ...sessionProductProjection(session, runs, story, links),
+    ...sessionProductProjection(session, runs, story, links, documents),
   });
 }
 

@@ -53,6 +53,7 @@ export const RunStepKindSchema = z.enum([
   "steer.classify",
   "arc.review",
   "volume.review",
+  "batch.review",
   "cocreate.context",
   "cocreate.respond",
   "cocreate.stage",

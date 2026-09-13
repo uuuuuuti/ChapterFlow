@@ -44,6 +44,26 @@ export function ChapterTree({
   const [moveTargets, setMoveTargets] = useState<OutlineNode[]>([]);
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+  const boundDocumentNodeIds = new Set(
+    [...documents, ...(archived ?? [])]
+      .map((document) => document.outlineNodeId)
+      .filter((id): id is string => Boolean(id)),
+  );
+  /* 重新规划会保留 abandoned 节点作为审计历史，但它们不应继续伪装成
+     当前章节；否则同一个章名会在写作侧栏出现两次。只要该节点仍绑定着
+     作者正文，就保留它，避免隐藏用户自己的稿件。 */
+  const visibleOutline = outline.filter(
+    (node) =>
+      node.kind !== "chapter" ||
+      node.status !== "abandoned" ||
+      boundDocumentNodeIds.has(node.id),
+  );
+  const hasVisibleDescendants = (parentId: string): boolean =>
+    visibleOutline.some(
+      (node) =>
+        node.parentId === parentId &&
+        (node.kind === "chapter" || hasVisibleDescendants(node.id)),
+    );
   const moveParents = outline.filter((node) => ["book", "volume", "arc"].includes(node.kind));
   const selectedNodes = outline.filter(
     (node) => selectedIds.includes(node.id) && node.kind === "chapter",
@@ -100,7 +120,7 @@ export function ChapterTree({
     setDropTargetId(null);
   };
   const render = (parentId: string | null): React.ReactNode =>
-    outline
+    visibleOutline
       .filter((n) => n.parentId === parentId)
       .sort((a, b) => a.ordinal - b.ordinal)
       .map((node) => {
@@ -109,7 +129,7 @@ export function ChapterTree({
         if (node.kind === "book")
           return <div key={node.id}>{render(node.id)}</div>;
         if (node.kind === "volume" || node.kind === "arc")
-          return (
+          return hasVisibleDescendants(node.id) ? (
             <div key={node.id} className="cf-tree-group">
               <button
                 className="cf-tree-volume"
@@ -126,11 +146,11 @@ export function ChapterTree({
                 ) : (
                   <ChevronDown size={15} />
                 )}
-                <strong>{node.title}</strong>
+                <strong>{node.kind === "volume" ? "卷 · " : "篇 · "}{node.title}</strong>
               </button>
               {!collapsed.includes(node.id) ? render(node.id) : null}
             </div>
-          );
+          ) : null;
         if (node.kind !== "chapter")
           return children ? <div key={node.id}>{render(node.id)}</div> : null;
         const chapterSiblings = outline

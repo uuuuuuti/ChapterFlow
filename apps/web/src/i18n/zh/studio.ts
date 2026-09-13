@@ -255,6 +255,8 @@ export const studio = {
       "正在从本章正文提取故事变化；完成后回到这里裁定，不会直接改人物、时间线或伏笔。",
     settlementFailedPrefix: "最近一次变化提取失败，正文和版本不受影响；",
     settlementFailedSuffix: "。",
+    settlementRetry: "重试当前版本结算",
+    settlementRetrying: "正在重试结算…",
     empty: "当前正文没有待裁定的故事变化。",
     intro: "只显示由当前正文带来的变化；采纳前不会改写人物、时间线或伏笔。",
     fallbackSummary: "正文带来一组新变化",

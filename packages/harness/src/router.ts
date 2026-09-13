@@ -193,27 +193,17 @@ export function routeRun(
   }
 
   if (next.kind === "chapter.settle" && run.recipe !== "manual-settlement") {
-    /* 审稿闸门只约束 AI 产出的候选稿；手动结算的对象是作者已正式提交
-       的正文版本，本身不存在“未过审”状态。 */
-    const gate = latestSucceededGate(steps);
-    const verdict = gateVerdict(gate);
-    if (verdict !== "pass" && !reviewBlockOverridden(run, gate)) {
-      const canCommitForReview =
-        verdict === "revise" &&
-        !gateHasCriticalIssue(gate) &&
-        (run.mode === "autopilot" || run.mode === "chapter-gate");
-      if (canCommitForReview) {
-        return { type: "start_step", stepId: next.id };
-      }
+    // Settlement is a quality boundary, not merely the end of a recipe. Both
+    // gates must be successful for the same final manuscript hash. Keeping a
+    // non-blocking warning in a report is fine, but a revise/block verdict (or
+    // a missing/mismatched gate) must not become a committed chapter just
+    // because the run is in autopilot mode.
+    const quality = settlementQualityGate(steps, run);
+    if (quality.status !== "pass") {
       return {
         type: "await_user",
-        reason:
-          verdict === "revise" && gateHasCriticalIssue(gate)
-            ? "critical_review_unresolved"
-            : verdict === "revise"
-              ? "revision_limit_reached"
-              : "quality_gate_blocked",
-        stepId: gate?.id ?? null,
+        reason: quality.reason,
+        stepId: quality.stepId,
       };
     }
   }
@@ -373,6 +363,82 @@ function gateHasCriticalIssue(step: NarrativeRunStep | undefined): boolean {
         (issue as Record<string, unknown>).severity === "critical",
     )
   );
+}
+
+function settlementQualityGate(
+  steps: readonly NarrativeRunStep[],
+  run: RunSnapshot["run"],
+): {
+  status: "pass" | "blocked";
+  reason: string;
+  stepId: string | null;
+} {
+  const settlement = settleOrdinal(steps);
+  const candidates = steps.filter(
+    (step) =>
+      step.status === "succeeded" &&
+      step.ordinal < settlement &&
+      (step.kind === "deterministic.check" || step.kind === "semantic.review"),
+  );
+  const check = [...candidates]
+    .reverse()
+    .find((step) => step.kind === "deterministic.check");
+  const review = [...candidates]
+    .reverse()
+    .find((step) => step.kind === "semantic.review");
+  if (!check || !review) {
+    return {
+      status: "blocked",
+      reason: "quality_gate_incomplete",
+      stepId: (check ?? review)?.id ?? null,
+    };
+  }
+  const checkVerdict = gateVerdict(check);
+  const reviewVerdict = gateVerdict(review);
+  if (checkVerdict !== "pass") {
+    return {
+      status: "blocked",
+      reason:
+        checkVerdict === "revise" && gateHasCriticalIssue(check)
+          ? "critical_deterministic_issue_unresolved"
+          : "deterministic_quality_gate_blocked",
+      stepId: check.id,
+    };
+  }
+  if (reviewVerdict === "block" && reviewBlockOverridden(run, review)) {
+    // Keep the explicit author override path for manual writing. It remains
+    // visible in run.policy and delivery verification must not call it a
+    // clean V1 quality pass.
+  } else if (reviewVerdict !== "pass") {
+    return {
+      status: "blocked",
+      reason:
+        reviewVerdict === "revise" && gateHasCriticalIssue(review)
+          ? "critical_review_unresolved"
+          : reviewVerdict === "revise"
+            ? "revision_limit_reached"
+            : "quality_gate_blocked",
+      stepId: review.id,
+    };
+  }
+  const checkHash = stringArtifactField(check, "contentHash");
+  const reviewHash = stringArtifactField(review, "contentHash");
+  if (!checkHash || !reviewHash || checkHash !== reviewHash) {
+    return {
+      status: "blocked",
+      reason: "quality_gate_version_mismatch",
+      stepId: review.id,
+    };
+  }
+  return { status: "pass", reason: "quality_gate_passed", stepId: review.id };
+}
+
+function stringArtifactField(
+  step: NarrativeRunStep,
+  field: string,
+): string | null {
+  const value = step.outputArtifact?.[field];
+  return typeof value === "string" && value.length > 0 ? value : null;
 }
 
 function hasPendingRevisionBeforeSettle(

@@ -83,6 +83,10 @@ const ExportQuerySchema = z.object({
   toOutlineNodeId: z.string().trim().min(1).optional(),
   retryOfBatchId: z.string().trim().min(1).optional(),
 });
+const QualityQuerySchema = z.object({
+  fromOutlineNodeId: z.string().trim().min(1).optional(),
+  toOutlineNodeId: z.string().trim().min(1).optional(),
+});
 const UploadParamsSchema = z.object({ uploadId: z.string().trim().min(1) });
 const UploadChunkParamsSchema = UploadParamsSchema.extend({
   chunkIndex: z.coerce.number().int().nonnegative(),
@@ -771,12 +775,37 @@ export function registerDeliveryRoutes(
     const { projectId } = ProjectParamsSchema.parse(request.params);
     requireProject(projects, projectId);
     const input = CreateBackupRequestSchema.parse(request.body);
-    return {
-      status: 201,
-      body: ProjectBackupSchema.parse(
+    const backup = database.transaction(() => {
+      const scope = `project:${projectId}:backups:create`;
+      const requestHash = hashRequest({ label: input.label });
+      if (input.requestId) {
+        const replay = requestReplays.get(scope, input.requestId);
+        if (replay) {
+          if (replay.requestHash !== requestHash) {
+            throw new DeliveryRouteError(
+              "backup.create.idempotency_conflict",
+              "The same requestId was already used for a different backup request",
+              409,
+            );
+          }
+          return ProjectBackupSchema.parse(replay.result);
+        }
+      }
+      const created = ProjectBackupSchema.parse(
         service.createBackup(projectId, input.label, new Date().toISOString()),
-      ),
-    };
+      );
+      if (input.requestId) {
+        requestReplays.insert({
+          scope,
+          requestId: input.requestId,
+          requestHash,
+          result: created,
+          createdAt: new Date().toISOString(),
+        });
+      }
+      return created;
+    });
+    return { status: 201, body: backup };
   });
 
   app.route("POST", "/api/backups/:backupId/restore", async (request) => {
@@ -828,8 +857,16 @@ export function registerDeliveryRoutes(
 
   app.route("GET", "/api/projects/:projectId/quality", async (request) => {
     const { projectId } = ProjectParamsSchema.parse(request.params);
+    const query = QualityQuerySchema.parse(request.query);
     return ProjectQualityReportSchema.parse(
-      service.qualityReport(projectId, new Date().toISOString()),
+      service.qualityReport(projectId, new Date().toISOString(), {
+        ...(query.fromOutlineNodeId
+          ? { fromOutlineNodeId: query.fromOutlineNodeId }
+          : {}),
+        ...(query.toOutlineNodeId
+          ? { toOutlineNodeId: query.toOutlineNodeId }
+          : {}),
+      }),
     );
   });
 }

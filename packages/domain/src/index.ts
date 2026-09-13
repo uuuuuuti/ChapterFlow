@@ -98,6 +98,7 @@ export * from "./collaboration.js";
 export * from "./delivery.js";
 export * from "./story.js";
 export * from "./web-novel.js";
+export * from "./manuscript-quality.js";
 
 function normalizeOptionalText(
   value: string | null | undefined,

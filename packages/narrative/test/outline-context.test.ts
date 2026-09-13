@@ -7,6 +7,29 @@ import { outlineContextSources } from "../src/outline-context.js";
 const now = "2026-08-10T00:00:00.000Z";
 
 describe("outlineContextSources", () => {
+  it("preserves repository preorder instead of sorting random path IDs", () => {
+    const book = node("book", "book", 0, "/book", 0, null);
+    const first = node("first", "chapter", 0, "/book/zz-run/first", 1, "book");
+    const second = node(
+      "second",
+      "chapter",
+      1,
+      "/book/aa-run/second",
+      1,
+      "book",
+    );
+    const sources = outlineContextSources({
+      projectId: "p1",
+      outline: [book, first, second],
+      targetOutlineNodeId: "second",
+      nearBefore: 1,
+      nearAfter: 0,
+    });
+    expect(
+      sources.find((source) => source.id === "outline:near")?.content,
+    ).toMatch(/Chapter 1[\s\S]*Chapter 2/);
+  });
+
   it("keeps a 200-chapter outline independently budgetable around the target", () => {
     const book = node("book", "book", 0, "/book", 0, null);
     const chapters = Array.from({ length: 200 }, (_, index) =>

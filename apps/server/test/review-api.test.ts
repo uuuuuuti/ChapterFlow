@@ -953,9 +953,9 @@ describe("review workspace API", () => {
     expect(beforeCancel.statusCode, beforeCancel.body).toBe(200);
     expect(beforeCancel.json()).toMatchObject({
       pending: {
-        reviewIssues: 2,
-        revisionProposals: 1,
-        reviewDocumentId: document.id,
+        reviewIssues: 1,
+        revisionProposals: 0,
+        reviewDocumentId: secondDocument.id,
       },
     });
     const cancelled = await app.inject({

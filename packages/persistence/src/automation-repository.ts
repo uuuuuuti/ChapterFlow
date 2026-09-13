@@ -442,6 +442,27 @@ export class SqliteAutomationRepository {
     });
   }
 
+  /**
+   * Re-open a completed auxiliary run without erasing its audit trail.
+   *
+   * A closing review is a product checkpoint rather than a chapter outcome.
+   * When its verdict blocks release, the author must be able to fix the
+   * manuscript and retry that checkpoint.  Keeping the original link with a
+   * retry outcome preserves the failed evidence while allowing the coordinator
+   * to create a fresh review against the new current versions.
+   */
+  reopenClosingReview(sessionId: string, runId: string, now: string): boolean {
+    const result = this.database.raw
+      .prepare(
+        `UPDATE autopilot_run_links
+         SET processed_at = ?, outcome = 'retry-current'
+         WHERE session_id = ? AND run_id = ?
+           AND role = 'closing-review' AND outcome = 'completed'`,
+      )
+      .run(now, sessionId, runId);
+    return result.changes === 1;
+  }
+
   recordChapterOutcome(
     sessionId: string,
     outcome: "completed" | "skipped",

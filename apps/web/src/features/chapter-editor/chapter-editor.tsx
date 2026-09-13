@@ -131,6 +131,7 @@ export function ChapterEditor({
   const textarea = useRef<HTMLTextAreaElement | null>(null);
   const actionLock = useRef(false);
   const request = useRef<{ key: string; id: string } | null>(null);
+  const versionRequest = useRef<{ key: string; id: string } | null>(null);
   const autosave = useDraftAutosave(projectId, detail, onFlushReady);
   const {
     content,
@@ -301,13 +302,18 @@ export function ChapterEditor({
       { replace: true },
     );
   };
-  const checkpoint = async (label: string, force = false) => {
+  const checkpoint = async (
+    label: string,
+    force = false,
+    requestId?: string,
+  ) => {
     if (!(await flushDraft()))
       throw new Error("保存失败，请重试保存后再操作。");
     const latest = await getStudioDocument(projectId, detail.document.id);
     if (!force && latest.currentVersion?.content === contentRef.current && !latest.draft)
       return latest.currentVersion;
     const version = await appendDocumentVersion(projectId, detail.document.id, {
+      ...(requestId ? { requestId } : {}),
       content: contentRef.current,
       source: label,
       expectedCurrentVersionId: latest.document.currentVersionId,
@@ -331,11 +337,26 @@ export function ChapterEditor({
       if (actionLock.current) throw new Error("请等待当前操作完成。");
       actionLock.current = true;
       try {
-        const version = await checkpoint(
+        const source =
           input.kind === "version"
             ? `manual:${versionName.trim() || "作者手动版本"}`
-            : `manual:before-${input.kind}`,
+            : `manual:before-${input.kind}`;
+        let checkpointRequestId: string | undefined;
+        if (input.kind === "version") {
+          const key = JSON.stringify([
+            source,
+            contentRef.current,
+            detail.document.currentVersionId,
+          ]);
+          if (versionRequest.current?.key !== key) {
+            versionRequest.current = { key, id: crypto.randomUUID() };
+          }
+          checkpointRequestId = versionRequest.current.id;
+        }
+        const version = await checkpoint(
+          source,
           input.kind === "version",
+          checkpointRequestId,
         );
         if (input.kind === "version") return null;
         const key = JSON.stringify([input, version.id]);
@@ -382,6 +403,7 @@ export function ChapterEditor({
     },
     onSuccess: async (id, input) => {
       request.current = null;
+      if (input.kind === "version") versionRequest.current = null;
       if (id) {
         setRun(id);
         if (input.kind === "chapter")
@@ -484,7 +506,6 @@ export function ChapterEditor({
       // short stale read cannot make a resolved comment look open again.
       mergeComment(updated);
       await refresh();
-      mergeComment(updated);
     },
   });
   const commentEditMutation = useMutation({
@@ -1126,7 +1147,7 @@ export function ChapterEditor({
                 maxLength={100}
               />
             </label>
-            <button className="cf-primary" disabled={busy}>
+            <button type="submit" className="cf-primary" disabled={busy}>
               创建版本
             </button>
           </form>

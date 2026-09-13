@@ -175,6 +175,16 @@ export async function generateFoundation(
   );
 }
 
+export async function retryFoundation(
+  projectId: string,
+  input: { requestId: string; sourceRunId: string },
+): Promise<BackgroundRunCreated> {
+  return requestJson(
+    `/api/projects/${encodeURIComponent(projectId)}/foundation/retry`,
+    jsonRequest("POST", input),
+  );
+}
+
 export async function createProjectWithFoundation(input: {
   requestId: string;
   title: string;

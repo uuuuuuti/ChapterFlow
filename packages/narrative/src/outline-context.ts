@@ -15,9 +15,11 @@ export interface OutlineContextRequest {
 export function outlineContextSources(
   request: OutlineContextRequest,
 ): ContextSource[] {
-  const ordered = [...request.outline].sort((left, right) =>
-    left.path.localeCompare(right.path),
-  );
+  // StoryRepository.listOutline already returns a preorder traversal using
+  // ancestor/sibling ordinals. Paths contain random run IDs, so sorting them
+  // lexically would put a later rolling-plan branch before chapter one.
+  // Preserve that authoritative order for every near/far window.
+  const ordered = [...request.outline];
   const byId = new Map(ordered.map((node) => [node.id, node]));
   const chapters = ordered.filter((node) => node.kind === "chapter");
   const summaryByScope = new Map(

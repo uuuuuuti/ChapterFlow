@@ -67,6 +67,20 @@ export function LibraryPage() {
         ? a.title.localeCompare(b.title, "zh-CN")
         : b.updatedAt.localeCompare(a.updatedAt),
     );
+  const titleGroups = new Map<string, Project[]>();
+  for (const project of shown) {
+    const key = project.title.trim().toLocaleLowerCase("zh-CN");
+    const group = titleGroups.get(key) ?? [];
+    group.push(project);
+    titleGroups.set(key, group);
+  }
+  const duplicateLabel = (project: Project): string | null => {
+    const group =
+      titleGroups.get(project.title.trim().toLocaleLowerCase("zh-CN")) ?? [];
+    return group.length > 1
+      ? `同名副本 ${group.indexOf(project) + 1}/${group.length}`
+      : null;
+  };
   const recent = [...shown]
     .sort((a, b) =>
       (b.lastWritingAt ?? b.updatedAt).localeCompare(
@@ -74,6 +88,8 @@ export function LibraryPage() {
       ),
     )
     .slice(0, 2);
+  const recentIds = new Set(recent.map((project) => project.id));
+  const remaining = shown.filter((project) => !recentIds.has(project.id));
   return (
     <div className="cf-page">
       <div className="cf-page-title">
@@ -95,15 +111,20 @@ export function LibraryPage() {
               <h2>最近创作</h2>
               <div className="cf-recent-grid">
                 {recent.map((p) => (
-                  <BookCard key={p.id} project={p} featured />
+                  <BookCard
+                    key={p.id}
+                    project={p}
+                    featured
+                    duplicateLabel={duplicateLabel(p)}
+                  />
                 ))}
               </div>
             </>
           ) : null}
           <div className="cf-section-title">
             <h2>
-              {archived ? "归档作品" : "全部作品"}{" "}
-              <span>（{shown.length}）</span>
+              {archived ? "归档作品" : recent.length ? "其他作品" : "全部作品"}{" "}
+              <span>（{archived || !recent.length ? shown.length : remaining.length}）</span>
             </h2>
             <div className="cf-actions">
               <label className="cf-library-search">
@@ -153,8 +174,12 @@ export function LibraryPage() {
             </div>
           </div>
           <div className="cf-book-grid">
-            {shown.map((p) => (
-              <BookCard key={p.id} project={p} />
+            {(recent.length && !archived ? remaining : shown).map((p) => (
+              <BookCard
+                key={p.id}
+                project={p}
+                duplicateLabel={duplicateLabel(p)}
+              />
             ))}
           </div>
           {!query.isPending && !query.isError && shown.length === 0 ? (
@@ -245,10 +270,14 @@ function Stat({
 function BookCard({
   project: p,
   featured = false,
+  duplicateLabel = null,
 }: {
   project: Project;
   featured?: boolean;
+  duplicateLabel?: string | null;
 }) {
+  const recoveryCopy =
+    p.title.includes("备份恢复") || p.title.includes("恢复副本");
   return (
     <article
       className={`cf-card cf-book ${featured ? "cf-book-featured" : ""}`}
@@ -260,6 +289,10 @@ function BookCard({
           <h3>{p.title}</h3>
         </Link>
         <span className="cf-badge">{bookStatus(p.phase)}</span>
+        {recoveryCopy ? <span className="cf-badge is-muted">恢复副本</span> : null}
+        {duplicateLabel ? (
+          <span className="cf-badge is-muted">{duplicateLabel}</span>
+        ) : null}
         <p className="cf-clamp">{p.premise || "故事的下一页，等你来写。"}</p>
         <small>
           {(p.wordCount ?? 0).toLocaleString()} 字 · {p.totalChapters ?? 0} 章节
@@ -307,10 +340,22 @@ export function QuoteCard() {
 export function BookCreatePage() {
   const [params] = useSearchParams();
   const requestedMode = params.get("mode");
-  const [mode, setMode] = useState<"choose" | "manual" | "ai" | "import">(
-    requestedMode === "manual" || requestedMode === "ai" || requestedMode === "import"
+  const queryMode: "choose" | "manual" | "ai" | "import" =
+    requestedMode === "manual" ||
+    requestedMode === "ai" ||
+    requestedMode === "import"
       ? requestedMode
-      : "manual",
+      : "choose";
+  return <BookCreateMode key={queryMode} initialMode={queryMode} />;
+}
+
+function BookCreateMode({
+  initialMode,
+}: {
+  initialMode: "choose" | "manual" | "ai" | "import";
+}) {
+  const [mode, setMode] = useState<"choose" | "manual" | "ai" | "import">(
+    initialMode,
   );
   if (mode === "choose") return <CreateModeChooser onChoose={setMode} />;
   if (mode === "import") return <ImportCreateFlow onBack={() => setMode("choose")} />;

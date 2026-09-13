@@ -1,99 +1,107 @@
 # ChapterFlow / 文织·网文工坊 V1 验收报告
 
-**当前状态：passed**  
-**验收日期：2026-09-10（Asia/Shanghai）**  
+**当前状态：passed（质量面板 `needs_attention`）**
+
+**验收日期：2026-09-13（Asia/Shanghai）**
+
 **范围：G0—G6 与五章首发材料，不扩展到 V2 共创能力。**
 
 ## 1. 启动、模型与安全配置
 
-本地服务已启动并通过 `GET /api/health`：API `http://127.0.0.1:4317`、Web `http://127.0.0.1:4318`，数据库 ready，migration 62。作者入口为：
+本地服务通过 `GET /api/health`：Web `http://127.0.0.1:4318`、API `http://127.0.0.1:4317`，数据库 ready，migration 62。验收作品入口：
 
-`http://127.0.0.1:4318/books/a42fb546-6eb4-49fe-b97b-fb23482ce2c7/dashboard`
+`http://127.0.0.1:4318/books/70e57dbf-4822-4226-b722-235b83c408b2/dashboard`
 
-服务端读取官方 DeepSeek 配置：
+服务端读取受控且被 Git 忽略的环境配置：
 
 - base URL：`https://api.deepseek.com`
 - model：`deepseek-v4-flash`
-- context window：128000
-- max output：8000
-- 配置文件：本机已忽略的 `.env.local`；密钥未写入代码、报告、日志或导出稿。
+- context window：`128000`
+- max output：`32000`
+- 数据目录：`data-v1/`
+- 备份目录：`data-v1/backups/`
 
-`/api/models` 将环境 Chat 路径的元数据解析为上述精确模型，`/api/assignments` 中 planning/review/writing assignment 均使用该路径。设置页通过真实浏览器执行的四阶段连接测试全部通过：文本、SSE、工具回合、structured JSON。真实生产链路已完成 planning、drafting、review、revision、settlement 调用；run 的 model snapshot 与 context artifact 均保留模型解析证据，未静默替换为 mock 或其他模型。
+API key 未写入代码、浏览器存储、报告、日志或导出稿。`/api/providers`、`/api/models` 和 `/api/assignments` 的实际解析结果已写入 [acceptance-manifest.json](../../../data-v1/exports/v1-acceptance/acceptance-manifest.json)：planning、review、writing 均使用 `environment-chat` / `openai-chat`，精确解析到指定模型和官方 base URL。设置页通过真实浏览器执行的文本、SSE、工具、structured JSON 四阶段探针；真实生产 run 快照覆盖 planning、drafting、review、revision、settlement，未以 mock 或其他模型代替。
 
 ## 2. 正式故事数据
 
-foundation run `79971fdf-691e-4e56-af0f-be8d8e4838b4` 产出的 `railway_archive_mother` 已采用。定位、读者承诺、主线、高潮、终局、人物/世界/事实/伏笔以及三轮 rolling outline 已保存为正式数据：
+验收作品为 `潮痕档案：第七码头`（Project ID `70e57dbf-4822-4226-b722-235b83c408b2`）。foundation run `bb2a13a6-c2e3-4cbe-b064-9abcd632cbd6` 已完成并形成正式故事基线；rolling outline runs `43cef040-6b58-4310-b483-550440a6eaa9`、`c8463bbc-8dd2-49ad-896a-37e0399fc75b` 已完成。定位、读者承诺、主线、高潮、终局、人物、世界、事实、时间线和伏笔可刷新读取；前 10 章章纲已保存为正式可追踪数据。
 
-- `f5c271f6-0c19-407f-9fc0-a7f460f9bda5`
-- `ea7cc16d-03f6-4af6-90b4-27b5c680e173`
-- `fd766a7b-0198-4dd0-95b6-75872bd2d722`
-
-10 份章纲均已通过高级工具保存并可刷新读取。每份包含目标、冲突、事件、时间地点、人物、信息揭示、章尾牵引、禁改事实和 2500 字目标；已写章节还绑定了正式正文版本。规划状态保留为规划状态，未将未来章节虚报为已完成。
+章纲字段包括目标、冲突、关键事件、时间地点、人物、信息揭示、章尾牵引、禁改事实和目标字数；写作上下文消费这些数据以及当前设定、人物状态、前文摘要和必要正文。历史规划/失败 run 保留为证据，但不计入当前五章交付。
 
 ## 3. 五章正式交付
 
-有效字数统一按去空白后的 Unicode 字符计数。所有数字均来自当前保存版本，标题、标记和思考过程不计入。
+有效字数统一按当前保存版本计数：去思考块、角色标记、Markdown 标题、空白和控制标记。标题、标记、空白和思考过程不计入。五章顺序为：盐渍先于落款、潮位表上的空号、墨迹未干、被移除的一页、潮雾倒计时。
 
-| 章节           | 当前版本                                                                           | 有效字符 | SHA-256                                                            | 最终审阅                                                                                           |
-| -------------- | ---------------------------------------------------------------------------------- | -------: | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
-| 机房里的审计员 | `5dd7b3ce-025c-4463-903c-68d61db3fdf6`                                             |     3474 | `c75212fc7f90e335d3df131ca09b2a3d7e37a98bd78ada5636677a32134a3ff7` | `4e581820-23e9-4b54-8388-5480b9d52e77` · pass                                                      |
-| 陈字班次       | `a3631a65-5fd1-4887-97b4-f3ba02bbc8f3`                                             |     3360 | `c110c5739398a16c80875c232b292588feaf83cbcbb12c212a0d8b01897f863c` | `57276ed0-4f43-4ad5-887b-b81b8305a977` · pass                                                      |
-| 低潮时启门     | `revision:ff8a3e6bc8275667801060b270462bae7665554f8afeaebfeaea8e04aa514a2b:commit` |     2212 | `9856b6e3e5d696623f1370c7a4c3fa9c398f644b238ef3e050f07308fd9cb363` | `revision:ff8a3e6bc8275667801060b270462bae7665554f8afeaebfeaea8e04aa514a2b:review:1:report` · pass |
-| 雾转瞬间       | `85bd9e07-ef6-465f-bc5f-a85944df167a`                                              |     2905 | `635465ae8ce504e66af7c34cc819e70de0387e4a93f5f6be0e67f8c4232bf4ae` | `20dedc02-700e-4612-85f6-3d9baf5c8170` · pass                                                      |
-| 三名未入册者   | `d0455432-a6b6-427f-8f1b-265906c8dd4b`                                             |     2897 | `a26d6cfc0c24b35472bff5389f4aff090eb111d8baa70c6b658256d3052ea79b` | `edb23778-1b93-4817-8d09-b92dd260422f` · pass                                                      |
+| 章节           | 当前版本                               | 有效字符 | SHA-256                                                            | 最终审阅                                      | 结算                                   |
+| -------------- | -------------------------------------- | -------: | ------------------------------------------------------------------ | --------------------------------------------- | -------------------------------------- |
+| 盐渍先于落款   | `feff851a-34f6-4246-9d7a-63d7ca24b5be` |     2464 | `9840f2c21a7ffd3c606677b9adb6f7ad104987ce63e25a5cd0be1d19274e3488` | `f758ed87-7674-4279-8adb-6414d86e0672` · pass | `bffdde65-d538-460e-9005-712507497a35` |
+| 潮位表上的空号 | `bacc0140-ae03-469e-864b-90ae4b92594a` |     3497 | `7a6c686efcf82c2e4b23180003c126179aef58499bcd451e133dc5b1f5627135` | `6e23d171-0e91-4505-8ebc-a47c6e247b03` · pass | `e92b1a35-5132-452e-8d42-c3054b0626fb` |
+| 墨迹未干       | `2e298f83-099e-4662-974b-6ee19b10a448` |     3357 | `45617c969161e723316b5ac427909c0168d9ed956315ca5a1855cf70175116d7` | `ae681084-3f49-46d7-8480-75d054f6b8f7` · pass | `6a4cd4f2-8f57-4fb8-b5b3-b58889ddd5bd` |
+| 被移除的一页   | `122bc1c1-8734-41a6-9574-7cfd14c2e625` |     3376 | `509da9e530f3c581d866765e94d4f19bfbcdcd3ffa421ab521178bdc0a2752df` | `b7d705a0-0fda-4607-870d-cec8c5fa4b6b` · pass | `bf9b9d60-ffeb-4591-894f-14c8c317d825` |
+| 潮雾倒计时     | `2a622396-ee3a-4730-91be-10fb1b9b9760` |     3465 | `e8bf7ac200217d68a5c2f22782f465a53bbc4759086f7bc659b1f77fc47024b4` | `84b7084d-cd97-4a83-8176-985c3de7e0b0` · pass | `86dcbc9e-e8af-42b8-8464-3891f4bd1750` |
 
-五章合计 **14848** 有效字符，平均 **2970**；逐章均在 2000—3500 区间。每章都执行了章纲→上下文→草稿→确定性检查→语义审阅→必要修订→复检→正式版本→摘要/事实结算→下一章的服务端 worker 流程。当前最终审阅没有 major/critical 阻断；每章的 minor/info 警告如下，供作者后续处理：
+五章合计 **16159** 有效字符，逐章均在 `2000—3500`，当前质量 API 的 7 个门全部通过：author promise、chapter plan、chapter commitment、manuscript present、current-version evidence、batch joint review、no blocking errors。质量面板为 **89 / needs_attention**，因为联合审阅保留 10 项 warning 和 19 条未回收伏笔 info；这不是把警告改成通过，也不是保证正文绝对没有问题。
 
-- 机房里的审计员：offline/online 措辞范围、审计揭示节奏、主角反应略被动。
-- 陈字班次：碎片记忆与“记不起”的表述、侧扫来源与时点需要更明确。
-- 低潮时启门：档案封存月份与路线时间顺序、红章解释略长、短信信息有重复。
-- 雾转瞬间：角度与 41 分钟换算的措辞、离线切换过渡、钥匙/房间线索暂未回收。
-- 三名未入册者：坐标位数表述、行动口号重复、苏箬背景细节偏薄。
+前五章联合审阅 run `9daa90ef-6ad4-4d6e-8023-282d982bd24c`：`warning`，model verdict 也是 `warning`，10/10 问题均绑定当前章节、版本、hash、引用和依据，grounding 丢弃数为 0。主要警告是：第 2 章时间锚点/人物知情/标签状态，第 3 章规则边界与“明日调阅”到第 4 章申请通过的过渡，第 4 章周栎知情铺垫与沈砚身体代价，第 5 章衬衫与物品状态、基座代价及“被移除记忆页”与开启条件的明确性。作者可在后续章节逐项修订；没有 major/critical 阻断。
 
-前三章还通过了开篇检查 report `2232aae5-b82d-4142-900c-93bf15eca3d4`：checked 3/10、有效正文 10219、score 92，章纲/钩子/冲突/回收/目标均有绑定。报告提示仍有 9 个高重要度伏笔没有目标或回收章，这是后续创作提醒，不是把问题改成“已解决”。
+每章均按章纲→上下文→草稿→确定性检查→语义审阅→必要修订→复检→正式版本→摘要/事实结算→下一章准备运行。截断、占位、明显重复和不足 2000 字不会进入正式交付门。
 
 ## 4. 导出与备份
 
-发布页通过浏览器选择了 `机房里的审计员` 到 `三名未入册者` 的当前版本范围，预览确认标题顺序正好五章。已核对本地文件内容、顺序、当前版本 hash：
+发布页通过真实浏览器选择当前版本的第 1—5 章，核对预览顺序后下载了三类材料：
 
-- [五章 Markdown](../../../data-v1/exports/雾港第七码头-v1-five-chapters.md)：45019 bytes，SHA-256 `57b0a7255f80fd082a658b26c4e01b29521dccc8deafd69695ced91eee6e451c`
-- [五章 TXT](../../../data-v1/exports/雾港第七码头-v1-five-chapters.txt)：45000 bytes，SHA-256 `b0b25301511a5631c8b338d1eb870db9e37091d87787161aa1d908e655812c68`
+- [五章 TXT](../../../data-v1/exports/v1-acceptance/潮痕档案：第七码头.txt)：48092 bytes，SHA-256 `a673c5797344ec2d9c997eefde5397b1e7f14fb69c772736895969e3aedf6bd9`
+- [五章 Markdown](../../../data-v1/exports/v1-acceptance/潮痕档案：第七码头.md)：48111 bytes，SHA-256 `8451afc22940d6aa20939a8a4aec3953185a0991d9f915088bc31be7d71b4e97`；标题顺序为书名加五章标题
+- [文织 narrative bundle](../../../data-v1/exports/v1-acceptance/潮痕档案：第七码头-narrative.json)：2870484 bytes，SHA-256 `e2f3bda4da167b06799ebe3f11fbebd8389329f58df5c99a252fbe1e70e2a343`
 
-发布页生成的成功 export batch 保留了对应范围和 hash。没有创建第三方平台发布记录；“实际上传”仍由作者完成，不能把本地导出记成已刊登。
+实际正文采用当前版本，未保存草稿没有混入导出。发布记录仍为空；本地导出不等于第三方平台已刊登。
 
-最新浏览器备份：
+备份快照：
 
-- label：`V1首发五章恢复验证快照`
-- backup ID：`ed4ba86b-5486-45c3-b9a8-b4466d7b26e1`
-- size：576884 bytes
-- bundle hash：`893ed533a7d31a866d5b0bafa219c14e55d459fafe8d99fe26d8bd27698a1c5d`
-- 恢复作品：`d6987f4a-3dae-450c-b109-9f1d1ccb3365`
+- label：`V1首发前五章验收备份`
+- backup ID：`47edebfa-51ee-4e12-9061-fb6aff887395`
+- 创建时间：`2026-09-13T00:14:49.609Z`
+- size：`4618845` bytes
+- bundle hash：`bed02414c2d3d41e930a1cd1c06640bf04b4618509b1a72d662f8a0331c78dfb`
+- 恢复作品：`11025e47-869f-4508-beb7-2ac57d431d08`，显示名为 `潮痕档案：第七码头 · 恢复副本 47edebfa`
 
-通过发布页的“恢复为新作品”完成恢复；原作品仍可打开，恢复作品 dashboard 显示 10 章、7/10 定稿，恢复后的 reviews API 返回 40 reports、124 issues，证明审阅数据和证据数组可读。备份目录为 `data-v1/backups/`，manifest 与 sqlite 成对存在。
+已从发布页执行恢复并打开恢复作品，设定、章节和审阅数据可读；同一 backup ID 再次点击恢复会返回已有 `restoredProjectId`，不会继续创建副本。该“作品备份”bundle 作为受控记录存放在 `data-v1/narralume.sqlite` 的 `project_backups` 表；`data-v1/backups/` 另存服务端数据库级安全快照。两处均不提交仓库。
 
 ## 5. 连续创作、第六章与故障恢复
 
-五章批次 session `727c1a63-5a4f-4329-84d7-8be9ccde8774` 已完成 5/5。执行过程中保留了失败成果和重试边界，修复过 request ID 超长、二级修订审阅取不到计划血缘、structured-output 截断等真实阻塞；服务重启后启动恢复日志显示过期 lease 重排队、孤儿调用/流中断处理。
+首发批次由正常服务端 worker 执行，session `2e3ecd45-0bdc-465b-8e19-db708610f455` 当前为 `paused`，`completedChapters=6`，当前运行 `6feb30d3-53e4-4053-a4d0-74cdb264c990`，下一章为《七页移交链》。第六章续写使用前五章正式状态，产生了有效 **2450** 字候选，最终版本与审阅/结算均可读；暂停、刷新、恢复和服务重启后的任务回链均已通过真实浏览器验证。
 
-第六章续写 session `54101b1e-06d2-4662-8f2b-b38afacd03b0` 通过连续创作页面启动，目标为 1 章、目标 2500、范围 `fd766a7b-0198-4dd0-95b6-75872bd2d722:chapter:0`（《第二版印记》），在浏览器中完成过暂停、刷新、恢复和章纲采用。当前候选有效字符 **2025**，最终语义审阅 pass，但 session 停在 `awaiting_user / chapter_commit_approval_required`，正文没有绕过作者确认自动提交。
+任务中心保留失败、重试、暂停和恢复证据。重试只重开当前失败的步骤/审阅边界；已完成章节不会因刷新或重复点击再生成一章。作者新稿、版本冲突和硬约束冲突会停在确认边界，不会静默覆盖。
 
-## 6. 记录用量与检查
+## 6. 用量与检查
 
-原作品 `/api/projects/<project>/runs` 的项目累计记录（包含真实生成、审阅、失败、重试和人工修订相关 runs）：
+验收范围关联 run 的真实累计用量：
 
-- input tokens：4,081,358
-- output tokens：887,218
-- calls：232
-- wall time：8,421,831 ms（约 140.4 分钟）
-- cost：`0`，因为当前没有配置单价，不代表“免费”或可推算的商业成本。
+- input tokens：`1197392`
+- output tokens：`263294`
+- calls：`76`
+- wall time：`1128115 ms`（约 18.8 分钟）
+- cost：`0`（没有配置单价，不代表免费）
 
-已通过的定向检查包括：类型检查；chapter workers、run API、quick-create、execution policy 共 37 tests；backup/restore 回归 2 tests。最后一次项目规定的完整检查也已通过：Prettier、ESLint、typecheck、全量 143 个测试文件/808 个测试、evidence protocol 5/5、499 条依赖 license 记录校验，以及生产构建。
+该项目全量历史 run 累计为 input `14699883`、output `2282501`、calls `763`、wall time `9397760 ms`；它包含历史失败、重试和其他运行，不应被误读为单次五章成本。前五章联合审阅单次 run 用量为 input `32461`、output `4858`、calls `2`。
+
+最后一次 `npm run verify` 通过：
+
+- Prettier format check
+- ESLint（无 warning）
+- workspace typecheck
+- Vitest：144 个测试文件、813 个测试全部通过
+- evidence protocol：5/5
+- dependency license check：499 条记录
+- production TypeScript build + web bundle
+
+定向真实浏览器回归还确认：作品库副本标签、重复恢复幂等、当前章节树过滤历史 abandoned 节点、章节下拉使用“第 N 章 · 标题”、发布页当前版本范围和备份恢复入口均可用；控制台当前页面只有 React DevTools 提示，没有新的应用错误。
 
 ## 7. 剩余限制
 
-- 项目全书当前为 7/10 章定稿，发布页的全书 readiness 因后三章规划态显示 blocked；本次五章导出范围本身已满足交付门槛。
-- 开篇检查提示 9 个高重要度伏笔尚未指定回收章；它们应在后续大纲中处理。
-- 每章仍有已列出的 minor/info 警告；V1 不以调高模型总分代替证据修订。
-- 第六章是待作者确认的候选，不作为五章首发稿的一部分。
+- 质量面板仍为 `needs_attention`：10 项联合 warning、19 条未回收伏笔和无启用风格档案提示，作者应在后续连载中逐项判断。
+- 旧数据库中此前创建的同名作品/恢复副本没有被静默删除；作品库现在用“恢复副本”“同名副本 n/m”标识，当前大纲隐藏无正文的历史 abandoned 章节并保留历史计数。若作者确认某份旧副本可删除，应在作品库回收站单独处理。
+- 第六章已验证可继续，但不属于五章首发导出范围。
 - 未上传任何第三方平台，不保证商业成绩或平台审核通过。
-- V2 共创能力未在本 Goal 中启动。
+- V2 共创能力另开 Goal，不在本轮启动。

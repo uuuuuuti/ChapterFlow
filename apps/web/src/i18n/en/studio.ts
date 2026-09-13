@@ -281,6 +281,8 @@ export const studio: typeof studioZh = {
     settlementFailedPrefix:
       "The latest change extraction failed; the manuscript and its versions are unaffected; ",
     settlementFailedSuffix: ".",
+    settlementRetry: "Retry settlement for this version",
+    settlementRetrying: "Retrying settlement…",
     empty: "No story changes pending adjudication for the current manuscript.",
     intro:
       "Only changes brought by the current manuscript are shown; characters, the timeline, and foreshadowing are not rewritten before adoption.",

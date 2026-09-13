@@ -279,7 +279,7 @@ describe("delivery API", () => {
   });
 
   it("previews, analyzes, applies, exports, backs up, and restores a portable story", async () => {
-    const { app } = await setup();
+    const { app, database } = await setup();
     const project = await request<{ id: string }>(
       app,
       "POST",
@@ -549,8 +549,31 @@ describe("delivery API", () => {
       app,
       "POST",
       `/api/projects/${project.id}/backups`,
-      { label: "交付前快照" },
+      { requestId: "backup-create-replay", label: "交付前快照" },
     );
+    const backupReplay = await request<{ id: string }>(
+      app,
+      "POST",
+      `/api/projects/${project.id}/backups`,
+      { requestId: "backup-create-replay", label: "交付前快照" },
+    );
+    expect(backupReplay).toEqual(backup);
+    expect(
+      database.raw
+        .prepare(
+          "SELECT COUNT(*) AS count FROM project_backups WHERE project_id = ?",
+        )
+        .get(project.id),
+    ).toEqual({ count: 1 });
+    const backupConflict = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/backups`,
+      payload: { requestId: "backup-create-replay", label: "另一个快照" },
+    });
+    expect(backupConflict.statusCode).toBe(409);
+    expect(backupConflict.json()).toMatchObject({
+      error: { code: "backup.create.idempotency_conflict" },
+    });
     const restored = await request<{ projectId: string }>(
       app,
       "POST",
@@ -565,6 +588,13 @@ describe("delivery API", () => {
       { requestId: "restore-main", title: "潮汐档案 · 校验副本" },
     );
     expect(replayed.projectId).toBe(restored.projectId);
+    const restoredAgain = await request<{ projectId: string }>(
+      app,
+      "POST",
+      `/api/backups/${backup.id}/restore`,
+      { requestId: "restore-main-second", title: "潮汐档案 · 不应再复制" },
+    );
+    expect(restoredAgain.projectId).toBe(restored.projectId);
     const conflict = await app.inject({
       method: "POST",
       url: `/api/backups/${backup.id}/restore`,
@@ -1327,6 +1357,73 @@ describe("delivery API", () => {
       status: "completed",
       retryOfBatchId: failedBatches[0]!.id,
     });
+  });
+
+  it("does not let an older or missing review stand in for the selected current version", async () => {
+    const { app } = await setup();
+    const project = await request<{ id: string }>(
+      app,
+      "POST",
+      "/api/projects",
+      {
+        requestId: globalThis.crypto.randomUUID(),
+        title: "当前版本门禁",
+        premise: "每次修订都必须重新核对。",
+      },
+    );
+    const bible = await request<{
+      outline: { id: string; kind: string }[];
+    }>(app, "GET", `/api/projects/${project.id}/story-bible`, undefined, 200);
+    const book = bible.outline.find((node) => node.kind === "book");
+    const chapter = await request<{
+      outline: { id: string };
+      document: { id: string };
+    }>(
+      app,
+      "POST",
+      `/api/projects/${project.id}/chapters`,
+      {
+        requestId: globalThis.crypto.randomUUID(),
+        parentId: book?.id,
+        title: "第一章",
+      },
+      201,
+    );
+    const version = await request<{ id: string }>(
+      app,
+      "POST",
+      `/api/projects/${project.id}/documents/${chapter.document.id}/versions`,
+      {
+        content: "当前正文已经保存，但还没有审阅和结算。",
+        source: "manual",
+        expectedCurrentVersionId: null,
+      },
+      201,
+    );
+    const quality = await request<{
+      readiness: string;
+      gates: { id: string; passed: boolean }[];
+      issues: { message: string }[];
+    }>(
+      app,
+      "GET",
+      `/api/projects/${project.id}/quality?fromOutlineNodeId=${chapter.outline.id}&toOutlineNodeId=${chapter.outline.id}`,
+      undefined,
+      200,
+    );
+    expect(version.id).toBeTruthy();
+    expect(quality.readiness).toBe("blocked");
+    expect(quality.gates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "current-version-evidence",
+          passed: false,
+        }),
+      ]),
+    );
+    expect(quality.issues.map((issue) => issue.message).join("\n")).toMatch(
+      /尚无同版本通过审阅|尚无同版本结算摘要/u,
+    );
   });
 });
 

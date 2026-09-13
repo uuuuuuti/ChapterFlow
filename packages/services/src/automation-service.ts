@@ -5,7 +5,10 @@ import {
   type EffectivePolicy,
   type ModelExecutionPolicy,
 } from "@narralume/contracts";
-import { createCanonEntity } from "@narralume/domain";
+import {
+  createCanonEntity,
+  effectiveManuscriptCharacterCount,
+} from "@narralume/domain";
 import type {
   AutopilotRunLink,
   AutopilotSession,
@@ -15,6 +18,7 @@ import { buildFoundationRecipe } from "@narralume/harness";
 import {
   type SqliteAutomationRepository,
   type SqliteCanonRepository,
+  type SqliteDocumentRepository,
   type SqliteProjectRepository,
   type SqliteReviewRepository,
   type SqliteRunRepository,
@@ -45,6 +49,10 @@ const REVIEW_BLOCK_REASONS = new Set([
 
 const REVIEW_REPAIR_REASONS = new Set([
   "critical_review_unresolved",
+  "critical_deterministic_issue_unresolved",
+  "deterministic_quality_gate_blocked",
+  "quality_gate_incomplete",
+  "quality_gate_version_mismatch",
   "revision_limit_reached",
 ]);
 
@@ -140,8 +148,12 @@ export function createFoundationRun(input: {
     targetOutlineNodeId: input.rootOutlineNodeId,
     policy: withRuntimeModelPolicy(
       {
-        contextWindow: 16_000,
-        foundationMaxOutputTokens: 8_000,
+        // Foundation returns three comparable plans in one structured value.
+        // Keep the run's context/output ceiling aligned with the configured
+        // DeepSeek-V4-Flash channel; the old 16K/8K pair truncated valid JSON
+        // before the candidate set could be staged.
+        contextWindow: 128_000,
+        foundationMaxOutputTokens: 32_000,
         ...input.policy,
         braindump: input.braindump,
         preferences: input.preferences,
@@ -174,8 +186,41 @@ export function resolveSessionFailure(
         .reverse()
         .find(
           (candidate) =>
-            candidate.role === "chapter" && candidate.outcome === "failed",
+            (candidate.role === "chapter" ||
+              candidate.role === "closing-review") &&
+            ["failed", "completed"].includes(candidate.outcome ?? "") &&
+            (candidate.role === "chapter" ||
+              session.lastError?.code === "batch_review.blocked" ||
+              session.lastError?.code === "batch_review.missing" ||
+              session.lastError?.runId === candidate.runId),
         ) ?? null);
+  const isClosingReview = link?.role === "closing-review";
+  if (isClosingReview && !session.currentRunId) {
+    if (!["retry-current", "replan", "stop"].includes(action)) {
+      throw new AutomationServiceError(
+        "autopilot.resolution.unsafe",
+        "A blocked batch review can only be retried, replanned, or stopped",
+        409,
+      );
+    }
+    if (action === "retry-current" && link) {
+      // A completed blocking review has already been processed. Mark only the
+      // link outcome so the next coordinator pass can create a new review;
+      // the original run, artifact, and evidence remain immutable history.
+      automation.reopenClosingReview(sessionId, link.runId, now);
+    }
+    if (action === "stop") {
+      automation.setSessionStatus(sessionId, "cancelled", now, {
+        code: "session.stopped",
+      });
+      return;
+    }
+    if (action === "replan") {
+      automation.requestSessionControl(sessionId, "replan", now);
+    }
+    automation.setSessionStatus(sessionId, "running", now);
+    return;
+  }
   if (session.currentRunId) {
     const child = runs.getSnapshot(session.currentRunId).run;
     if (
@@ -193,7 +238,7 @@ export function resolveSessionFailure(
     reviews.supersedeRunRevisionProposals(child.id, now);
     automation.markRunProcessed(sessionId, child.id, action, now);
   }
-  if (link?.outlineNodeId) {
+  if (link?.outlineNodeId && !isClosingReview) {
     story.updateOutlineStatus(
       session.projectId,
       link.outlineNodeId,
@@ -209,7 +254,7 @@ export function resolveSessionFailure(
     });
     return;
   }
-  if (action === "skip-chapter") {
+  if (action === "skip-chapter" && !isClosingReview) {
     automation.recordChapterOutcome(sessionId, "skipped", now);
   }
   if (action === "replan") {
@@ -516,6 +561,7 @@ export function sessionProductProjection(
   runs: SqliteRunRepository,
   story: SqliteStoryRepository,
   links: readonly AutopilotRunLink[] = [],
+  documents?: SqliteDocumentRepository,
 ) {
   const child = session.currentRunId
     ? runs.getSnapshot(session.currentRunId)
@@ -529,9 +575,55 @@ export function sessionProductProjection(
     stopReason,
     child?.run.status ?? null,
   );
-  const chapterResults = links
-    .filter((link) => link.role === "chapter")
-    .map((link) => projectChapterResult(session, link, links, runs));
+  // A retry or an author-requested revision deliberately keeps every run link
+  // as audit history, but the product projection must show one effective row
+  // per outline chapter.  Rendering the raw links made one chapter appear as
+  // several chapters in the continuous-creation page and inflated its batch
+  // counters.  The newest link is the current attempt; the helper still uses
+  // older links to report the retry count.
+  const latestChapterLinks = new Map<string, AutopilotRunLink>();
+  for (const link of links) {
+    if (link.role !== "chapter") continue;
+    const key = link.outlineNodeId ?? `run:${link.runId}`;
+    const previous = latestChapterLinks.get(key);
+    if (!previous || link.sequence > previous.sequence) {
+      latestChapterLinks.set(key, link);
+    }
+  }
+  const chapterResults = [...latestChapterLinks.values()]
+    .sort((left, right) => left.sequence - right.sequence)
+    .map((link) => projectChapterResult(session, link, links, runs, documents));
+  const latestBatchReview =
+    [...links]
+      .filter((link) => link.role === "closing-review")
+      .sort((left, right) => right.sequence - left.sequence)
+      .map((link) =>
+        runs.getRun(link.runId) ? runs.getSnapshot(link.runId) : null,
+      )
+      .filter((snapshot): snapshot is NonNullable<typeof snapshot> =>
+        Boolean(snapshot),
+      )
+      .map(
+        (snapshot) =>
+          [...snapshot.steps]
+            .reverse()
+            .find(
+              (step) =>
+                step.kind === "batch.review" && step.status === "succeeded",
+            )?.outputArtifact ?? null,
+      )
+      .find((artifact): artifact is Record<string, unknown> =>
+        Boolean(artifact),
+      ) ?? null;
+  const currentBatchEvidence = documents
+    ? currentFirstFiveEvidence(session, story, documents)
+    : null;
+  const batchReview =
+    latestBatchReview &&
+    currentBatchEvidence &&
+    !sameBatchEvidence(latestBatchReview.chapters, currentBatchEvidence)
+      ? { ...latestBatchReview, stale: true }
+      : latestBatchReview;
   return {
     origin: isRecord(session.chapterPolicy.origin)
       ? session.chapterPolicy.origin
@@ -547,6 +639,7 @@ export function sessionProductProjection(
     stopReason,
     availableActions,
     chapterResults,
+    batchReview,
   };
 }
 
@@ -555,6 +648,7 @@ function projectChapterResult(
   link: AutopilotRunLink,
   links: readonly AutopilotRunLink[],
   runs: SqliteRunRepository,
+  documents?: SqliteDocumentRepository,
 ) {
   const snapshot = runs.getRun(link.runId)
     ? runs.getSnapshot(link.runId)
@@ -579,12 +673,25 @@ function projectChapterResult(
               step.kind === "deterministic.check"),
         )?.outputArtifact ?? null)
     : null;
-  const actualWords = manuscript
-    ? (numberField(manuscript, "characters") ??
-      (typeof manuscript.content === "string"
-        ? [...manuscript.content].length
-        : null))
+  const currentDocument =
+    documents && link.outlineNodeId
+      ? documents.getByOutlineNodeId(session.projectId, link.outlineNodeId)
+      : null;
+  const currentVersion = currentDocument?.currentVersionId
+    ? documents?.getVersion(
+        session.projectId,
+        currentDocument.id,
+        currentDocument.currentVersionId,
+      )
     : null;
+  const actualWords = currentVersion
+    ? effectiveManuscriptCharacterCount(currentVersion.content)
+    : manuscript
+      ? (numberField(manuscript, "characters") ??
+        (typeof manuscript.content === "string"
+          ? effectiveManuscriptCharacterCount(manuscript.content)
+          : null))
+      : null;
   const scores = review ? numericScores(review.scores) : [];
   const checkScore = scores.length
     ? Math.round(
@@ -634,6 +741,64 @@ function projectChapterResult(
     error,
     actionAvailability,
   };
+}
+
+type CurrentBatchEvidence = {
+  outlineNodeId: string;
+  documentId: string;
+  versionId: string;
+  contentHash: string;
+};
+
+function currentFirstFiveEvidence(
+  session: AutopilotSession,
+  story: SqliteStoryRepository,
+  documents: SqliteDocumentRepository,
+): CurrentBatchEvidence[] | null {
+  const chapters = story
+    .listOutline(session.projectId)
+    .filter((node) => node.kind === "chapter")
+    .slice(0, 5);
+  if (chapters.length !== 5) return null;
+  const evidence: CurrentBatchEvidence[] = [];
+  for (const chapter of chapters) {
+    const document = documents.getByOutlineNodeId(
+      session.projectId,
+      chapter.id,
+    );
+    if (!document?.currentVersionId) return null;
+    const version = documents.getVersion(
+      session.projectId,
+      document.id,
+      document.currentVersionId,
+    );
+    if (!version) return null;
+    evidence.push({
+      outlineNodeId: chapter.id,
+      documentId: document.id,
+      versionId: version.id,
+      contentHash: version.contentHash,
+    });
+  }
+  return evidence;
+}
+
+function sameBatchEvidence(
+  value: unknown,
+  expected: readonly CurrentBatchEvidence[],
+): boolean {
+  if (!Array.isArray(value) || value.length !== expected.length) return false;
+  return value.every((entry, index) => {
+    if (!isRecord(entry)) return false;
+    const wanted = expected[index];
+    if (!wanted) return false;
+    return (
+      entry.outlineNodeId === wanted.outlineNodeId &&
+      entry.documentId === wanted.documentId &&
+      entry.versionId === wanted.versionId &&
+      entry.contentHash === wanted.contentHash
+    );
+  });
 }
 
 function numberField(
@@ -696,6 +861,12 @@ export function sessionAvailableActions(
   }
   if (stopReason === "chapter_commit_approval_required") {
     return ["accept_manuscript", "request_revision", "cancel"];
+  }
+  if (
+    stopReason === "batch_review.blocked" ||
+    stopReason === "batch_review.missing"
+  ) {
+    return ["retry-current", "cancel"];
   }
   if (stopReason && REVIEW_BLOCK_REASONS.has(stopReason)) {
     if (["failed", "cancelled"].includes(childStatus ?? "")) {

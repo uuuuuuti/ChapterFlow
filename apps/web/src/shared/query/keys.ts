@@ -38,7 +38,11 @@ export const queryKeys = {
   platformMetricReport: (id: string | null) => ["chapterflow", "platform-metric-report", id] as const,
   publishRecords: (id: string | null) => ["chapterflow", "publish-records", id] as const,
   exportBatches: (id: string | null) => ["chapterflow", "export-batches", id] as const,
-  quality: (id: string | null) => ["project", id, "quality"] as const,
+  quality: (
+    id: string | null,
+    fromOutlineNodeId: string | null = null,
+    toOutlineNodeId: string | null = null,
+  ) => ["project", id, "quality", fromOutlineNodeId, toOutlineNodeId] as const,
   projectBackups: (id: string | null) => ["project", id, "backups"] as const,
   styles: (id: string | null) => ["project", id, "styles"] as const,
   writingSkills: (id: string | null) => ["project", id, "writing-skills"] as const,

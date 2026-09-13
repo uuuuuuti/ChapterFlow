@@ -46,6 +46,7 @@ import {
   getStudioDocument,
   getStudioDocuments,
   restoreDocumentVersion,
+  retryDocumentSettlement,
   setStoryDocumentArchived,
   setDocumentCommentStatus,
   type CanonChangeSetView,
@@ -834,6 +835,28 @@ function CanonChangesPanel({ projectId, document, versions }: { projectId: strin
     queryKey: ["project", projectId, "story-bible"],
     queryFn: ({ signal }) => getStoryBible(projectId, signal),
   });
+  const settlementRuns = (runsQuery.data ?? []).filter((run) =>
+    run.recipe === "manual-settlement" && runOriginDocumentId(run.policy) === document.id);
+  const currentVersionId = document.currentVersionId;
+  const failedCurrentSettlement = [...settlementRuns]
+    .reverse()
+    .find((run) => run.status === "failed" && run.policy.documentVersionId === currentVersionId);
+  const retrySettlementMutation = useMutation({
+    mutationFn: () => {
+      if (!currentVersionId) throw new Error("当前正文还没有正式版本");
+      return retryDocumentSettlement(
+        projectId,
+        document.id,
+        currentVersionId,
+        `${document.id}:${currentVersionId}:settlement-retry:${failedCurrentSettlement?.id ?? "missing"}`,
+      );
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["project", projectId, "canon-change-sets"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.runs(projectId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.overview(projectId) });
+    },
+  });
   const mutation = useMutation({
     mutationFn: (input: { set: CanonChangeSetView; action: "apply" | "reject"; conflictPolicy?: "reject" | "force" }) =>
       decideCanonChangeSet(projectId, input.set.id, {
@@ -859,8 +882,6 @@ function CanonChangesPanel({ projectId, document, versions }: { projectId: strin
   const entityNames = new Map((storyQuery.data?.entities ?? []).map((entity) => [entity.id, entity.name]));
   /* 手动提交版本自动开出的结算 Run：targetOutlineNodeId 为 null，只能按
      policy.origin.documentId 认领，用来显示运行中/失败状态。 */
-  const settlementRuns = (runsQuery.data ?? []).filter((run) =>
-    run.recipe === "manual-settlement" && runOriginDocumentId(run.policy) === document.id);
   const activeSettlement = settlementRuns.find((run) => !TERMINAL_RUN_STATUSES.has(run.status));
   const failedSettlement = [...settlementRuns].reverse().find((run) => run.status === "failed");
   const conflict = settlementConflictDetails(mutation.error);
@@ -868,7 +889,8 @@ function CanonChangesPanel({ projectId, document, versions }: { projectId: strin
   return <Panel title={t("studio.canon.title")} count={sets.length}>
     {query.isError || runsQuery.isError ? <ErrorNote error={query.error ?? runsQuery.error} title={t("studio.errors.canonLoad")} /> : <>
         {activeSettlement ? <p className="studio__settlement-status" role="status">{t("studio.canon.settlementRunning")}</p>
-          : failedSettlement ? <p className="studio__settlement-status" data-tone="failed">{t("studio.canon.settlementFailedPrefix")}<Link to={`${projectWorkspacePath(projectId, "runs")}?run=${encodeURIComponent(failedSettlement.id)}`}>{t("studio.task.detailLink")}</Link>{t("studio.canon.settlementFailedSuffix")}</p> : null}
+          : failedSettlement ? <div className="studio__settlement-status" data-tone="failed"><p>{t("studio.canon.settlementFailedPrefix")}<Link to={`${projectWorkspacePath(projectId, "runs")}?run=${encodeURIComponent(failedSettlement.id)}`}>{t("studio.task.detailLink")}</Link>{t("studio.canon.settlementFailedSuffix")}</p>{failedCurrentSettlement && currentVersionId ? <button type="button" className="btn" disabled={retrySettlementMutation.isPending} onClick={() => retrySettlementMutation.mutate()}>{retrySettlementMutation.isPending ? t("studio.canon.settlementRetrying") : t("studio.canon.settlementRetry")}</button> : null}</div> : null}
+        {retrySettlementMutation.isError ? <ErrorNote error={retrySettlementMutation.error} title={t("studio.errors.canonLoad")} /> : null}
         {sets.length === 0 && !activeSettlement ? (
           <p className="studio__panel-empty">{t("studio.canon.empty")}</p>
         ) : sets.length > 0 ? <>

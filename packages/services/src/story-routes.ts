@@ -54,6 +54,7 @@ import {
   createDocument,
   createOutlineNode,
   randomUuid,
+  sha256Hex,
 } from "@narralume/domain";
 import type { OutlineNode } from "@narralume/domain";
 import {
@@ -64,6 +65,7 @@ import {
   SqliteProjectStatisticsRepository,
   SqliteProjectRepository,
   SqliteRequestReplayRepository,
+  SqliteRunRepository,
   SqliteStoryRepository,
   OutlineOperationError,
   type NarrativeDatabase,
@@ -83,6 +85,7 @@ import {
   promoteCanonFact,
   reviseCanonFact,
   softDeleteProject,
+  startManualSettlementRun,
   StoryServiceError,
   withdrawCanonFact,
 } from "@narralume/services";
@@ -142,6 +145,21 @@ const RelationshipParamsSchema = z.object({
   projectId: z.string().min(1),
   relationshipId: z.string().min(1),
 });
+const RetrySettlementParamsSchema = z.object({
+  projectId: z.string().min(1),
+  documentId: z.string().min(1),
+  versionId: z.string().min(1),
+});
+const RetrySettlementRequestSchema = z
+  .object({ requestId: z.string().trim().min(1) })
+  .strict();
+const RetrySettlementResultSchema = z
+  .object({
+    runId: z.string().min(1),
+    idempotentReplay: z.boolean(),
+    alreadyCompleted: z.boolean(),
+  })
+  .strict();
 
 export function registerStoryRoutes(
   app: RouteApp,
@@ -1671,22 +1689,212 @@ export function registerStoryRoutes(
     async (request) => {
       const { projectId, documentId } = documentParams(request.params);
       const input = AppendDocumentVersionRequestSchema.parse(request.body);
-      // 版本追加、删草稿、检索段、大纲状态与自动结算的副作用链在服务层。
-      const version = commitDocumentVersion(database, {
-        projectId,
-        documentId,
-        content: input.content,
-        source: input.source,
-        ...(input.expectedCurrentVersionId === undefined
-          ? {}
-          : { expectedCurrentVersionId: input.expectedCurrentVersionId }),
-        triggerSettlement: input.source === "manual",
-        environment: options.environment,
-        coordinatorWake: () => {
-          if (options.enableBackgroundWorker) options.coordinator.wake();
-        },
+      // The editor may retry after a lost response. Keep the complete commit
+      // side-effect chain behind one replay record so a retry cannot append a
+      // second immutable version or start a second settlement run.
+      const version = database.transaction(() => {
+        const scope = `project:${projectId}:document:${documentId}:versions:create`;
+        const requestHash = hashRequest({
+          documentId,
+          content: input.content,
+          source: input.source,
+          expectedCurrentVersionId:
+            input.expectedCurrentVersionId === undefined
+              ? "<omitted>"
+              : input.expectedCurrentVersionId,
+        });
+        if (input.requestId) {
+          const replay = requestReplays.get(scope, input.requestId);
+          if (replay) {
+            if (replay.requestHash !== requestHash) {
+              throw new StoryRouteError(
+                "document.version.idempotency_conflict",
+                "The same requestId was already used for a different version commit request",
+                409,
+              );
+            }
+            return DocumentVersionSchema.parse(replay.result);
+          }
+          // A second click can happen after the first request has already
+          // committed but before the React query refreshes its local request
+          // token. Treat the exact same visible submission as the same intent
+          // even when the browser generated a fresh token for that click.
+          const currentDocument = documents.get(projectId, documentId);
+          const currentVersion = currentDocument?.currentVersionId
+            ? documents.getVersion(
+                projectId,
+                documentId,
+                currentDocument.currentVersionId,
+              )
+            : null;
+          if (
+            currentVersion &&
+            currentVersion.source === input.source &&
+            currentVersion.contentHash === sha256Hex(input.content)
+          ) {
+            requestReplays.insert({
+              scope,
+              requestId: input.requestId,
+              requestHash,
+              result: currentVersion,
+              createdAt: new Date().toISOString(),
+            });
+            return currentVersion;
+          }
+        }
+        // 版本追加、删草稿、检索段、大纲状态与自动结算的副作用链在服务层。
+        const created = commitDocumentVersion(database, {
+          projectId,
+          documentId,
+          content: input.content,
+          source: input.source,
+          ...(input.expectedCurrentVersionId === undefined
+            ? {}
+            : { expectedCurrentVersionId: input.expectedCurrentVersionId }),
+          // The editor uses descriptive manual sources such as
+          // `manual:作者手动版本`. Only checkpoint versions are deliberately
+          // excluded; every author-visible final version must get a settlement
+          // run bound to its exact content hash.
+          triggerSettlement: shouldTriggerManualSettlement(input.source),
+          environment: options.environment,
+          coordinatorWake: () => {
+            if (options.enableBackgroundWorker) options.coordinator.wake();
+          },
+        });
+        if (input.requestId) {
+          requestReplays.insert({
+            scope,
+            requestId: input.requestId,
+            requestHash,
+            result: created,
+            createdAt: new Date().toISOString(),
+          });
+        }
+        return created;
       });
       return { status: 201, body: DocumentVersionSchema.parse(version) };
+    },
+  );
+
+  app.route(
+    "POST",
+    "/api/projects/:projectId/documents/:documentId/versions/:versionId/settlement/retry",
+    async (request) => {
+      const { projectId, documentId, versionId } =
+        RetrySettlementParamsSchema.parse(request.params);
+      const input = RetrySettlementRequestSchema.parse(request.body);
+      requireProject(projects, projectId);
+      const result = database.transaction(() => {
+        const scope = `project:${projectId}:document:${documentId}:version:${versionId}:settlement:retry`;
+        const requestHash = hashRequest({ projectId, documentId, versionId });
+        const replay = requestReplays.get(scope, input.requestId);
+        if (replay) {
+          if (replay.requestHash !== requestHash) {
+            throw new StoryRouteError(
+              "settlement.retry.idempotency_conflict",
+              "The same requestId was already used for a different settlement retry",
+              409,
+            );
+          }
+          const stored = RetrySettlementResultSchema.parse(replay.result);
+          return RetrySettlementResultSchema.parse({
+            ...stored,
+            idempotentReplay: true,
+          });
+        }
+
+        const document = documents.get(projectId, documentId);
+        if (!document)
+          throw new StoryRouteError(
+            "document.not_found",
+            "Manuscript document not found",
+            404,
+          );
+        if (document.kind !== "chapter" || !document.outlineNodeId) {
+          throw new StoryRouteError(
+            "settlement.retry.not_chapter",
+            "Only a chapter manuscript can have a chapter settlement",
+            422,
+          );
+        }
+        if (document.currentVersionId !== versionId) {
+          throw new StoryRouteError(
+            "settlement.retry.version_not_current",
+            "Only the current manuscript version can be retried; refresh before retrying",
+            409,
+          );
+        }
+        if (!documents.getVersion(projectId, documentId, versionId)) {
+          throw new StoryRouteError(
+            "document.version.not_found",
+            "Manuscript version not found",
+            404,
+          );
+        }
+
+        const runs = new SqliteRunRepository(database);
+        const prior = runs
+          .listRuns(projectId, 500)
+          .filter(
+            (run) =>
+              run.recipe === "manual-settlement" &&
+              run.policy.documentId === documentId &&
+              run.policy.documentVersionId === versionId,
+          )
+          .sort((left, right) =>
+            right.createdAt.localeCompare(left.createdAt),
+          )[0];
+        if (prior && prior.status === "completed") {
+          const completed = RetrySettlementResultSchema.parse({
+            runId: prior.id,
+            idempotentReplay: false,
+            alreadyCompleted: true,
+          });
+          requestReplays.insert({
+            scope,
+            requestId: input.requestId,
+            requestHash,
+            result: completed,
+            createdAt: new Date().toISOString(),
+          });
+          return completed;
+        }
+
+        const runId = startManualSettlementRun({
+          database,
+          environment: options.environment,
+          coordinatorWake: () => {
+            if (options.enableBackgroundWorker) options.coordinator.wake();
+          },
+          projectId,
+          document,
+          versionId,
+        });
+        if (!runId) {
+          throw new StoryRouteError(
+            "settlement.retry.unavailable",
+            "No writing model is configured for settlement retry",
+            422,
+          );
+        }
+        const created = RetrySettlementResultSchema.parse({
+          runId,
+          idempotentReplay: false,
+          alreadyCompleted: false,
+        });
+        requestReplays.insert({
+          scope,
+          requestId: input.requestId,
+          requestHash,
+          result: created,
+          createdAt: new Date().toISOString(),
+        });
+        return created;
+      });
+      return {
+        status: result.alreadyCompleted ? 200 : 202,
+        body: result,
+      };
     },
   );
 
@@ -1812,6 +2020,16 @@ function evidenceExcerpt(content: string): string | null {
 
 function evidenceWordCount(content: string): number {
   return Array.from(content.trim()).length;
+}
+
+function shouldTriggerManualSettlement(source: string): boolean {
+  return (
+    source === "manual" ||
+    (source.startsWith("manual:") &&
+      !source.startsWith("manual:before-") &&
+      source !== "manual:comment-checkpoint" &&
+      source !== "manual:selection-baseline")
+  );
 }
 
 function evidenceEntityIds(

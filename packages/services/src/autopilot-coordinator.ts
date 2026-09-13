@@ -1,12 +1,14 @@
-import { randomUuid } from "@narralume/domain";
+import { randomUuid, type RunBudgetUsage } from "@narralume/domain";
 
 import {
+  buildClosingReviewRecipe,
   buildRollingOutlineRecipe,
   classifyStepError,
   compileChapterRecipeTemplate,
 } from "@narralume/harness";
 import {
   SqliteAutomationRepository,
+  SqliteDocumentRepository,
   SqliteProjectRepository,
   SqliteRunRepository,
   SqliteStoryRepository,
@@ -15,7 +17,7 @@ import {
 } from "@narralume/persistence";
 
 import type { RunCoordinator } from "./run-coordinator.js";
-import { withRuntimeModelPolicy } from "./run-policy.js";
+import { isRecord, withRuntimeModelPolicy } from "./run-policy.js";
 
 export class AutopilotCoordinator {
   private readonly automation: SqliteAutomationRepository;
@@ -23,12 +25,13 @@ export class AutopilotCoordinator {
   private readonly story: SqliteStoryRepository;
   private readonly projects: SqliteProjectRepository;
   private readonly templates: SqliteTemplateRepository;
+  private readonly documents: SqliteDocumentRepository;
   readonly #controller = new AbortController();
   #draining: Promise<void> | null = null;
   #wakeAgain = false;
 
   constructor(
-    database: NarrativeDatabase,
+    private readonly database: NarrativeDatabase,
     private readonly runCoordinator: RunCoordinator,
     private readonly onChange: (
       sessionId: string,
@@ -46,6 +49,7 @@ export class AutopilotCoordinator {
     this.story = new SqliteStoryRepository(database);
     this.projects = new SqliteProjectRepository(database);
     this.templates = new SqliteTemplateRepository(database);
+    this.documents = new SqliteDocumentRepository(database);
   }
 
   wake(): void {
@@ -143,6 +147,65 @@ export class AutopilotCoordinator {
     }
 
     const current = this.automation.requireSession(session.id);
+    const budgetLimit = batchBudgetLimit(current.chapterPolicy);
+    const budgetUsage = this.sessionBudgetUsage(current.id);
+    const budgetReason = exceededBatchBudget(budgetUsage, budgetLimit);
+    if (budgetReason) {
+      this.automation.setSessionStatus(current.id, "awaiting_user", now, {
+        code: "session.budget_exceeded",
+        reason: budgetReason,
+        usage: budgetUsage,
+        limit: budgetLimit,
+      });
+      return this.changed(current.id, "session.budget_exceeded");
+    }
+    const batchEvidence = this.firstFiveBatchEvidence(current);
+    if (
+      batchEvidence &&
+      !this.hasCurrentBatchReview(current.id, batchEvidence)
+    ) {
+      const root = this.story
+        .listOutline(current.projectId)
+        .find((node) => node.kind === "book");
+      if (!root) {
+        this.automation.setSessionStatus(current.id, "failed", now, {
+          code: "outline.root.missing",
+          message: "The project is missing the book root node",
+        });
+        return this.changed(current.id, "session.failed");
+      }
+      const runId = randomUuid();
+      const recipe = buildClosingReviewRecipe(runId);
+      this.database.transaction(() => {
+        this.runs.create({
+          id: runId,
+          projectId: current.projectId,
+          recipe: recipe.name,
+          recipeVersion: recipe.version,
+          mode: "autopilot",
+          targetOutlineNodeId: root.id,
+          policy: withRuntimeModelPolicy(
+            {
+              ...resolveSessionEffectivePolicy(current),
+              sessionId: current.id,
+              batchReviewKind: "first-five",
+              batchChapterEvidence: batchEvidence,
+            },
+            this.environment,
+          ),
+          steps: recipe.steps,
+          now,
+        });
+        this.automation.attachRun(current.id, {
+          runId,
+          role: "closing-review",
+          outlineNodeId: root.id,
+          now,
+        });
+      });
+      this.wakeRunWorker();
+      return this.changed(current.id, "batch-review.started");
+    }
     if (current.completedChapters >= current.targetChapters) {
       this.automation.setSessionStatus(current.id, "completed", now);
       return this.changed(current.id, "session.completed");
@@ -166,41 +229,47 @@ export class AutopilotCoordinator {
         current.maxRevisionCycles,
         template.version,
       );
-      this.runs.create({
-        id: runId,
-        projectId: current.projectId,
-        recipe: recipe.name,
-        recipeVersion: recipe.version,
-        mode: current.mode,
-        targetOutlineNodeId: nextChapter.id,
-        policy: withRuntimeModelPolicy(
-          {
-            ...resolveSessionEffectivePolicy(current),
-            chapterApproved: current.mode === "autopilot",
-            steerNotes: notes,
-            autopilotSessionId: current.id,
-          },
-          this.environment,
-        ),
-        steps: recipe.steps,
-        now,
+      this.database.transaction(() => {
+        this.runs.create({
+          id: runId,
+          projectId: current.projectId,
+          recipe: recipe.name,
+          recipeVersion: recipe.version,
+          mode: current.mode,
+          targetOutlineNodeId: nextChapter.id,
+          policy: withRuntimeModelPolicy(
+            {
+              ...resolveSessionEffectivePolicy(current),
+              chapterApproved: current.mode === "autopilot",
+              steerNotes: notes,
+              autopilotSessionId: current.id,
+            },
+            this.environment,
+          ),
+          steps: recipe.steps,
+          now,
+        });
+        this.automation.attachRun(current.id, {
+          runId,
+          role: "chapter",
+          outlineNodeId: nextChapter.id,
+          now,
+        });
+        this.story.updateOutlineStatus(
+          current.projectId,
+          nextChapter.id,
+          "drafting",
+          now,
+        );
+        const project = this.projects.get(current.projectId);
+        if (project && project.phase !== "writing") {
+          this.projects.update({
+            ...project,
+            phase: "writing",
+            updatedAt: now,
+          });
+        }
       });
-      this.automation.attachRun(current.id, {
-        runId,
-        role: "chapter",
-        outlineNodeId: nextChapter.id,
-        now,
-      });
-      this.story.updateOutlineStatus(
-        current.projectId,
-        nextChapter.id,
-        "drafting",
-        now,
-      );
-      const project = this.projects.get(current.projectId);
-      if (project && project.phase !== "writing") {
-        this.projects.update({ ...project, phase: "writing", updatedAt: now });
-      }
       this.wakeRunWorker();
       return this.changed(current.id, "chapter.started");
     }
@@ -217,28 +286,30 @@ export class AutopilotCoordinator {
     }
     const runId = randomUuid();
     const recipe = buildRollingOutlineRecipe(runId);
-    this.runs.create({
-      id: runId,
-      projectId: current.projectId,
-      recipe: recipe.name,
-      recipeVersion: recipe.version,
-      mode: "autopilot",
-      targetOutlineNodeId: root.id,
-      policy: withRuntimeModelPolicy(
-        {
-          ...resolveSessionEffectivePolicy(current),
-          sessionId: current.id,
-        },
-        this.environment,
-      ),
-      steps: recipe.steps,
-      now,
-    });
-    this.automation.attachRun(current.id, {
-      runId,
-      role: "rolling-plan",
-      outlineNodeId: root.id,
-      now,
+    this.database.transaction(() => {
+      this.runs.create({
+        id: runId,
+        projectId: current.projectId,
+        recipe: recipe.name,
+        recipeVersion: recipe.version,
+        mode: "autopilot",
+        targetOutlineNodeId: root.id,
+        policy: withRuntimeModelPolicy(
+          {
+            ...resolveSessionEffectivePolicy(current),
+            sessionId: current.id,
+          },
+          this.environment,
+        ),
+        steps: recipe.steps,
+        now,
+      });
+      this.automation.attachRun(current.id, {
+        runId,
+        role: "rolling-plan",
+        outlineNodeId: root.id,
+        now,
+      });
     });
     this.wakeRunWorker();
     return this.changed(current.id, "planning.started");
@@ -292,6 +363,18 @@ export class AutopilotCoordinator {
     }
     if (child.status === "failed") {
       this.automation.markRunProcessed(sessionId, runId, "failed", now);
+      const budgetExceeded = snapshot.events
+        .slice()
+        .reverse()
+        .find((event) => event.type === "run.budget_exceeded");
+      if (budgetExceeded) {
+        this.automation.setSessionStatus(sessionId, "awaiting_user", now, {
+          code: "session.budget_exceeded",
+          runId,
+          ...(budgetExceeded.payload as Record<string, unknown>),
+        });
+        return this.changed(sessionId, "session.budget_exceeded");
+      }
       // A fatal child error (authentication, permission, invalid_request, …)
       // can never succeed by spawning more children, so the session parks in
       // awaiting_user with a resolution note instead of failing outright;
@@ -300,6 +383,20 @@ export class AutopilotCoordinator {
       const failedStep = [...snapshot.steps]
         .reverse()
         .find((step) => step.status === "failed");
+      if (
+        link.role === "rolling-plan" &&
+        failedStep?.error?.code === "outline.baseline.conflict"
+      ) {
+        // A planning result is deliberately rejected when the author changed
+        // the outline while the provider was running.  That is recoverable:
+        // abandon only the stale plan nodes, then let the normal coordinator
+        // create a fresh plan/review against the current outline and drafts.
+        // Do not strand the whole voyage in child.failed or ask the author to
+        // use a hidden/manual recovery path.
+        this.automation.requestSessionControl(sessionId, "replan", now);
+        this.automation.setSessionStatus(sessionId, "running", now);
+        return this.changed(sessionId, "outline.baseline_conflict_replan");
+      }
       const classification = classifyStepError(failedStep?.error ?? null);
       if (classification.kind === "fatal") {
         this.automation.setSessionStatus(sessionId, "awaiting_user", now, {
@@ -361,7 +458,54 @@ export class AutopilotCoordinator {
       this.automation.recordChapterOutcome(sessionId, "completed", now);
     }
     if (link.role === "closing-review") {
+      const batchReview = [...snapshot.steps]
+        .reverse()
+        .find(
+          (step) => step.kind === "batch.review" && step.status === "succeeded",
+        )?.outputArtifact;
+      const currentEvidence = this.firstFiveBatchEvidence(
+        this.automation.requireSession(sessionId),
+      );
+      if (
+        currentEvidence &&
+        (!sameBatchEvidence(
+          child.policy.batchChapterEvidence,
+          currentEvidence,
+        ) ||
+          !sameBatchReviewEvidence(batchReview, currentEvidence))
+      ) {
+        // A manual version commit may happen while an auxiliary review is in
+        // flight.  Do not let that old result release the batch: retain the
+        // immutable run as history and schedule a fresh review for the
+        // current five versions on the next coordinator pass.
+        this.automation.reopenClosingReview(sessionId, runId, now);
+        this.automation.setSessionStatus(sessionId, "running", now);
+        return this.changed(sessionId, "batch-review.stale");
+      }
+      if (!batchReview) {
+        this.automation.setSessionStatus(sessionId, "awaiting_user", now, {
+          code: "batch_review.missing",
+          runId,
+        });
+        return this.changed(sessionId, "batch-review.missing");
+      }
+      if (batchReview.verdict === "block") {
+        this.automation.setSessionStatus(sessionId, "awaiting_user", now, {
+          code: "batch_review.blocked",
+          runId,
+          sourceHash:
+            typeof batchReview.sourceHash === "string"
+              ? batchReview.sourceHash
+              : null,
+        });
+        return this.changed(sessionId, "batch-review.blocked");
+      }
       this.automation.setSessionStatus(sessionId, "completed", now);
+      const activeSession = this.automation.requireSession(sessionId);
+      if (activeSession.completedChapters < activeSession.targetChapters) {
+        this.automation.setSessionStatus(sessionId, "running", now);
+        return this.changed(sessionId, "batch-review.completed");
+      }
       return this.changed(sessionId, "session.completed");
     }
     this.automation.setSessionStatus(sessionId, "running", now);
@@ -450,6 +594,99 @@ export class AutopilotCoordinator {
     );
   }
 
+  private hasCurrentBatchReview(
+    sessionId: string,
+    expected: readonly BatchChapterEvidence[],
+  ): boolean {
+    const links = this.automation
+      .listRunLinks(sessionId)
+      .filter((link) => link.role === "closing-review")
+      .sort((left, right) => right.sequence - left.sequence);
+    for (const link of links) {
+      const run = this.runs.getRun(link.runId);
+      if (!run) continue;
+      const runEvidence = run.policy.batchChapterEvidence;
+      if (link.outcome === null) {
+        // An in-flight review owns its input snapshot.  Wait for it to reach
+        // a terminal state before starting another one, even if the author
+        // has since edited a chapter.  reconcileChild will mark its result
+        // stale and reopen it when it completes.
+        return true;
+      }
+      if (link.outcome !== "completed") continue;
+      if (!sameBatchEvidence(runEvidence, expected)) continue;
+      const artifact = [...this.runs.getSnapshot(run.id).steps]
+        .reverse()
+        .find(
+          (step) => step.kind === "batch.review" && step.status === "succeeded",
+        )?.outputArtifact;
+      if (sameBatchReviewEvidence(artifact, expected)) return true;
+    }
+    return false;
+  }
+
+  private firstFiveBatchEvidence(
+    session: ReturnType<SqliteAutomationRepository["requireSession"]>,
+  ): BatchChapterEvidence[] | null {
+    if (session.targetChapters < 5 || session.completedChapters < 5) {
+      return null;
+    }
+    const chapters = this.scopedChapters(session).slice(0, 5);
+    if (chapters.length !== 5) return null;
+    const completed = new Set(
+      this.automation
+        .listRunLinks(session.id)
+        .filter(
+          (link) =>
+            link.role === "chapter" &&
+            link.outlineNodeId &&
+            link.outcome === "completed",
+        )
+        .map((link) => link.outlineNodeId as string),
+    );
+    const evidence: BatchChapterEvidence[] = [];
+    for (const chapter of chapters) {
+      if (!completed.has(chapter.id)) return null;
+      const document = this.documents.getByOutlineNodeId(
+        session.projectId,
+        chapter.id,
+      );
+      if (!document?.currentVersionId) return null;
+      const version = this.documents.getVersion(
+        session.projectId,
+        document.id,
+        document.currentVersionId,
+      );
+      if (!version) return null;
+      evidence.push({
+        outlineNodeId: chapter.id,
+        documentId: document.id,
+        versionId: version.id,
+        contentHash: version.contentHash,
+      });
+    }
+    return evidence;
+  }
+
+  private scopedChapters(
+    session: ReturnType<SqliteAutomationRepository["requireSession"]>,
+  ) {
+    const chapters = this.story
+      .listOutline(session.projectId)
+      .filter((node) => node.kind === "chapter");
+    const start = session.scope.startOutlineNodeId
+      ? chapters.findIndex(
+          (node) => node.id === session.scope.startOutlineNodeId,
+        )
+      : 0;
+    const end = session.scope.endOutlineNodeId
+      ? chapters.findIndex((node) => node.id === session.scope.endOutlineNodeId)
+      : chapters.length - 1;
+    const first = start >= 0 ? start : 0;
+    const last = end >= first ? end : chapters.length - 1;
+    return chapters.slice(first, last + 1);
+  }
+
   private abandonSessionPlans(sessionId: string, now: string): void {
     const session = this.automation.requireSession(sessionId);
     const planningRunIds = new Set(
@@ -479,10 +716,107 @@ export class AutopilotCoordinator {
     if (this.autoRunWorker) this.runCoordinator.wake();
   }
 
+  private sessionBudgetUsage(sessionId: string): RunBudgetUsage {
+    return this.automation.listRunLinks(sessionId).reduce<RunBudgetUsage>(
+      (total, link) => {
+        const run = this.runs.getRun(link.runId);
+        if (!run) return total;
+        return {
+          inputTokens: total.inputTokens + run.budgetUsage.inputTokens,
+          outputTokens: total.outputTokens + run.budgetUsage.outputTokens,
+          calls: total.calls + run.budgetUsage.calls,
+          costUsd: total.costUsd + run.budgetUsage.costUsd,
+          wallTimeMs: total.wallTimeMs + run.budgetUsage.wallTimeMs,
+        };
+      },
+      { inputTokens: 0, outputTokens: 0, calls: 0, costUsd: 0, wallTimeMs: 0 },
+    );
+  }
+
   private changed(sessionId: string, action: string): true {
     this.onChange(sessionId, action);
     return true;
   }
+}
+
+type BatchBudgetLimit = Partial<RunBudgetUsage>;
+
+type BatchChapterEvidence = {
+  outlineNodeId: string;
+  documentId: string;
+  versionId: string;
+  contentHash: string;
+};
+
+function sameBatchEvidence(
+  value: unknown,
+  expected: readonly BatchChapterEvidence[],
+): boolean {
+  if (!Array.isArray(value) || value.length !== expected.length) return false;
+  return value.every((entry, index) => {
+    if (!isRecord(entry)) return false;
+    const wanted = expected[index];
+    if (!wanted) return false;
+    return (
+      entry.outlineNodeId === wanted.outlineNodeId &&
+      entry.documentId === wanted.documentId &&
+      entry.versionId === wanted.versionId &&
+      entry.contentHash === wanted.contentHash
+    );
+  });
+}
+
+function sameBatchReviewEvidence(
+  value: unknown,
+  expected: readonly BatchChapterEvidence[],
+): boolean {
+  if (!isRecord(value) || !Array.isArray(value.chapters)) return false;
+  return sameBatchEvidence(value.chapters, expected);
+}
+
+function batchBudgetLimit(
+  policy: Readonly<Record<string, unknown>>,
+): BatchBudgetLimit {
+  const limit: BatchBudgetLimit = {};
+  for (const [field, key] of [
+    ["inputTokens", "batchMaxInputTokens"],
+    ["outputTokens", "batchMaxOutputTokens"],
+    ["calls", "batchMaxCalls"],
+    ["wallTimeMs", "batchMaxWallTimeMs"],
+    ["costUsd", "batchMaxCostUsd"],
+  ] as const) {
+    const value = numberPolicy(policy, key);
+    if (value !== undefined) limit[field] = value;
+  }
+  return limit;
+}
+
+function numberPolicy(
+  policy: Readonly<Record<string, unknown>>,
+  key: string,
+): number | undefined {
+  const value = policy[key];
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
+}
+
+function exceededBatchBudget(
+  usage: RunBudgetUsage,
+  limit: BatchBudgetLimit,
+): string | null {
+  for (const [field, label] of [
+    ["inputTokens", "input tokens"],
+    ["outputTokens", "output tokens"],
+    ["calls", "calls"],
+    ["wallTimeMs", "wall time"],
+    ["costUsd", "cost"],
+  ] as const) {
+    const max = limit[field];
+    if (typeof max === "number" && usage[field] >= max)
+      return `${label} budget exhausted`;
+  }
+  return null;
 }
 
 /**

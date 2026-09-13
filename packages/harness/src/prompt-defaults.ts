@@ -150,11 +150,13 @@ const SEMANTIC_REVIEW: PromptTemplateDefinition = {
       "每个问题必须用 evidenceParagraphs 引用带 [P#] 标签的正文段落；可引用多段，无法举证就不要提出。",
       "章节目标未完成必须提出 category=goal 且 severity=major/critical 的问题，不能只降低 goal 分数或标成 minor/info。",
       "每个问题都填写 requiresAuthorDecision。只有无法通过局部修订安全解决、必须由作者选择方向的 major/critical 正典或方向冲突才填 true；其余一律填 false。不要输出总 verdict，系统会根据问题派生。",
+      "正典和上下文中标记为 locked/confirmed 的事实高于历史 scene-plan 的预期结果；作者已保存的当前章纲高于旧计划。只报告正文实际违反当前权威事实或当前章纲的问题；若证据段落明确写出约束已保持，不得用同一证据声称约束被违反。无法排除误读时不要输出 block 问题。",
     ].join("\n"),
     en: [
       "Every issue must cite paragraphs tagged [P#] through evidenceParagraphs; citing several is allowed, and issues you cannot evidence must not be raised.",
       "An unmet chapter goal must yield an issue with category=goal and severity=major/critical; do not merely lower the goal score or file it as minor/info.",
       "Fill requiresAuthorDecision on every issue. Set true only for major/critical canon or direction conflicts that local revision cannot safely resolve and that require the author to choose a direction; set false otherwise. Output no overall verdict; the system derives one from the issues.",
+      "Canon and context sources marked locked/confirmed outrank historical scene-plan expectations; the author's saved current outline outranks an older plan. Report only actual violations of current authoritative facts or the current outline. If the evidence explicitly shows a constraint is preserved, do not use the same evidence to claim that constraint is violated. When ambiguity cannot be ruled out, do not emit a block issue.",
     ].join("\n"),
   },
   instructions: {

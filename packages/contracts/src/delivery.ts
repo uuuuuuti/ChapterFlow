@@ -303,6 +303,8 @@ export const ListExportBatchQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(50),
 });
 export const CreateBackupRequestSchema = z.object({
+  /** 作品备份按钮允许在网络超时后安全重试。 */
+  requestId: IdSchema.optional(),
   label: z.string().trim().min(1).max(300),
 });
 export const RestoreBackupRequestSchema = z.object({

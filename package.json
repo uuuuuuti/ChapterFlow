@@ -42,6 +42,7 @@
     "test:real:studio": "tsx scripts/studio-real-smoke.ts",
     "test:real:delivery": "tsx scripts/delivery-real-smoke.ts",
     "test:real:matrix": "npm run test:real:capabilities && npm run test:real:chapter && npm run test:real:autopilot && npm run test:real:studio && npm run test:real:delivery",
+    "acceptance:v1": "node scripts/v1-acceptance-manifest.mjs",
     "test:release:recovery": "vitest run apps/server/test/lifecycle-api.test.ts apps/server/test/backup-restore-r8.test.ts apps/server/test/run-partial-recovery.test.ts packages/persistence/test/orphan-interruption.test.ts",
     "seed:example": "tsx scripts/seed-example.ts",
     "start:bridge": "npm run start -w @narralume/bridge",
