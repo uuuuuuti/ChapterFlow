@@ -7,6 +7,7 @@ import {
 import {
   SqliteDocumentRepository,
   SqliteStoryRepository,
+  SqliteReaderPromiseRepository,
   SqliteWebNovelCandidateRepository,
   SqliteWebNovelRepository,
   type NarrativeDatabase,
@@ -26,6 +27,7 @@ export class WebNovelCandidateService {
   private readonly documents: SqliteDocumentRepository;
   private readonly story: SqliteStoryRepository;
   private readonly webNovel: SqliteWebNovelRepository;
+  private readonly readerPromises: SqliteReaderPromiseRepository;
 
   constructor(
     private readonly database: NarrativeDatabase,
@@ -35,6 +37,7 @@ export class WebNovelCandidateService {
     this.documents = new SqliteDocumentRepository(database);
     this.story = new SqliteStoryRepository(database);
     this.webNovel = new SqliteWebNovelRepository(database);
+    this.readerPromises = new SqliteReaderPromiseRepository(database);
   }
 
   list(
@@ -268,11 +271,23 @@ export class WebNovelCandidateService {
     }
     const brief = this.webNovel.getChapterBrief(projectId, outlineNodeId);
     const node = this.story.getOutlineNode(projectId, outlineNodeId);
+    const promiseState = this.readerPromises.listViews(projectId, {
+      view: "open",
+      currentChapterIndex: this.readerPromises.chapterIndex(
+        projectId,
+        outlineNodeId,
+      ),
+    });
     const document = this.documents
       .list(projectId)
       .find((item) => item.outlineNodeId === outlineNodeId);
     return {
-      fingerprint: sha256Hex(stableJson(briefEditable(brief))),
+      fingerprint: sha256Hex(
+        stableJson({
+          current: briefEditable(brief),
+          openReaderPromises: promiseState.promises,
+        }),
+      ),
       profileVersion: profile?.version ?? null,
       briefVersion: brief?.version ?? null,
       documentVersionId:
@@ -344,10 +359,118 @@ function profileInput(value: Record<string, unknown>) {
 
 function briefInput(value: Record<string, unknown>) {
   return {
+    purpose: enumValue(
+      value.purpose,
+      [
+        "setup",
+        "progress",
+        "conflict",
+        "reveal",
+        "payoff",
+        "turning_point",
+        "relationship",
+        "worldbuilding",
+        "transition",
+        "climax",
+      ] as const,
+      "progress",
+    ),
+    secondaryPurposes: stringEnumArray(value.secondaryPurposes, [
+      "setup",
+      "progress",
+      "conflict",
+      "reveal",
+      "payoff",
+      "turning_point",
+      "relationship",
+      "worldbuilding",
+      "transition",
+      "climax",
+    ] as const).slice(0, 3),
     goal: nullableString(value.goal),
+    readerExpectation: nullableString(value.readerExpectation),
+    emotionTarget: nullableEnumValue(value.emotionTarget, [
+      "爽",
+      "紧张",
+      "期待",
+      "惊讶",
+      "压迫",
+      "感动",
+      "暧昧",
+      "恐惧",
+      "轻松",
+    ] as const),
+    emotionCurve: objectList(value.emotionCurve)
+      .map((entry) => ({
+        label: typeof entry.label === "string" ? entry.label : "",
+        intensity: strengthValue(entry.intensity),
+      }))
+      .filter((entry) => entry.label.trim().length > 0)
+      .slice(0, 8),
     conflict: nullableString(value.conflict),
+    readerPromiseOperations: objectList(value.readerPromiseOperations)
+      .map((entry) => ({
+        action: enumValue(
+          entry.action,
+          ["OPEN", "ADVANCE", "PAYOFF"] as const,
+          "OPEN",
+        ),
+        promiseId: nullableString(entry.promiseId),
+        title: nullableString(entry.title),
+        note: nullableString(entry.note),
+      }))
+      .filter(
+        (entry) =>
+          (entry.action === "OPEN" &&
+            (entry.promiseId !== null || entry.title !== null)) ||
+          (entry.action !== "OPEN" && entry.promiseId !== null),
+      )
+      .slice(0, 30),
     payoff: nullableString(value.payoff),
+    payoffStrength: strengthValue(value.payoffStrength),
     hook: nullableString(value.hook),
+    hookType: nullableEnumValue(value.hookType, [
+      "question",
+      "reveal",
+      "danger",
+      "decision",
+      "arrival",
+      "identity",
+      "information_gap",
+      "emotional",
+      "reward",
+      "reverse",
+    ] as const),
+    hookStrength: strengthValue(value.hookStrength),
+    informationGain: strengthValue(value.informationGain),
+    endingPull: strengthValue(value.endingPull),
+    sceneStructure: objectList(value.sceneStructure)
+      .map((entry, index) => ({
+        order:
+          typeof entry.order === "number" && Number.isInteger(entry.order)
+            ? Math.max(1, Math.min(20, entry.order))
+            : index + 1,
+        purpose: enumValue(
+          entry.purpose,
+          [
+            "setup",
+            "progress",
+            "conflict",
+            "reveal",
+            "payoff",
+            "turning_point",
+            "relationship",
+            "worldbuilding",
+            "transition",
+            "climax",
+          ] as const,
+          "progress",
+        ),
+        beat: typeof entry.beat === "string" ? entry.beat : "",
+        payoff: nullableString(entry.payoff),
+      }))
+      .filter((entry) => entry.beat.trim().length > 0)
+      .slice(0, 20),
     characterIds: stringArray(value.characterIds),
     foreshadowIds: stringArray(value.foreshadowIds),
     timelineIds: stringArray(value.timelineIds),
@@ -358,6 +481,42 @@ function briefInput(value: Record<string, unknown>) {
       "steady",
     ),
   };
+}
+
+function nullableEnumValue<T extends string>(
+  value: unknown,
+  allowed: readonly T[],
+): T | null {
+  return typeof value === "string" && allowed.includes(value as T)
+    ? (value as T)
+    : null;
+}
+
+function stringEnumArray<T extends string>(
+  value: unknown,
+  allowed: readonly T[],
+): T[] {
+  return Array.isArray(value)
+    ? value.filter(
+        (item): item is T =>
+          typeof item === "string" && allowed.includes(item as T),
+      )
+    : [];
+}
+
+function objectList(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value)
+    ? value.filter(
+        (item): item is Record<string, unknown> =>
+          Boolean(item) && typeof item === "object" && !Array.isArray(item),
+      )
+    : [];
+}
+
+function strengthValue(value: unknown): number {
+  return typeof value === "number" && Number.isInteger(value)
+    ? Math.max(0, Math.min(5, value))
+    : 0;
 }
 
 function nullableString(value: unknown): string | null {

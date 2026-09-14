@@ -3,6 +3,10 @@ import type {
   BookProfileHistoryDto,
   ChapterBriefDto,
   ChapterBriefHistoryDto,
+  CreateReaderPromiseRequest,
+  ReaderPromiseActionRequest,
+  ReaderPromiseEventDto,
+  ReaderPromiseListResponse,
   CreateCreativePresetRequest,
   CreativePresetHistoryDto,
   CreativePresetDto,
@@ -174,6 +178,58 @@ export async function restoreChapterBriefHistory(
   return requestJson(
     `/api/projects/${encodeURIComponent(projectId)}/chapter-briefs/${encodeURIComponent(outlineNodeId)}/history/${encodeURIComponent(historyId)}/restore`,
     jsonRequest("POST", { expectedVersion }),
+  );
+}
+
+export async function getReaderPromises(
+  projectId: string,
+  options: {
+    status?: "open" | "paid_off" | "abandoned";
+    view?: "all" | "open" | "long_unadvanced" | "overloaded";
+    chapterId?: string;
+    signal?: AbortSignal;
+  } = {},
+): Promise<ReaderPromiseListResponse> {
+  const params = new URLSearchParams();
+  if (options.status) params.set("status", options.status);
+  if (options.view) params.set("view", options.view);
+  if (options.chapterId) params.set("chapterId", options.chapterId);
+  const query = params.size ? `?${params.toString()}` : "";
+  return requestJson(
+    `/api/projects/${encodeURIComponent(projectId)}/reader-promises${query}`,
+    options.signal ? { signal: options.signal } : {},
+  );
+}
+
+export async function getReaderPromiseEvents(
+  projectId: string,
+  promiseId: string,
+  signal?: AbortSignal,
+): Promise<ReaderPromiseEventDto[]> {
+  return requestJson(
+    `/api/projects/${encodeURIComponent(projectId)}/reader-promises/${encodeURIComponent(promiseId)}/events`,
+    signal ? { signal } : {},
+  );
+}
+
+export async function createReaderPromise(
+  projectId: string,
+  input: CreateReaderPromiseRequest,
+): Promise<ReaderPromiseListResponse["promises"][number]> {
+  return requestJson(
+    `/api/projects/${encodeURIComponent(projectId)}/reader-promises`,
+    jsonRequest("POST", input),
+  );
+}
+
+export async function applyReaderPromiseAction(
+  projectId: string,
+  promiseId: string,
+  input: ReaderPromiseActionRequest,
+): Promise<ReaderPromiseListResponse["promises"][number]> {
+  return requestJson(
+    `/api/projects/${encodeURIComponent(projectId)}/reader-promises/${encodeURIComponent(promiseId)}/actions`,
+    jsonRequest("POST", input),
   );
 }
 

@@ -63,6 +63,7 @@ import { migration059 } from "./migrations/059-canon-change-set-source-version.j
 import { migration060 } from "./migrations/060-platform-metric-duplicate-audit.js";
 import { migration061 } from "./migrations/061-web-novel-candidates.js";
 import { migration062 } from "./migrations/062-export-batch-outcomes.js";
+import { migration063 } from "./migrations/063-chapter-intent-reader-promises.js";
 
 export interface Migration {
   readonly version: number;
@@ -147,6 +148,7 @@ const MIGRATIONS: readonly Migration[] = [
   migration060,
   migration061,
   migration062,
+  migration063,
 ];
 
 interface MigrationRow {

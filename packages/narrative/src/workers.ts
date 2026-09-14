@@ -37,8 +37,10 @@ import {
   SqliteRetrievalRepository,
   SqliteReviewRepository,
   SqliteRunRepository,
+  SqliteReaderPromiseRepository,
   SqliteStoryRepository,
   SqliteTemplateRepository,
+  SqliteWebNovelRepository,
   type NarrativeDatabase,
 } from "@narralume/persistence";
 
@@ -101,6 +103,8 @@ export class ChapterWorkerSuite {
   private readonly reviews: SqliteReviewRepository;
   private readonly runs: SqliteRunRepository;
   private readonly delivery: SqliteDeliveryRepository;
+  private readonly webNovel: SqliteWebNovelRepository;
+  private readonly readerPromises: SqliteReaderPromiseRepository;
   private readonly compiler: ContextCompiler;
   private readonly templates: SqliteTemplateRepository;
   private readonly storyState: StoryStatePacketBuilder;
@@ -126,6 +130,8 @@ export class ChapterWorkerSuite {
     this.reviews = new SqliteReviewRepository(database);
     this.runs = new SqliteRunRepository(database);
     this.delivery = new SqliteDeliveryRepository(database);
+    this.webNovel = new SqliteWebNovelRepository(database);
+    this.readerPromises = new SqliteReaderPromiseRepository(database);
     this.compiler = new ContextCompiler(now);
     this.templates = new SqliteTemplateRepository(database);
     this.storyState = new StoryStatePacketBuilder(
@@ -219,6 +225,18 @@ export class ChapterWorkerSuite {
         "The chapter production target must be a chapter",
       );
     }
+    const chapterIntent = this.webNovel.getChapterBrief(
+      run.projectId,
+      target.id,
+    );
+    const currentChapterIndex = this.readerPromises.chapterIndex(
+      run.projectId,
+      target.id,
+    );
+    const openPromiseView = this.readerPromises.listViews(run.projectId, {
+      view: "open",
+      currentChapterIndex,
+    });
     const compass = this.automation.getCompass(run.projectId);
     const chapterWritingReference = compass
       ? {
@@ -250,6 +268,73 @@ export class ChapterWorkerSuite {
         sourceId: target.id,
       },
     ];
+    sources.push({
+      id: `chapter-intent:${target.id}`,
+      kind: "author-intent",
+      label: `本章 Chapter Intent · ${target.title}`,
+      content: chapterIntent
+        ? [
+            `主目的：${chapterIntent.purpose}`,
+            chapterIntent.secondaryPurposes.length > 0 &&
+              `次目的：${chapterIntent.secondaryPurposes.join("、")}`,
+            chapterIntent.readerExpectation &&
+              `读者期待：${chapterIntent.readerExpectation}`,
+            chapterIntent.emotionTarget &&
+              `情绪目标：${chapterIntent.emotionTarget}`,
+            chapterIntent.emotionCurve.length > 0 &&
+              `情绪曲线：${JSON.stringify(chapterIntent.emotionCurve)}`,
+            chapterIntent.goal && `本章目标：${chapterIntent.goal}`,
+            chapterIntent.conflict && `核心冲突：${chapterIntent.conflict}`,
+            chapterIntent.readerPromiseOperations.length > 0 &&
+              `Promise 操作：${JSON.stringify(chapterIntent.readerPromiseOperations)}`,
+            chapterIntent.payoff && `读者回报：${chapterIntent.payoff}`,
+            `回报强度：${chapterIntent.payoffStrength}/5`,
+            chapterIntent.hook && `章尾钩子：${chapterIntent.hook}`,
+            chapterIntent.hookType && `钩子类型：${chapterIntent.hookType}`,
+            `钩子强度：${chapterIntent.hookStrength}/5`,
+            `信息增量：${chapterIntent.informationGain}/5`,
+            `结尾牵引：${chapterIntent.endingPull}/5`,
+            chapterIntent.sceneStructure.length > 0 &&
+              `场景结构：${JSON.stringify(chapterIntent.sceneStructure)}`,
+          ]
+            .filter(Boolean)
+            .join("\n")
+        : [
+            "尚未保存正式 Chapter Intent；以下大纲字段只作为待确认参考。",
+            target.goal && `目标：${target.goal}`,
+            target.conflict && `冲突：${target.conflict}`,
+            target.outcome && `预期结果：${target.outcome}`,
+          ]
+            .filter(Boolean)
+            .join("\n"),
+      authority: chapterIntent ? "confirmed" : "reference",
+      priority: 99,
+      required: true,
+      compressible: false,
+      sourceType: "chapter_intent",
+      sourceId: chapterIntent?.id ?? target.id,
+    });
+    sources.push({
+      id: `reader-promises:${target.id}`,
+      kind: "author-intent",
+      label: "当前开放 Reader Promise",
+      content:
+        openPromiseView.promises.length > 0
+          ? openPromiseView.promises
+              .map(
+                (promise) =>
+                  `- [${promise.id}] ${promise.title}｜已开放 ${promise.openForChapters} 章｜最近动作 ${promise.lastAction}｜推进次数 ${promise.advanceCount}｜目标章节 ${promise.targetChapterId ?? "未指定"}${promise.warningCodes.length ? `｜警告 ${promise.warningCodes.join("、")}` : ""}`,
+              )
+              .join("\n")
+          : "当前没有开放中的 Reader Promise。",
+      summary: `开放 ${openPromiseView.health.openCount} 条，长期未推进 ${openPromiseView.health.longUnadvancedCount} 条${openPromiseView.health.overloaded ? "，已超过建议承载量" : ""}。`,
+      authority: "confirmed",
+      priority: 97,
+      required: true,
+      compressible: false,
+      sourceType: "reader_promise",
+      sourceId: run.projectId,
+    });
     const activeStyle = this.delivery.getActiveStyleProfile(run.projectId);
     if (activeStyle) {
       sources.push({
@@ -637,6 +722,8 @@ export class ChapterWorkerSuite {
         baseDocumentId: chapterDocument?.id ?? null,
         baseVersionId: baseVersion?.id ?? null,
         targetOutlineNodeId: target.id,
+        chapterIntentVersion: chapterIntent?.version ?? null,
+        readerPromiseHealth: openPromiseView.health,
         chapterWritingReference,
         storyStateFingerprint: authorStoryStatePacket.fingerprint,
         storyStateCounts: authorStoryStatePacket.counts,
@@ -1440,6 +1527,7 @@ export class ChapterWorkerSuite {
       step.id,
     );
     if (replayVersion) {
+      this.syncReaderPromiseOperations(run.projectId, target.id, now);
       this.reviews.bindRunReportsToDocumentVersion(
         run.id,
         replayVersion.id,
@@ -1468,6 +1556,7 @@ export class ChapterWorkerSuite {
     );
     const output = this.database.transaction(() => {
       requireActiveRunCommit(this.database, run.id, run.projectId, signal);
+      this.syncReaderPromiseOperations(run.projectId, target.id, now);
       let document = stringOrNull(context.baseDocumentId)
         ? this.documents.get(
             run.projectId,
@@ -1810,6 +1899,11 @@ export class ChapterWorkerSuite {
       changeSetId,
     );
     if (replayChangeSet) {
+      this.syncReaderPromiseOperations(
+        run.projectId,
+        manual.outlineNode.id,
+        this.now().toISOString(),
+      );
       return {
         artifactKind: "chapter-commit",
         output: {
@@ -1835,6 +1929,11 @@ export class ChapterWorkerSuite {
     const now = this.now().toISOString();
     const output = this.database.transaction(() => {
       requireActiveRunCommit(this.database, run.id, run.projectId, signal);
+      this.syncReaderPromiseOperations(
+        run.projectId,
+        manual.outlineNode.id,
+        now,
+      );
       const boundSettlement = bindSettlementEvidence(
         settlement,
         manual.version.id,
@@ -1920,6 +2019,27 @@ export class ChapterWorkerSuite {
       output,
       usage: contentEmbedding.usage,
     };
+  }
+
+  /**
+   * Chapter Intent edits are already applied when the brief is saved. The
+   * commit boundary repeats the operation idempotently so a generated plan
+   * that was never explicitly saved still settles its Promise lifecycle.
+   */
+  private syncReaderPromiseOperations(
+    projectId: string,
+    chapterId: string,
+    now: string,
+  ): void {
+    const brief = this.webNovel.getChapterBrief(projectId, chapterId);
+    if (!brief || brief.readerPromiseOperations.length === 0) return;
+    this.readerPromises.applyChapterOperations({
+      projectId,
+      chapterId,
+      operations: brief.readerPromiseOperations,
+      source: "settlement",
+      now,
+    });
   }
 }
 

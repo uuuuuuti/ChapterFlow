@@ -6,6 +6,11 @@ import {
   SettlementSchema,
   zodValidator,
 } from "../src/schemas.js";
+import {
+  CHAPTER_INTENT_PLAN_CONTRACT,
+  ChapterIntentPlanSchema,
+  webNovelCandidateModelValidator,
+} from "../src/web-novel-candidate-schemas.js";
 
 const baseFact = {
   operation: "assert" as const,
@@ -151,6 +156,83 @@ describe("chapter settlement fact object contract", () => {
       objectEntityId: { type: "null" },
       value: { type: "null" },
     });
+  });
+});
+
+describe("Chapter Intent candidate contract", () => {
+  it("accepts structured intent fields and exposes them to the model contract", () => {
+    const plan = ChapterIntentPlanSchema.parse({
+      purpose: "turning_point",
+      readerExpectation: "主角终于会看见真相的一角",
+      emotionTarget: "紧张",
+      emotionCurve: [{ label: "逼近", intensity: 4 }],
+      readerPromiseOperations: [
+        {
+          action: "OPEN",
+          promiseId: null,
+          title: "船票上的未来日期",
+          note: "下一章核对日期",
+        },
+      ],
+      payoffStrength: 4,
+      hookType: "question",
+      hookStrength: 5,
+      informationGain: 3,
+      endingPull: 5,
+      sceneStructure: [
+        {
+          order: 1,
+          purpose: "conflict",
+          beat: "证人改口",
+          payoff: "留下矛盾证词",
+        },
+      ],
+    });
+
+    expect(plan).toMatchObject({
+      purpose: "turning_point",
+      readerPromiseOperations: [expect.objectContaining({ action: "OPEN" })],
+    });
+    expect(CHAPTER_INTENT_PLAN_CONTRACT.schema).toMatchObject({
+      additionalProperties: false,
+      properties: expect.objectContaining({
+        readerPromiseOperations: expect.any(Object),
+        sceneStructure: expect.any(Object),
+      }),
+    });
+  });
+
+  it("rejects lifecycle operations that do not identify their promise", () => {
+    const validator = webNovelCandidateModelValidator("brief", {
+      reader_promise: ["promise-1"],
+    });
+    const result = validator({
+      summary: "补充章节推进",
+      items: [
+        {
+          operation: "update",
+          title: "推进旧线索",
+          rationale: "本章需要给出可见进展",
+          impact: ["减少悬置"],
+          evidence: [],
+          afterJson: JSON.stringify({
+            readerPromiseOperations: [
+              {
+                action: "ADVANCE",
+                promiseId: null,
+                title: null,
+                note: "找到一半证据",
+              },
+            ],
+          }),
+          requiresLockedConfirmation: false,
+        },
+      ],
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.issues.join("\n")).toContain("promiseId");
   });
 });
 

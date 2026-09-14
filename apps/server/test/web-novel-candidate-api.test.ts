@@ -228,6 +228,31 @@ describe("Web-novel profile/brief candidate API", () => {
             },
           ],
           afterJson: JSON.stringify({
+            purpose: "turning_point",
+            readerExpectation: "主角会发现船票来自尚未发生的航次",
+            emotionTarget: "紧张",
+            emotionCurve: [{ label: "逼近", intensity: 4 }],
+            readerPromiseOperations: [
+              {
+                action: "OPEN",
+                promiseId: null,
+                title: "船票来自未来",
+                note: "下一章核对日期",
+              },
+            ],
+            payoffStrength: 4,
+            hookType: "question",
+            hookStrength: 5,
+            informationGain: 4,
+            endingPull: 5,
+            sceneStructure: [
+              {
+                order: 1,
+                purpose: "reveal",
+                beat: "发现未来日期",
+                payoff: "问题继续悬置",
+              },
+            ],
             goal: "在雾散前确认船票来自尚未发生的航次",
             payoff: "拿到写着未来日期的旧船票",
             hook: "船票背面的收件人是主角自己",
@@ -293,12 +318,28 @@ describe("Web-novel profile/brief candidate API", () => {
     });
     expect(brief.statusCode, brief.body).toBe(200);
     expect(brief.json()).toMatchObject({
+      purpose: "turning_point",
+      readerExpectation: "主角会发现船票来自尚未发生的航次",
+      emotionTarget: "紧张",
+      readerPromiseOperations: [
+        expect.objectContaining({ action: "OPEN", title: "船票来自未来" }),
+      ],
       goal: "在雾散前确认船票来自尚未发生的航次",
       payoff: "拿到写着未来日期的旧船票",
       hook: "船票背面的收件人是主角自己",
       pacing: "fast",
       documentVersionId: version.json().id,
     });
+    const promises = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/reader-promises?view=open`,
+    });
+    expect(promises.statusCode, promises.body).toBe(200);
+    expect(promises.json().promises).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ title: "船票来自未来", status: "open" }),
+      ]),
+    );
     const bundle = await app.inject({
       method: "GET",
       url: `/api/projects/${projectId}/exports/narrative-bundle?versionMode=history&includeAnnotations=true&includeRuns=false`,

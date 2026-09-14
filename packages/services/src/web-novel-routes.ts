@@ -3,6 +3,7 @@ import {
   BookProfileHistorySchema,
   ChapterBriefSchema,
   ChapterBriefHistorySchema,
+  CreateReaderPromiseRequestSchema,
   CreateCreativePresetRequestSchema,
   CreativePresetHistorySchema,
   CreativePresetSchema,
@@ -10,6 +11,10 @@ import {
   RestoreBookProfileHistoryRequestSchema,
   RestoreCreativePresetHistoryRequestSchema,
   UpdateChapterBriefRequestSchema,
+  ReaderPromiseActionRequestSchema,
+  ReaderPromiseEventSchema,
+  ReaderPromiseListResponseSchema,
+  ReaderPromiseViewSchema,
   RestoreChapterBriefHistoryRequestSchema,
   UpdateCreativePresetRequestSchema,
   OpeningThreeCheckReportSchema,
@@ -28,6 +33,7 @@ import {
 import {
   effectiveManuscriptCharacterCount,
   randomUuid,
+  sha256Hex,
 } from "@narralume/domain";
 import {
   CreativePersistenceError,
@@ -41,6 +47,7 @@ import {
   SqlitePublishRecordRepository,
   SqliteExportBatchRepository,
   SqliteWebNovelRepository,
+  SqliteReaderPromiseRepository,
   type NarrativeDatabase,
 } from "@narralume/persistence";
 import { z } from "zod";
@@ -64,6 +71,14 @@ const ChapterBriefHistoryParamsSchema = ProjectParamsSchema.extend({
 const ListPresetQuerySchema = z.object({
   projectId: z.string().trim().min(1).optional(),
 });
+const ReaderPromiseParamsSchema = ProjectParamsSchema.extend({
+  promiseId: z.string().trim().min(1),
+});
+const ReaderPromiseListQuerySchema = z.object({
+  status: z.enum(["open", "paid_off", "abandoned"]).optional(),
+  view: z.enum(["all", "open", "long_unadvanced", "overloaded"]).default("all"),
+  chapterId: z.string().trim().min(1).optional(),
+});
 
 /** ChapterFlow 网文规划的正式存储面：预设、作品档案和章节简报。 */
 export function registerWebNovelRoutes(
@@ -72,6 +87,7 @@ export function registerWebNovelRoutes(
 ): void {
   const projects = new SqliteProjectRepository(database);
   const planning = new SqliteWebNovelRepository(database);
+  const readerPromises = new SqliteReaderPromiseRepository(database);
   const metrics = new SqlitePlatformMetricsRepository(database);
   const publishRecords = new SqlitePublishRecordRepository(database);
   const exportBatches = new SqliteExportBatchRepository(database);
@@ -436,6 +452,134 @@ export function registerWebNovelRoutes(
           ...input,
           now: now(),
         }),
+      );
+    },
+  );
+
+  app.route(
+    "GET",
+    "/api/projects/:projectId/reader-promises",
+    async (request) => {
+      const { projectId } = ProjectParamsSchema.parse(request.params);
+      requireProject(projects, projectId);
+      const query = ReaderPromiseListQuerySchema.parse(request.query ?? {});
+      const currentChapterIndex = query.chapterId
+        ? (requireChapter(projects, database, projectId, query.chapterId),
+          readerPromises.chapterIndex(projectId, query.chapterId))
+        : readerPromises.latestChapterIndex(projectId);
+      return ReaderPromiseListResponseSchema.parse(
+        readerPromises.listViews(projectId, {
+          ...(query.status ? { status: query.status } : {}),
+          view: query.view,
+          currentChapterIndex,
+        }),
+      );
+    },
+  );
+
+  app.route(
+    "GET",
+    "/api/projects/:projectId/reader-promises/:promiseId/events",
+    async (request) => {
+      const { projectId, promiseId } = ReaderPromiseParamsSchema.parse(
+        request.params,
+      );
+      requireProject(projects, projectId);
+      readerPromises.require(projectId, promiseId);
+      return readerPromises
+        .listEvents(projectId, promiseId)
+        .map((event) => ReaderPromiseEventSchema.parse(event));
+    },
+  );
+
+  app.route(
+    "POST",
+    "/api/projects/:projectId/reader-promises",
+    async (request) => {
+      const { projectId } = ProjectParamsSchema.parse(request.params);
+      requireProject(projects, projectId);
+      const input = CreateReaderPromiseRequestSchema.parse(request.body);
+      requireChapter(projects, database, projectId, input.openedChapterId);
+      if (input.targetChapterId) {
+        requireChapter(projects, database, projectId, input.targetChapterId);
+      }
+      const id = `promise-${sha256Hex(`${projectId}\0${input.requestId}`).slice(0, 32)}`;
+      const existing = readerPromises.get(projectId, id);
+      if (
+        existing &&
+        (existing.title !== input.title.trim() ||
+          existing.description !== input.description ||
+          existing.openedChapterId !== input.openedChapterId ||
+          existing.targetChapterId !== input.targetChapterId)
+      ) {
+        throw new CreativePersistenceError(
+          "reader_promise.idempotency_conflict",
+          "The same requestId was already used for different reader promise content",
+        );
+      }
+      const promise = readerPromises.create({
+        id,
+        projectId,
+        title: input.title,
+        description: input.description,
+        openedChapterId: input.openedChapterId,
+        targetChapterId: input.targetChapterId,
+        now: now(),
+      });
+      const currentChapterIndex = readerPromises.chapterIndex(
+        projectId,
+        input.openedChapterId,
+      );
+      const view = readerPromises
+        .listViews(projectId, { currentChapterIndex })
+        .promises.find((item) => item.id === promise.id);
+      return {
+        status: 201,
+        body: ReaderPromiseViewSchema.parse(
+          view ?? {
+            ...promise,
+            openForChapters: 0,
+            lastAction: "OPEN",
+            warningCodes: [],
+          },
+        ),
+      };
+    },
+  );
+
+  app.route(
+    "POST",
+    "/api/projects/:projectId/reader-promises/:promiseId/actions",
+    async (request) => {
+      const { projectId, promiseId } = ReaderPromiseParamsSchema.parse(
+        request.params,
+      );
+      requireProject(projects, projectId);
+      const input = ReaderPromiseActionRequestSchema.parse(request.body);
+      requireChapter(projects, database, projectId, input.chapterId);
+      const updated = readerPromises.applyAction({
+        projectId,
+        promiseId,
+        action: input.action,
+        chapterId: input.chapterId,
+        note: input.note,
+        now: now(),
+      });
+      const view = readerPromises
+        .listViews(projectId, {
+          currentChapterIndex: readerPromises.chapterIndex(
+            projectId,
+            input.chapterId,
+          ),
+        })
+        .promises.find((item) => item.id === updated.id);
+      return ReaderPromiseViewSchema.parse(
+        view ?? {
+          ...updated,
+          openForChapters: 0,
+          lastAction: input.action,
+          warningCodes: [],
+        },
       );
     },
   );

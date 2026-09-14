@@ -1,5 +1,50 @@
 import type { JsonSchemaContract, StructuredValidator } from "@narralume/llm";
+import {
+  ChapterEmotionCurvePointSchema,
+  ChapterEmotionTargetSchema,
+  ChapterHookTypeSchema,
+  ChapterPurposeSchema,
+  ChapterSceneStructureSchema,
+  ReaderPromiseOperationSchema,
+} from "@narralume/contracts";
 import { z } from "zod";
+
+const CHAPTER_PURPOSE_VALUES = [
+  "setup",
+  "progress",
+  "conflict",
+  "reveal",
+  "payoff",
+  "turning_point",
+  "relationship",
+  "worldbuilding",
+  "transition",
+  "climax",
+] as const;
+const CHAPTER_HOOK_TYPE_VALUES = [
+  "question",
+  "reveal",
+  "danger",
+  "decision",
+  "arrival",
+  "identity",
+  "information_gap",
+  "emotional",
+  "reward",
+  "reverse",
+] as const;
+const EMOTION_TARGET_VALUES = [
+  "爽",
+  "紧张",
+  "期待",
+  "惊讶",
+  "压迫",
+  "感动",
+  "暧昧",
+  "恐惧",
+  "轻松",
+] as const;
+const READER_PROMISE_ACTION_VALUES = ["OPEN", "ADVANCE", "PAYOFF"] as const;
 
 const IntentProposalSchema = z.object({
   promise: z.string().min(1),
@@ -99,6 +144,21 @@ const PlannedChapterSchema = z.object({
   foreshadowSeeds: z.array(z.string().trim().min(1)).max(12).optional(),
   characterNames: z.array(z.string().trim().min(1)).max(12).optional(),
   targetWords: z.number().int().positive().max(100_000).optional(),
+  purpose: ChapterPurposeSchema.optional(),
+  secondaryPurposes: z.array(ChapterPurposeSchema).max(3).optional(),
+  readerExpectation: z.string().trim().max(4_000).nullable().optional(),
+  emotionTarget: ChapterEmotionTargetSchema.nullable().optional(),
+  emotionCurve: z.array(ChapterEmotionCurvePointSchema).max(8).optional(),
+  readerPromiseOperations: z
+    .array(ReaderPromiseOperationSchema)
+    .max(30)
+    .optional(),
+  payoffStrength: z.number().int().min(0).max(5).optional(),
+  hookType: ChapterHookTypeSchema.nullable().optional(),
+  hookStrength: z.number().int().min(0).max(5).optional(),
+  informationGain: z.number().int().min(0).max(5).optional(),
+  endingPull: z.number().int().min(0).max(5).optional(),
+  sceneStructure: z.array(ChapterSceneStructureSchema).max(20).optional(),
 });
 
 export const RollingOutlineProposalSchema = z.object({
@@ -402,6 +462,74 @@ export const ROLLING_OUTLINE_CONTRACT: JsonSchemaContract = {
             },
             characterNames: { type: "array", items: { type: "string" } },
             targetWords: { type: "integer", minimum: 1 },
+            purpose: { type: "string", enum: [...CHAPTER_PURPOSE_VALUES] },
+            secondaryPurposes: {
+              type: "array",
+              maxItems: 3,
+              items: { type: "string", enum: [...CHAPTER_PURPOSE_VALUES] },
+            },
+            readerExpectation: { type: ["string", "null"] },
+            emotionTarget: {
+              type: ["string", "null"],
+              enum: [...EMOTION_TARGET_VALUES, null],
+            },
+            emotionCurve: {
+              type: "array",
+              maxItems: 8,
+              items: {
+                type: "object",
+                additionalProperties: false,
+                required: ["label", "intensity"],
+                properties: {
+                  label: { type: "string" },
+                  intensity: { type: "integer", minimum: 0, maximum: 5 },
+                },
+              },
+            },
+            readerPromiseOperations: {
+              type: "array",
+              maxItems: 30,
+              items: {
+                type: "object",
+                additionalProperties: false,
+                required: ["action", "promiseId", "title", "note"],
+                properties: {
+                  action: {
+                    type: "string",
+                    enum: [...READER_PROMISE_ACTION_VALUES],
+                  },
+                  promiseId: { type: ["string", "null"] },
+                  title: { type: ["string", "null"] },
+                  note: { type: ["string", "null"] },
+                },
+              },
+            },
+            payoffStrength: { type: "integer", minimum: 0, maximum: 5 },
+            hookType: {
+              type: ["string", "null"],
+              enum: [...CHAPTER_HOOK_TYPE_VALUES, null],
+            },
+            hookStrength: { type: "integer", minimum: 0, maximum: 5 },
+            informationGain: { type: "integer", minimum: 0, maximum: 5 },
+            endingPull: { type: "integer", minimum: 0, maximum: 5 },
+            sceneStructure: {
+              type: "array",
+              maxItems: 20,
+              items: {
+                type: "object",
+                additionalProperties: false,
+                required: ["order", "purpose", "beat", "payoff"],
+                properties: {
+                  order: { type: "integer", minimum: 1, maximum: 20 },
+                  purpose: {
+                    type: "string",
+                    enum: [...CHAPTER_PURPOSE_VALUES],
+                  },
+                  beat: { type: "string" },
+                  payoff: { type: ["string", "null"] },
+                },
+              },
+            },
           },
         },
       },

@@ -13,7 +13,11 @@ import {
 } from "../../shared/api/automation";
 import { queryKeys } from "../../shared/query/keys";
 import { ConflictRecovery, ErrorNote, ResourceErrorState } from "../../shared/ui";
-import type { AutopilotSession, RunActionRequest } from "../../shared/api/types";
+import type {
+  AutopilotSession,
+  NarrativeRun,
+  RunActionRequest,
+} from "../../shared/api/types";
 const states: Record<string, string> = {
   queued: "排队中",
   pending: "准备中",
@@ -165,6 +169,25 @@ export function TaskCenter({ projectId }: { projectId: string }) {
         runs: runs.filter((run) => groupForStatus(run.status) === key),
       }))
     : [];
+  const visibleRuns = groups.flatMap((group) =>
+    group.runs.slice(0, group.key === "completed" ? 12 : undefined),
+  );
+  const defaultRunId =
+    visibleRuns.find((run) => groupForStatus(run.status) === "unknown")?.id ??
+    visibleRuns.find((run) =>
+      ["awaiting_user", "awaiting_confirmation", "failed_recoverable"].includes(
+        run.status,
+      ),
+    )?.id ??
+    visibleRuns[0]?.id ??
+    null;
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const selectedRunIdInView = visibleRuns.some((run) => run.id === selectedRunId)
+    ? selectedRunId
+    : defaultRunId;
+  const selectedRun = visibleRuns.find(
+    (run) => run.id === selectedRunIdInView,
+  );
   return (
     <>
       {batches.isError ? (
@@ -179,7 +202,40 @@ export function TaskCenter({ projectId }: { projectId: string }) {
         <p>还没有创作任务。你可以随时开始手工写作。</p>
       ) : null}
       {runs?.length ? (
-        <>{groups.map((group) => <TaskGroup key={group.key} title={groupTitles[group.key]} runs={group.runs.slice(0, group.key === "completed" ? 12 : undefined)} projectId={projectId} />)}</>
+        <>
+          <p className="cf-task-center-hint">
+            先从列表选择一项查看详情；历史任务不会同时加载全部结果。
+          </p>
+          {groups.map((group) => (
+            <TaskGroup
+              key={group.key}
+              title={groupTitles[group.key]}
+              runs={group.runs.slice(
+                0,
+                group.key === "completed" ? 12 : undefined,
+              )}
+              selectedRunId={selectedRunIdInView}
+              onSelect={setSelectedRunId}
+            />
+          ))}
+          {selectedRun ? (
+            <section className="cf-task-detail-panel" aria-label="任务详情">
+              <div className="cf-task-detail-heading">
+                <div>
+                  <small>当前查看</small>
+                  <strong>{taskRecipeLabel(selectedRun)}</strong>
+                </div>
+                <span className="cf-badge">
+                  {states[selectedRun.status] ?? "未知状态"}
+                </span>
+              </div>
+              <TaskResult
+                projectId={projectId}
+                runId={selectedRun.id}
+              />
+            </section>
+          ) : null}
+        </>
       ) : null}
       {query.hasNextPage ? (
         <button className="cf-button" type="button" disabled={query.isFetchingNextPage} onClick={() => void query.fetchNextPage()}>
@@ -254,11 +310,13 @@ function BatchOverview({
 function TaskGroup({
   title,
   runs,
-  projectId,
+  selectedRunId,
+  onSelect,
 }: {
   title: string;
-  runs: { id: string }[];
-  projectId: string;
+  runs: NarrativeRun[];
+  selectedRunId: string | null;
+  onSelect: (runId: string) => void;
 }) {
   if (!runs.length) return null;
   return (
@@ -266,11 +324,50 @@ function TaskGroup({
       <h3>
         {title} <small>{runs.length}</small>
       </h3>
-      {runs.map((run) => (
-        <TaskResult key={run.id} projectId={projectId} runId={run.id} />
-      ))}
+      <div className="cf-task-list">
+        {runs.map((run) => (
+          <button
+            type="button"
+            className="cf-task-row"
+            data-selected={run.id === selectedRunId}
+            key={run.id}
+            onClick={() => onSelect(run.id)}
+          >
+            <span className="cf-task-row-heading">
+              <strong>{taskRecipeLabel(run)}</strong>
+              <span className="cf-badge">
+                {states[run.status] ?? "未知状态"}
+              </span>
+            </span>
+            <span className="cf-task-row-meta">
+              {run.targetOutlineNodeId ? "已关联章节" : "项目级任务"} ·{" "}
+              {formatTaskTime(run.updatedAt)}
+            </span>
+            <span className="cf-task-row-action">查看详情 →</span>
+          </button>
+        ))}
+      </div>
     </section>
   );
+}
+
+function taskRecipeLabel(run: Pick<NarrativeRun, "recipe">): string {
+  if (run.recipe === "chapter-production") return "章节创作";
+  if (run.recipe.includes("review")) return "章节检查";
+  if (run.recipe.includes("selection")) return "选区改写";
+  if (run.recipe.includes("assistant")) return "协作助手";
+  return "创作任务";
+}
+
+function formatTaskTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "时间未知";
+  return date.toLocaleString("zh-CN", {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 export function TaskResult({
   projectId,

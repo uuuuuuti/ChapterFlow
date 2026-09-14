@@ -1,6 +1,201 @@
-import { WebNovelCandidateEvidenceSchema } from "@narralume/contracts";
+import {
+  ReaderPromiseOperationSchema,
+  WebNovelCandidateEvidenceSchema,
+} from "@narralume/contracts";
 import type { JsonSchemaContract, StructuredValidator } from "@narralume/llm";
 import { z } from "zod";
+
+const CHAPTER_PURPOSE_VALUES = [
+  "setup",
+  "progress",
+  "conflict",
+  "reveal",
+  "payoff",
+  "turning_point",
+  "relationship",
+  "worldbuilding",
+  "transition",
+  "climax",
+] as const;
+const CHAPTER_HOOK_TYPE_VALUES = [
+  "question",
+  "reveal",
+  "danger",
+  "decision",
+  "arrival",
+  "identity",
+  "information_gap",
+  "emotional",
+  "reward",
+  "reverse",
+] as const;
+const EMOTION_TARGET_VALUES = [
+  "爽",
+  "紧张",
+  "期待",
+  "惊讶",
+  "压迫",
+  "感动",
+  "暧昧",
+  "恐惧",
+  "轻松",
+] as const;
+const READER_PROMISE_ACTION_VALUES = ["OPEN", "ADVANCE", "PAYOFF"] as const;
+
+/** Structured, reviewable planning payload carried inside a brief candidate. */
+export const ChapterIntentPlanSchema = z
+  .object({
+    purpose: z.enum(CHAPTER_PURPOSE_VALUES).optional(),
+    secondaryPurposes: z
+      .array(z.enum(CHAPTER_PURPOSE_VALUES))
+      .max(3)
+      .optional(),
+    readerExpectation: z.string().trim().max(4_000).nullable().optional(),
+    emotionTarget: z.enum(EMOTION_TARGET_VALUES).nullable().optional(),
+    emotionCurve: z
+      .array(
+        z
+          .object({
+            label: z.string().trim().min(1).max(200),
+            intensity: z.number().int().min(0).max(5),
+          })
+          .strict(),
+      )
+      .max(8)
+      .optional(),
+    goal: z.string().trim().max(4_000).nullable().optional(),
+    conflict: z.string().trim().max(4_000).nullable().optional(),
+    readerPromiseOperations: z
+      .array(ReaderPromiseOperationSchema)
+      .max(30)
+      .optional(),
+    payoff: z.string().trim().max(4_000).nullable().optional(),
+    payoffStrength: z.number().int().min(0).max(5).optional(),
+    hook: z.string().trim().max(4_000).nullable().optional(),
+    hookType: z.enum(CHAPTER_HOOK_TYPE_VALUES).nullable().optional(),
+    hookStrength: z.number().int().min(0).max(5).optional(),
+    informationGain: z.number().int().min(0).max(5).optional(),
+    endingPull: z.number().int().min(0).max(5).optional(),
+    sceneStructure: z
+      .array(
+        z
+          .object({
+            order: z.number().int().min(1).max(20),
+            purpose: z.enum(CHAPTER_PURPOSE_VALUES),
+            beat: z.string().trim().min(1).max(2_000),
+            payoff: z.string().trim().max(2_000).nullable(),
+          })
+          .strict(),
+      )
+      .max(20)
+      .optional(),
+    characterIds: z.array(z.string().trim().min(1)).max(100).optional(),
+    foreshadowIds: z.array(z.string().trim().min(1)).max(100).optional(),
+    timelineIds: z.array(z.string().trim().min(1)).max(100).optional(),
+    targetWords: z.number().int().positive().max(100_000).nullable().optional(),
+    pacing: z.enum(["slow", "steady", "fast", "cliffhanger"]).optional(),
+  })
+  .strict();
+export type ChapterIntentPlan = z.infer<typeof ChapterIntentPlanSchema>;
+
+export const CHAPTER_INTENT_PLAN_CONTRACT: JsonSchemaContract = {
+  name: "chapter_intent_plan_patch",
+  description:
+    "Reviewable Chapter Intent fields. Only changed editable fields are allowed; this contract never generates manuscript prose.",
+  strict: true,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      purpose: { type: "string", enum: [...CHAPTER_PURPOSE_VALUES] },
+      secondaryPurposes: {
+        type: "array",
+        maxItems: 3,
+        items: { type: "string", enum: [...CHAPTER_PURPOSE_VALUES] },
+      },
+      readerExpectation: { type: ["string", "null"] },
+      emotionTarget: {
+        type: ["string", "null"],
+        enum: [...EMOTION_TARGET_VALUES, null],
+      },
+      emotionCurve: {
+        type: "array",
+        maxItems: 8,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["label", "intensity"],
+          properties: {
+            label: { type: "string" },
+            intensity: { type: "integer", minimum: 0, maximum: 5 },
+          },
+        },
+      },
+      goal: { type: ["string", "null"] },
+      conflict: { type: ["string", "null"] },
+      readerPromiseOperations: {
+        type: "array",
+        maxItems: 30,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["action", "promiseId", "title", "note"],
+          properties: {
+            action: { type: "string", enum: [...READER_PROMISE_ACTION_VALUES] },
+            promiseId: { type: ["string", "null"] },
+            title: { type: ["string", "null"] },
+            note: { type: ["string", "null"] },
+          },
+        },
+      },
+      payoff: { type: ["string", "null"] },
+      payoffStrength: { type: "integer", minimum: 0, maximum: 5 },
+      hook: { type: ["string", "null"] },
+      hookType: {
+        type: ["string", "null"],
+        enum: [...CHAPTER_HOOK_TYPE_VALUES, null],
+      },
+      hookStrength: { type: "integer", minimum: 0, maximum: 5 },
+      informationGain: { type: "integer", minimum: 0, maximum: 5 },
+      endingPull: { type: "integer", minimum: 0, maximum: 5 },
+      sceneStructure: {
+        type: "array",
+        maxItems: 20,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["order", "purpose", "beat", "payoff"],
+          properties: {
+            order: { type: "integer", minimum: 1, maximum: 20 },
+            purpose: { type: "string", enum: [...CHAPTER_PURPOSE_VALUES] },
+            beat: { type: "string" },
+            payoff: { type: ["string", "null"] },
+          },
+        },
+      },
+      characterIds: {
+        type: "array",
+        maxItems: 100,
+        items: { type: "string" },
+      },
+      foreshadowIds: {
+        type: "array",
+        maxItems: 100,
+        items: { type: "string" },
+      },
+      timelineIds: {
+        type: "array",
+        maxItems: 100,
+        items: { type: "string" },
+      },
+      targetWords: { type: ["integer", "null"], minimum: 1, maximum: 100_000 },
+      pacing: {
+        type: "string",
+        enum: ["slow", "steady", "fast", "cliffhanger"],
+      },
+    },
+  },
+};
 
 export const WebNovelCandidateModelItemSchema = z
   .object({
@@ -80,6 +275,7 @@ export const WEB_NOVEL_CANDIDATE_MODEL_CONTRACT: JsonSchemaContract = {
                       "document",
                       "profile",
                       "brief",
+                      "reader_promise",
                     ],
                   },
                   sourceId: { type: "string", minLength: 1 },
@@ -139,6 +335,18 @@ export function webNovelCandidateModelValidator(
             "timelineIds",
             "targetWords",
             "pacing",
+            "purpose",
+            "secondaryPurposes",
+            "readerExpectation",
+            "emotionTarget",
+            "emotionCurve",
+            "readerPromiseOperations",
+            "payoffStrength",
+            "hookType",
+            "hookStrength",
+            "informationGain",
+            "endingPull",
+            "sceneStructure",
           ],
     );
     parsed.data.items.forEach((item, index) => {
@@ -155,6 +363,17 @@ export function webNovelCandidateModelValidator(
         for (const key of Object.keys(after)) {
           if (!allowed.has(key))
             issues.push(`items.${index}.afterJson.${key} is not editable`);
+        }
+        if (kind === "brief") {
+          const parsedPlan = ChapterIntentPlanSchema.partial().safeParse(after);
+          if (!parsedPlan.success) {
+            issues.push(
+              ...parsedPlan.error.issues.map(
+                (issue) =>
+                  `items.${index}.afterJson.${issue.path.join(".") || "root"}: ${issue.message}`,
+              ),
+            );
+          }
         }
       }
       item.evidence.forEach((evidence, evidenceIndexPosition) => {

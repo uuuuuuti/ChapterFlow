@@ -183,16 +183,130 @@ export const ChapterBriefPacingSchema = z.enum([
   "cliffhanger",
 ]);
 
+export const ChapterPurposeSchema = z.enum([
+  "setup",
+  "progress",
+  "conflict",
+  "reveal",
+  "payoff",
+  "turning_point",
+  "relationship",
+  "worldbuilding",
+  "transition",
+  "climax",
+]);
+export type ChapterPurpose = z.infer<typeof ChapterPurposeSchema>;
+
+export const ChapterEmotionTargetSchema = z.enum([
+  "爽",
+  "紧张",
+  "期待",
+  "惊讶",
+  "压迫",
+  "感动",
+  "暧昧",
+  "恐惧",
+  "轻松",
+]);
+export type ChapterEmotionTarget = z.infer<typeof ChapterEmotionTargetSchema>;
+
+export const ChapterHookTypeSchema = z.enum([
+  "question",
+  "reveal",
+  "danger",
+  "decision",
+  "arrival",
+  "identity",
+  "information_gap",
+  "emotional",
+  "reward",
+  "reverse",
+]);
+export type ChapterHookType = z.infer<typeof ChapterHookTypeSchema>;
+
+export const ReaderPromiseActionSchema = z.enum(["OPEN", "ADVANCE", "PAYOFF"]);
+export type ReaderPromiseAction = z.infer<typeof ReaderPromiseActionSchema>;
+
+export const ReaderPromiseStatusSchema = z.enum([
+  "open",
+  "paid_off",
+  "abandoned",
+]);
+export type ReaderPromiseStatus = z.infer<typeof ReaderPromiseStatusSchema>;
+
+export const ChapterEmotionCurvePointSchema = z
+  .object({
+    label: z.string().trim().min(1).max(200),
+    intensity: z.number().int().min(0).max(5),
+  })
+  .strict();
+export type ChapterEmotionCurvePoint = z.infer<
+  typeof ChapterEmotionCurvePointSchema
+>;
+
+export const ChapterSceneStructureSchema = z
+  .object({
+    order: z.number().int().min(1).max(20),
+    purpose: ChapterPurposeSchema,
+    beat: z.string().trim().min(1).max(2_000),
+    payoff: z.string().trim().max(2_000).nullable(),
+  })
+  .strict();
+export type ChapterSceneStructure = z.infer<typeof ChapterSceneStructureSchema>;
+
+export const ReaderPromiseOperationSchema = z
+  .object({
+    action: ReaderPromiseActionSchema,
+    promiseId: IdSchema.nullable().default(null),
+    title: z.string().trim().max(500).nullable().default(null),
+    note: z.string().trim().max(2_000).nullable().default(null),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.action === "OPEN" && !value.promiseId && !value.title) {
+      context.addIssue({
+        code: "custom",
+        path: ["title"],
+        message: "OPEN must include a title when promiseId is null",
+      });
+    }
+    if (value.action !== "OPEN" && !value.promiseId) {
+      context.addIssue({
+        code: "custom",
+        path: ["promiseId"],
+        message: `${value.action} must include promiseId`,
+      });
+    }
+  });
+export type ReaderPromiseOperation = z.infer<
+  typeof ReaderPromiseOperationSchema
+>;
+
 export const ChapterBriefSchema = z.object({
   id: IdSchema,
   projectId: IdSchema,
   outlineNodeId: IdSchema,
   /** Null for legacy briefs or chapters without a saved manuscript version. */
   documentVersionId: IdSchema.nullable().default(null),
+  purpose: ChapterPurposeSchema.default("progress"),
+  secondaryPurposes: z.array(ChapterPurposeSchema).max(3).default([]),
   goal: z.string().nullable(),
+  readerExpectation: z.string().max(4_000).nullable().default(null),
+  emotionTarget: ChapterEmotionTargetSchema.nullable().default(null),
+  emotionCurve: z.array(ChapterEmotionCurvePointSchema).max(8).default([]),
   conflict: z.string().nullable(),
+  readerPromiseOperations: z
+    .array(ReaderPromiseOperationSchema)
+    .max(30)
+    .default([]),
   payoff: z.string().nullable(),
+  payoffStrength: z.number().int().min(0).max(5).default(0),
   hook: z.string().nullable(),
+  hookType: ChapterHookTypeSchema.nullable().default(null),
+  hookStrength: z.number().int().min(0).max(5).default(0),
+  informationGain: z.number().int().min(0).max(5).default(0),
+  endingPull: z.number().int().min(0).max(5).default(0),
+  sceneStructure: z.array(ChapterSceneStructureSchema).max(20).default([]),
   characterIds: z.array(IdSchema).max(100),
   foreshadowIds: z.array(IdSchema).max(100),
   timelineIds: z.array(IdSchema).max(100),
@@ -205,10 +319,22 @@ export const ChapterBriefSchema = z.object({
 export type ChapterBriefDto = z.infer<typeof ChapterBriefSchema>;
 
 export const ChapterBriefSnapshotSchema = ChapterBriefSchema.pick({
+  purpose: true,
+  secondaryPurposes: true,
   goal: true,
+  readerExpectation: true,
+  emotionTarget: true,
+  emotionCurve: true,
   conflict: true,
+  readerPromiseOperations: true,
   payoff: true,
+  payoffStrength: true,
   hook: true,
+  hookType: true,
+  hookStrength: true,
+  informationGain: true,
+  endingPull: true,
+  sceneStructure: true,
   characterIds: true,
   foreshadowIds: true,
   timelineIds: true,
@@ -246,6 +372,91 @@ export const UpdateChapterBriefRequestSchema = ChapterBriefSchema.omit({
 });
 export type UpdateChapterBriefRequest = z.infer<
   typeof UpdateChapterBriefRequestSchema
+>;
+
+/** Product-facing name for the persisted ChapterBrief compatibility shape. */
+export const ChapterIntentSchema = ChapterBriefSchema;
+export type ChapterIntentDto = ChapterBriefDto;
+export const ChapterIntentSnapshotSchema = ChapterBriefSnapshotSchema;
+export type ChapterIntentSnapshotDto = ChapterBriefSnapshotDto;
+
+export const ReaderPromiseSchema = z.object({
+  id: IdSchema,
+  projectId: IdSchema,
+  title: z.string().trim().min(1).max(500),
+  description: z.string().max(4_000).nullable(),
+  status: ReaderPromiseStatusSchema,
+  openedChapterId: IdSchema.nullable(),
+  openedChapterIndex: z.number().int().positive(),
+  targetChapterId: IdSchema.nullable(),
+  paidOffChapterId: IdSchema.nullable(),
+  lastAdvancedChapterId: IdSchema.nullable(),
+  lastAdvancedChapterIndex: z.number().int().positive().nullable(),
+  advanceCount: z.number().int().nonnegative(),
+  version: z.number().int().nonnegative(),
+  createdAt: TimestampSchema,
+  updatedAt: TimestampSchema,
+});
+export type ReaderPromiseDto = z.infer<typeof ReaderPromiseSchema>;
+
+export const ReaderPromiseEventSchema = z.object({
+  id: IdSchema,
+  projectId: IdSchema,
+  promiseId: IdSchema,
+  action: ReaderPromiseActionSchema,
+  chapterId: IdSchema.nullable(),
+  chapterIndex: z.number().int().positive(),
+  note: z.string().max(2_000).nullable(),
+  source: z.enum(["author", "ai", "settlement", "restore"]),
+  createdAt: TimestampSchema,
+});
+export type ReaderPromiseEventDto = z.infer<typeof ReaderPromiseEventSchema>;
+
+export const ReaderPromiseViewSchema = ReaderPromiseSchema.extend({
+  openForChapters: z.number().int().nonnegative(),
+  lastAction: ReaderPromiseActionSchema,
+  warningCodes: z.array(z.string()),
+});
+export type ReaderPromiseViewDto = z.infer<typeof ReaderPromiseViewSchema>;
+
+export const ReaderPromiseHealthSchema = z.object({
+  openCount: z.number().int().nonnegative(),
+  longUnadvancedCount: z.number().int().nonnegative(),
+  overloaded: z.boolean(),
+  warningCodes: z.array(z.string()),
+});
+export type ReaderPromiseHealthDto = z.infer<typeof ReaderPromiseHealthSchema>;
+
+export const ReaderPromiseListResponseSchema = z.object({
+  promises: z.array(ReaderPromiseViewSchema),
+  health: ReaderPromiseHealthSchema,
+});
+export type ReaderPromiseListResponse = z.infer<
+  typeof ReaderPromiseListResponseSchema
+>;
+
+export const CreateReaderPromiseRequestSchema = z
+  .object({
+    requestId: z.string().uuid(),
+    title: z.string().trim().min(1).max(500),
+    description: z.string().trim().max(4_000).nullable().default(null),
+    openedChapterId: IdSchema,
+    targetChapterId: IdSchema.nullable().default(null),
+  })
+  .strict();
+export type CreateReaderPromiseRequest = z.infer<
+  typeof CreateReaderPromiseRequestSchema
+>;
+
+export const ReaderPromiseActionRequestSchema = z
+  .object({
+    action: z.enum(["ADVANCE", "PAYOFF"]),
+    chapterId: IdSchema,
+    note: z.string().trim().max(2_000).nullable().default(null),
+  })
+  .strict();
+export type ReaderPromiseActionRequest = z.infer<
+  typeof ReaderPromiseActionRequestSchema
 >;
 
 export const NovelCheckIssueSchema = z.object({

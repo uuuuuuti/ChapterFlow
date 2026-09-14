@@ -28,6 +28,7 @@ export * from "./delivery-repository.js";
 export * from "./story-repository.js";
 export * from "./template-repository.js";
 export * from "./web-novel-repository.js";
+export * from "./reader-promise-repository.js";
 export * from "./platform-metrics-repository.js";
 export * from "./publish-record-repository.js";
 export * from "./export-batch-repository.js";

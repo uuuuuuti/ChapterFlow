@@ -43,6 +43,7 @@ import {
 import { createChapterRun, getProjectRuns } from "../../shared/api/automation";
 import { createDocumentReview } from "../../shared/api/review";
 import { updateOutlineNode } from "../../shared/api/story";
+import { getChapterBrief, getReaderPromises } from "../../shared/api/web-novel";
 import { queryKeys } from "../../shared/query/keys";
 import { ConflictRecovery, ErrorNote, ConfirmDialog } from "../../shared/ui";
 import { Drawer } from "../../shared/ui/drawer";
@@ -55,6 +56,18 @@ import type {
   DocumentComment,
 } from "../../shared/api/types";
 import { rememberTask } from "../../lib/task-ledger";
+
+const chapterActionDescriptions: Record<string, string> = {
+  续写: "从本章章纲继续推进",
+  重写: "保留事实，换一种表达",
+  扩写: "补充动作、感官和反应",
+  压缩: "收紧节奏，保留关键线索",
+  优化对话: "增强人物声音与潜台词",
+  加强冲突: "让目标与阻碍更清楚",
+  加强爽点: "让回报与兑现更有力",
+  加强悬念: "强化未解决问题与章尾牵引",
+  "去 AI 味": "减少套话，恢复具体的人味",
+};
 
 export function ChapterEditor({
   projectId,
@@ -148,6 +161,17 @@ export function ChapterEditor({
   const node = story.outline.find(
     (n) => n.id === detail.document.outlineNodeId,
   );
+  const chapterBriefQuery = useQuery({
+    queryKey: queryKeys.chapterBrief(projectId, node?.id ?? null),
+    queryFn: ({ signal }) => getChapterBrief(projectId, node!.id, signal),
+    enabled: Boolean(node?.id),
+  });
+  const readerPromisesQuery = useQuery({
+    queryKey: queryKeys.readerPromises(projectId, "all", node?.id ?? null),
+    queryFn: ({ signal }) =>
+      getReaderPromises(projectId, { chapterId: node!.id, signal }),
+    enabled: Boolean(node?.id),
+  });
   const count = Array.from(content.replace(/\s/g, "")).length;
   const runs = useQuery({
     queryKey: queryKeys.runs(projectId),
@@ -856,51 +880,159 @@ export function ChapterEditor({
           </div>
         ) : null}
         {tab === "ai" ? (
-          <div className="cf-assistant-content">
-            <h3>把想法，变成更好的文字。</h3>
+          <div className="cf-assistant-content cf-writing-copilot">
+            <header className="cf-copilot-header">
+              <div>
+                <small className="cf-copilot-eyebrow">WRITING COPILOT</small>
+                <h3>写作 AI 助手</h3>
+                <p>围绕当前章节意图生成候选，接受后才会写入正文。</p>
+              </div>
+              <span className="cf-copilot-mode">
+                <i aria-hidden="true" />
+                候选模式
+              </span>
+            </header>
             {params.get("novelIssue") ? (
               <p className="cf-editor-notice" role="status">
                 这条修改要求来自前三章体检。生成的内容仍会先作为候选，接受后才会写入正文。
               </p>
             ) : null}
-            <p>
-              {selection.end > selection.start
-                ? `已选中 ${selection.end - selection.start} 个字符。`
-                : "选择一段文字，或对整章进行调整。"}
-            </p>
-            <div className="cf-ai-actions">
-              {chapterActions.map((a) => (
-                <button
-                  key={a.label}
-                  disabled={busy || (a.label === "续写" && !node)}
-                  onClick={() =>
-                    a.label === "续写"
-                      ? action.mutate({ kind: "chapter" })
-                      : edit(a.instruction, true)
-                  }
-                >
-                  <PenLine size={14} />
-                  {a.label}
-                </button>
-              ))}
+            <div className="cf-copilot-context">
+              <div>
+                <span>当前章节</span>
+                <strong>{node?.title ?? detail.document.title}</strong>
+              </div>
+              <div>
+                <span>处理范围</span>
+                <strong>
+                  {selection.end > selection.start
+                    ? "选区 " + (selection.end - selection.start) + " 字"
+                    : "整章候选"}
+                </strong>
+              </div>
+              <div>
+                <span>目标节奏</span>
+                <strong>
+                  {chapterBriefQuery.data?.targetWords
+                    ? chapterBriefQuery.data.targetWords.toLocaleString() + " 字"
+                    : chapterBriefQuery.data?.pacing ?? "未设置"}
+                </strong>
+              </div>
             </div>
-            <label>
-              自定义要求
-              <textarea
-                rows={3}
-                value={instruction}
-                onChange={(e) => setInstruction(e.target.value)}
-                placeholder="告诉助手，你希望怎样修改…"
-              />
-            </label>
-            <button
-              disabled={busy || !instruction.trim()}
-              className="cf-primary"
-              onClick={() => edit(instruction, true)}
-            >
-              生成改写建议
-            </button>
-            <small>AI 建议需要你接受后才会替换正文。</small>
+            <section className="cf-copilot-grounding">
+              <header>
+                <div>
+                  <small className="cf-copilot-eyebrow">CONTEXT</small>
+                  <h4>写作依据</h4>
+                </div>
+                <Link
+                  className="cf-text-link"
+                  to={"/books/" + projectId + "/advanced?tool=web-novel"}
+                >
+                  调整章节意图 →
+                </Link>
+              </header>
+              <div className="cf-copilot-grounding-grid">
+                <div>
+                  <span>作者承诺</span>
+                  <p>{story.intent?.promise ?? "尚未设置，建议先补充作品想兑现什么。"}</p>
+                </div>
+                <div>
+                  <span>本章读者期待</span>
+                  <p>
+                    {chapterBriefQuery.data?.readerExpectation ??
+                      node?.goal ??
+                      "尚未设置，AI 会以本章章纲为最低约束。"}
+                  </p>
+                </div>
+                <div>
+                  <span>情绪目标</span>
+                  <p>{chapterBriefQuery.data?.emotionTarget ?? "未设置"}</p>
+                </div>
+                <div>
+                  <span>开放承诺</span>
+                  <p>
+                    {readerPromisesQuery.data?.health.openCount
+                      ? readerPromisesQuery.data.health.openCount + " 个待推进承诺"
+                      : "当前没有待读者承诺"}
+                  </p>
+                  {readerPromisesQuery.data?.promises.slice(0, 2).map((promise) => (
+                    <small className="cf-copilot-promise" key={promise.id}>
+                      {promise.title}
+                    </small>
+                  ))}
+                </div>
+              </div>
+              {readerPromisesQuery.data?.health.warningCodes.length ? (
+                <p className="cf-copilot-warning" role="status">
+                  本章上下文有 {readerPromisesQuery.data.health.warningCodes.length} 项承诺提醒，生成前请留意兑现与推进节奏。
+                </p>
+              ) : null}
+              {chapterBriefQuery.isPending || readerPromisesQuery.isPending ? (
+                <small className="cf-copilot-muted">正在读取章节意图与读者承诺…</small>
+              ) : null}
+              {chapterBriefQuery.isError || readerPromisesQuery.isError ? (
+                <small className="cf-copilot-muted">
+                  部分章节意图暂时不可用，仍可继续使用基础改写操作。
+                </small>
+              ) : null}
+            </section>
+            <section className="cf-copilot-actions">
+              <header>
+                <div>
+                  <small className="cf-copilot-eyebrow">ACTIONS</small>
+                  <h4>选择一个写作动作</h4>
+                </div>
+                <span className="cf-copilot-muted">
+                  {selection.end > selection.start ? "作用于选区" : "作用于当前章节"}
+                </span>
+              </header>
+              <div className="cf-ai-actions cf-copilot-action-grid">
+                {chapterActions.map((a) => (
+                  <button
+                    key={a.label}
+                    disabled={busy || (a.label === "续写" && !node)}
+                    onClick={() =>
+                      a.label === "续写"
+                        ? action.mutate({ kind: "chapter" })
+                        : edit(a.instruction, true)
+                    }
+                  >
+                    <span className="cf-ai-action-icon">
+                      <PenLine size={14} />
+                    </span>
+                    <span className="cf-ai-action-copy">
+                      <strong>{a.label}</strong>
+                      <small>{chapterActionDescriptions[a.label]}</small>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </section>
+            <section className="cf-copilot-prompt">
+              <label className="cf-copilot-prompt-field">
+                <span>
+                  <strong>自定义要求</strong>
+                  <small>描述你想保留的事实、语气或修改边界。</small>
+                </span>
+                <textarea
+                  rows={3}
+                  value={instruction}
+                  onChange={(e) => setInstruction(e.target.value)}
+                  placeholder="例如：保留冲突升级，把章尾收在门外脚步声停下的瞬间…"
+                />
+              </label>
+              <div className="cf-copilot-prompt-actions">
+                <button
+                  disabled={busy || !instruction.trim()}
+                  className="cf-primary"
+                  onClick={() => edit(instruction, true)}
+                >
+                  生成改写建议
+                </button>
+                <small>建议会先进入候选区，接受后才会替换或插入正文。</small>
+              </div>
+            </section>
             {detail.proposals
               .filter((p) => p.status === "proposed")
               .map((p) => (

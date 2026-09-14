@@ -27,10 +27,12 @@ import {
   SqliteDeliveryRepository,
   SqliteNarrativeStateRepository,
   SqliteProjectRepository,
+  SqliteReaderPromiseRepository,
   SqliteRetrievalRepository,
   SqliteReviewRepository,
   SqliteStoryRepository,
   SqliteTemplateRepository,
+  SqliteWebNovelRepository,
   type NarrativeDatabase,
 } from "@narralume/persistence";
 
@@ -77,6 +79,8 @@ export class CollaborationWorkerSuite {
   private readonly reviews: SqliteReviewRepository;
   private readonly state: SqliteNarrativeStateRepository;
   private readonly delivery: SqliteDeliveryRepository;
+  private readonly readerPromises: SqliteReaderPromiseRepository;
+  private readonly webNovel: SqliteWebNovelRepository;
   private readonly compiler: ContextCompiler;
   private readonly templates: SqliteTemplateRepository;
   private readonly storyState: StoryStatePacketBuilder;
@@ -100,6 +104,8 @@ export class CollaborationWorkerSuite {
       this.story,
     );
     this.delivery = new SqliteDeliveryRepository(database);
+    this.readerPromises = new SqliteReaderPromiseRepository(database);
+    this.webNovel = new SqliteWebNovelRepository(database);
     this.compiler = new ContextCompiler(now);
     this.templates = new SqliteTemplateRepository(database);
     this.storyState = new StoryStatePacketBuilder(
@@ -1020,6 +1026,21 @@ export class CollaborationWorkerSuite {
     validateTextRange(version.content, start, end);
     const selected = version.content.slice(start, end);
     const instruction = policyString(snapshot.run.policy, "instruction");
+    const document = this.documents.get(snapshot.run.projectId, documentId);
+    const outlineNodeId = document?.outlineNodeId ?? null;
+    const chapterBrief = outlineNodeId
+      ? this.webNovel.getChapterBrief(snapshot.run.projectId, outlineNodeId)
+      : null;
+    const currentChapterIndex = outlineNodeId
+      ? this.readerPromises.chapterIndex(snapshot.run.projectId, outlineNodeId)
+      : undefined;
+    const openReaderPromises = this.readerPromises.listViews(
+      snapshot.run.projectId,
+      {
+        view: "open",
+        ...(currentChapterIndex ? { currentChapterIndex } : {}),
+      },
+    ).promises;
     const left = version.content.slice(Math.max(0, start - 2_000), start);
     const right = version.content.slice(
       end,
@@ -1048,6 +1069,8 @@ export class CollaborationWorkerSuite {
             role: "user",
             content: [
               `作者意图：${JSON.stringify(intent)}`,
+              `本章意图：${JSON.stringify(chapterBrief)}`,
+              `开放读者承诺：${JSON.stringify(openReaderPromises)}`,
               `已启用风格与 Skill：${JSON.stringify(editGuidance)}`,
               `指令：${instruction}`,
               `前文：${left}`,

@@ -26,6 +26,7 @@ import {
   SqliteDocumentRepository,
   SqliteNarrativeStateRepository,
   SqliteProjectRepository,
+  SqliteReaderPromiseRepository,
   SqliteStoryRepository,
   SqliteTemplateRepository,
   SqliteWebNovelRepository,
@@ -68,6 +69,7 @@ export class AutomationWorkerSuite {
   private readonly state: SqliteNarrativeStateRepository;
   private readonly templates: SqliteTemplateRepository;
   private readonly webNovel: SqliteWebNovelRepository;
+  private readonly readerPromises: SqliteReaderPromiseRepository;
   private readonly storyState: StoryStatePacketBuilder;
 
   constructor(
@@ -87,6 +89,7 @@ export class AutomationWorkerSuite {
     );
     this.templates = new SqliteTemplateRepository(database);
     this.webNovel = new SqliteWebNovelRepository(database);
+    this.readerPromises = new SqliteReaderPromiseRepository(database);
     this.storyState = new StoryStatePacketBuilder(
       this.canon,
       this.state,
@@ -258,6 +261,59 @@ export class AutomationWorkerSuite {
     const compass = this.automation.getCompass(session.projectId);
     const intent = this.story.getAuthorIntent(session.projectId);
     const outline = this.story.listOutline(session.projectId);
+    const readerPromiseState = this.readerPromises.listViews(
+      session.projectId,
+      {
+        view: "open",
+        currentChapterIndex: this.readerPromises.latestChapterIndex(
+          session.projectId,
+        ),
+      },
+    );
+    const plannedPromiseActions = outline
+      .filter((node) => node.kind === "chapter")
+      .flatMap((node) => {
+        const brief = this.webNovel.getChapterBrief(session.projectId, node.id);
+        return brief && brief.readerPromiseOperations.length > 0
+          ? [
+              {
+                chapterId: node.id,
+                chapterTitle: node.title,
+                operations: brief.readerPromiseOperations,
+              },
+            ]
+          : [];
+      });
+    const existingChapterIntents = outline
+      .filter((node) => node.kind === "chapter")
+      .flatMap((node) => {
+        const brief = this.webNovel.getChapterBrief(session.projectId, node.id);
+        return brief
+          ? [
+              {
+                chapterId: node.id,
+                chapterTitle: node.title,
+                purpose: brief.purpose,
+                secondaryPurposes: brief.secondaryPurposes,
+                readerExpectation: brief.readerExpectation,
+                emotionTarget: brief.emotionTarget,
+                emotionCurve: brief.emotionCurve,
+                goal: brief.goal,
+                conflict: brief.conflict,
+                payoff: brief.payoff,
+                payoffStrength: brief.payoffStrength,
+                hook: brief.hook,
+                hookType: brief.hookType,
+                hookStrength: brief.hookStrength,
+                informationGain: brief.informationGain,
+                endingPull: brief.endingPull,
+                sceneStructure: brief.sceneStructure,
+                readerPromiseOperations: brief.readerPromiseOperations,
+              },
+            ]
+          : [];
+      })
+      .slice(-50);
     const summaries = outline
       .filter((node) => node.kind === "chapter" && node.status === "committed")
       .map((node) => ({
@@ -300,12 +356,14 @@ export class AutomationWorkerSuite {
             "计划必须承接已提交章节，兑现指南针，尊重作者锁定意图与 steer。",
             "每章要有目标、阻力、转折、结果、事件、时间、地点、人物、信息揭示、章尾钩子、禁改事实和目标字数；结果必须推动因果链。",
             "请为每章填充 location、informationRevealed、lockedFacts、foreshadowSeeds、characterNames、targetWords；这些字段会保存为正式章纲，不能省略或写成空泛占位。",
+            "同时为每章规划 Chapter Intent：主目的、读者期待、情绪目标/曲线、回报/钩子强度、信息增量、结尾牵引、场景结构，以及需要 OPEN/ADVANCE/PAYOFF 的 Reader Promise。Reader Promise 只能引用已给出的真实 ID；新 OPEN 用 promiseId=null 并填写 title。",
           ],
           en: [
             "You are the rolling planner of a long-form novel. Plan only the currently visible window in detail; never freeze an entire long novel at once.",
             "The plan must continue from committed chapters, honor the compass, and respect the author's locked intent and steers.",
             "Each chapter needs a goal, resistance, turn, outcome, event, time, location, characters, information revealed, closing hook, immutable facts, and a target word count; outcomes must advance the causal chain.",
             "Fill location, informationRevealed, lockedFacts, foreshadowSeeds, characterNames, and targetWords for every chapter. These fields are persisted as the formal brief, so do not omit them or use empty placeholders.",
+            "Also plan a Chapter Intent for every chapter: primary purpose, reader expectation, emotion target/curve, payoff/hook strengths, information gain, ending pull, scene structure, and Reader Promise OPEN/ADVANCE/PAYOFF operations. Use only real promise IDs from the supplied state; a new OPEN uses promiseId=null with a title.",
           ],
         }),
         messages: [
@@ -317,6 +375,9 @@ export class AutomationWorkerSuite {
               `作者意图：${JSON.stringify(intent)}`,
               `现有大纲：${JSON.stringify(outline.map(compactOutline))}`,
               `已提交摘要：${JSON.stringify(summaries)}`,
+              `开放 Reader Promise（含年龄与最近推进）：${JSON.stringify(readerPromiseState)}`,
+              `已有章节计划中的 Promise 兑现/推进安排：${JSON.stringify(plannedPromiseActions)}`,
+              `已有章节 Chapter Intent（含目的、期待、回报与场景结构）：${JSON.stringify(existingChapterIntents)}`,
               `<author-continuation-state>\n${continuationState.sources
                 .map((source) => `${source.label}\n${source.content}`)
                 .join("\n\n")}\n</author-continuation-state>`,
@@ -535,6 +596,18 @@ export class AutomationWorkerSuite {
           conflict: chapter.conflict,
           payoff: chapter.outcome,
           hook: chapter.hook,
+          purpose: chapter.purpose ?? "progress",
+          secondaryPurposes: chapter.secondaryPurposes ?? [],
+          readerExpectation: chapter.readerExpectation ?? null,
+          emotionTarget: chapter.emotionTarget ?? null,
+          emotionCurve: chapter.emotionCurve ?? [],
+          readerPromiseOperations: chapter.readerPromiseOperations ?? [],
+          payoffStrength: chapter.payoffStrength ?? 0,
+          hookType: chapter.hookType ?? null,
+          hookStrength: chapter.hookStrength ?? 0,
+          informationGain: chapter.informationGain ?? 0,
+          endingPull: chapter.endingPull ?? 0,
+          sceneStructure: chapter.sceneStructure ?? [],
           characterIds: pov ? [pov.id] : [],
           foreshadowIds: [],
           timelineIds: [],
@@ -1072,6 +1145,43 @@ type PlannedChapterBriefInput = {
   foreshadowSeeds?: string[] | undefined;
   characterNames?: string[] | undefined;
   targetWords?: number | undefined;
+  purpose?:
+    | "setup"
+    | "progress"
+    | "conflict"
+    | "reveal"
+    | "payoff"
+    | "turning_point"
+    | "relationship"
+    | "worldbuilding"
+    | "transition"
+    | "climax"
+    | undefined;
+  secondaryPurposes?: PlannedChapterBriefInput["purpose"][] | undefined;
+  readerExpectation?: string | null | undefined;
+  emotionTarget?: string | null | undefined;
+  emotionCurve?: Array<{ label: string; intensity: number }> | undefined;
+  readerPromiseOperations?:
+    | Array<{
+        action: "OPEN" | "ADVANCE" | "PAYOFF";
+        promiseId: string | null;
+        title: string | null;
+        note: string | null;
+      }>
+    | undefined;
+  payoffStrength?: number | undefined;
+  hookType?: string | null | undefined;
+  hookStrength?: number | undefined;
+  informationGain?: number | undefined;
+  endingPull?: number | undefined;
+  sceneStructure?:
+    | Array<{
+        order: number;
+        purpose: PlannedChapterBriefInput["purpose"];
+        beat: string;
+        payoff: string | null;
+      }>
+    | undefined;
 };
 
 function chapterBriefMetadata(

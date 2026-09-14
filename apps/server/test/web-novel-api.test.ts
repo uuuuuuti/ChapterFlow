@@ -607,6 +607,67 @@ describe("网文规划 API", () => {
     });
     expect(chapter.statusCode).toBe(201);
     const chapterId = chapter.json().id as string;
+    const paidPromise = await server.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/reader-promises`,
+      payload: {
+        requestId: "00000000-0000-4000-8000-000000000001",
+        title: "灯灭后谁会被遗忘",
+        description: "开篇先让读者等待答案。",
+        openedChapterId: chapterId,
+        targetChapterId: chapterId,
+      },
+    });
+    expect(paidPromise.statusCode).toBe(201);
+    const paidPromiseId = paidPromise.json().id as string;
+    const advancedPromise = await server.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/reader-promises/${paidPromiseId}/actions`,
+      payload: {
+        action: "ADVANCE",
+        chapterId,
+        note: "找到一半线索",
+      },
+    });
+    expect(advancedPromise.statusCode).toBe(200);
+    const paid = await server.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/reader-promises/${paidPromiseId}/actions`,
+      payload: {
+        action: "PAYOFF",
+        chapterId,
+        note: "兑现本章答案",
+      },
+    });
+    expect(paid.statusCode).toBe(200);
+    expect(paid.json()).toMatchObject({
+      status: "paid_off",
+      lastAction: "PAYOFF",
+    });
+    const openPromise = await server.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/reader-promises`,
+      payload: {
+        requestId: "00000000-0000-4000-8000-000000000002",
+        title: "未来日期的船票",
+        description: "下一章继续核对船票日期。",
+        openedChapterId: chapterId,
+        targetChapterId: null,
+      },
+    });
+    expect(openPromise.statusCode).toBe(201);
+    const openPromiseId = openPromise.json().id as string;
+    const promisesBeforeBrief = await server.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/reader-promises?view=open&chapterId=${chapterId}`,
+    });
+    expect(promisesBeforeBrief.statusCode).toBe(200);
+    expect(promisesBeforeBrief.json()).toMatchObject({
+      health: { openCount: 1 },
+      promises: [
+        expect.objectContaining({ id: openPromiseId, status: "open" }),
+      ],
+    });
     const document = await server.inject({
       method: "POST",
       url: `/api/projects/${projectId}/documents`,
@@ -634,10 +695,42 @@ describe("网文规划 API", () => {
       method: "PUT",
       url: `/api/projects/${projectId}/chapter-briefs/${chapterId}`,
       payload: {
+        purpose: "turning_point",
+        secondaryPurposes: ["reveal"],
         goal: "发现第一条线索",
+        readerExpectation: "主角会发现谁在撒谎",
+        emotionTarget: "紧张",
+        emotionCurve: [{ label: "逼近", intensity: 4 }],
         conflict: "证人拒绝开口",
+        readerPromiseOperations: [
+          {
+            action: "ADVANCE",
+            promiseId: openPromiseId,
+            title: null,
+            note: "拿到船票背面的编号",
+          },
+          {
+            action: "PAYOFF",
+            promiseId: paidPromiseId,
+            title: null,
+            note: "答案已兑现",
+          },
+        ],
         payoff: "拿到旧船票",
+        payoffStrength: 4,
         hook: "船票上的日期尚未到来？",
+        hookType: "question",
+        hookStrength: 5,
+        informationGain: 4,
+        endingPull: 5,
+        sceneStructure: [
+          {
+            order: 1,
+            purpose: "conflict",
+            beat: "证人拒绝开口",
+            payoff: "留下船票",
+          },
+        ],
         characterIds: [],
         foreshadowIds: [],
         timelineIds: [],
@@ -648,6 +741,16 @@ describe("网文规划 API", () => {
     });
     expect(brief.statusCode).toBe(200);
     expect(brief.json()).toMatchObject({
+      purpose: "turning_point",
+      readerExpectation: "主角会发现谁在撒谎",
+      emotionTarget: "紧张",
+      readerPromiseOperations: [
+        expect.objectContaining({
+          action: "ADVANCE",
+          promiseId: openPromiseId,
+        }),
+        expect.objectContaining({ action: "PAYOFF", promiseId: paidPromiseId }),
+      ],
       characterIds: [],
       foreshadowIds: [],
       timelineIds: [],
@@ -905,6 +1008,26 @@ describe("网文规划 API", () => {
     expect(planningBundleBody.creativePresetHistory).toHaveLength(3);
     expect(planningBundleBody.manifest.counts.chapterBriefs).toBe(1);
     expect(planningBundleBody.manifest.counts.chapterBriefHistory).toBe(2);
+    expect(planningBundleBody.manifest.counts.readerPromises).toBe(2);
+    expect(planningBundleBody.manifest.counts.readerPromiseEvents).toBe(5);
+    expect(planningBundleBody.readerPromises).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: "灯灭后谁会被遗忘",
+          status: "paid_off",
+        }),
+        expect.objectContaining({ title: "未来日期的船票", status: "open" }),
+      ]),
+    );
+    expect(planningBundleBody.readerPromiseEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ promiseId: paidPromiseId, action: "PAYOFF" }),
+        expect.objectContaining({
+          promiseId: openPromiseId,
+          action: "ADVANCE",
+        }),
+      ]),
+    );
     expect(planningBundleBody.chapterBriefHistory).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -966,5 +1089,58 @@ describe("网文规划 API", () => {
     });
     expect(restoredPresetHistory.statusCode).toBe(200);
     expect(restoredPresetHistory.json()).toHaveLength(3);
+    const restoredPromises = await server.inject({
+      method: "GET",
+      url: `/api/projects/${restoredProjectId}/reader-promises?view=all`,
+    });
+    expect(restoredPromises.statusCode).toBe(200);
+    expect(restoredPromises.json().promises).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: "灯灭后谁会被遗忘",
+          status: "paid_off",
+        }),
+        expect.objectContaining({ title: "未来日期的船票", status: "open" }),
+      ]),
+    );
+    const restoredOpenPromise = restoredPromises
+      .json()
+      .promises.find(
+        (item: { title: string }) => item.title === "未来日期的船票",
+      );
+    const restoredEvents = await server.inject({
+      method: "GET",
+      url: `/api/projects/${restoredProjectId}/reader-promises/${restoredOpenPromise.id}/events`,
+    });
+    expect(restoredEvents.statusCode).toBe(200);
+    expect(restoredEvents.json()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ action: "OPEN" }),
+        expect.objectContaining({ action: "ADVANCE" }),
+      ]),
+    );
+    const restoredStory = await server.inject({
+      method: "GET",
+      url: `/api/projects/${restoredProjectId}/story-bible`,
+    });
+    expect(restoredStory.statusCode).toBe(200);
+    const restoredChapterId = restoredStory
+      .json()
+      .outline.find(
+        (item: { kind: string; title: string }) =>
+          item.kind === "chapter" && item.title === "第一章 灯灭",
+      ).id as string;
+    const restoredBriefResponse = await server.inject({
+      method: "GET",
+      url: `/api/projects/${restoredProjectId}/chapter-briefs/${restoredChapterId}`,
+    });
+    expect(restoredBriefResponse.statusCode).toBe(200);
+    expect(restoredBriefResponse.json()).toMatchObject({
+      purpose: "turning_point",
+      readerPromiseOperations: [
+        expect.objectContaining({ action: "ADVANCE" }),
+        expect.objectContaining({ action: "PAYOFF" }),
+      ],
+    });
   });
 });

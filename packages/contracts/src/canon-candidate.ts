@@ -40,6 +40,7 @@ export const CanonCandidateEvidenceSchema = z.object({
     "document",
     "profile",
     "brief",
+    "reader_promise",
   ]),
   sourceId: IdSchema,
   label: z.string().trim().min(1).max(500),

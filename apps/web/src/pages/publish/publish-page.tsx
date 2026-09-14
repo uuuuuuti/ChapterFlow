@@ -4,11 +4,11 @@ import { Link, useParams } from "react-router";
 import { Archive, CheckCircle2, Download, FileDown, Plus, ShieldCheck, Trash2 } from "lucide-react";
 import JSZip from "jszip";
 import { useProjectOverview, useStory } from "../../entities/project/queries";
-import { createProjectBackup, getProjectBackups, getProjectExport, getProjectQuality, restoreProjectBackup } from "../../shared/api/delivery";
+import { getProjectExport, getProjectQuality } from "../../shared/api/delivery";
 import { createPublishRecord, deletePublishRecord, getExportBatches, getPublishRecords, updatePublishRecord } from "../../shared/api/web-novel";
-import { ErrorNote, ConfirmDialog, ResourceErrorState } from "../../shared/ui";
+import { ErrorNote, ResourceErrorState } from "../../shared/ui";
 import { queryKeys } from "../../shared/query/keys";
-import type { ExportFormat, ProjectBackup, PublishRecordDto } from "../../shared/api/types";
+import type { ExportFormat, PublishRecordDto } from "../../shared/api/types";
 
 type PublishRecord = {
   id: string;
@@ -36,19 +36,14 @@ export function PublishPage() {
       ),
     [story.data?.outline],
   );
-  const backups = useQuery({ queryKey: queryKeys.projectBackups(projectId), queryFn: ({ signal }) => getProjectBackups(projectId, signal) });
   const [format, setFormat] = useState<ExportFormat>("markdown");
   const [versionMode, setVersionMode] = useState<"current" | "history">("current");
   const [fromOutlineNodeId, setFromOutlineNodeId] = useState("");
   const [toOutlineNodeId, setToOutlineNodeId] = useState("");
   const rangeInitialized = useRef(false);
   const [includeAnnotations, setIncludeAnnotations] = useState(false);
-  const [label, setLabel] = useState("");
-  const [restoreTarget, setRestoreTarget] = useState<ProjectBackup | null>(null);
-  const restoreRequestRef = useRef<{ backupId: string; requestId: string } | null>(null);
-  const backupRequestRef = useRef<{ key: string; label: string; requestId: string } | null>(null);
-  const [restoredProjectId, setRestoredProjectId] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
+  const restoredProjectId: string | null = null;
   const [preview, setPreview] = useState<{
     filename: string;
     sizeBytes: number;
@@ -146,45 +141,6 @@ export function PublishPage() {
       void client.invalidateQueries({ queryKey: queryKeys.exportBatches(projectId) });
     },
   });
-  const backupMutation = useMutation({
-    mutationFn: () => {
-      const key = label.trim() || "<default>";
-      const existing = backupRequestRef.current;
-      if (existing?.key !== key) {
-        backupRequestRef.current = {
-          key,
-          label: label.trim() || `发布前备份 ${new Date().toLocaleString("zh-CN")}`,
-          requestId: crypto.randomUUID(),
-        };
-      }
-      const request = backupRequestRef.current!;
-      return createProjectBackup(projectId, request.label, request.requestId);
-    },
-    onSuccess: async () => {
-      backupRequestRef.current = null;
-      setLabel("");
-      setNotice("作品备份已创建。");
-      await client.invalidateQueries({ queryKey: queryKeys.projectBackups(projectId) });
-    },
-  });
-  const restoreMutation = useMutation({
-    mutationFn: (backup: ProjectBackup) => {
-      const existing = restoreRequestRef.current;
-      const requestId = existing?.backupId === backup.id ? existing.requestId : crypto.randomUUID();
-      restoreRequestRef.current = { backupId: backup.id, requestId };
-      return restoreProjectBackup(backup.id, requestId);
-    },
-    onSuccess: async ({ projectId: nextProjectId }) => {
-      restoreRequestRef.current = null;
-      setRestoreTarget(null);
-      setRestoredProjectId(nextProjectId);
-      setNotice(`备份已恢复为作品 ${nextProjectId}，可以继续检查。`);
-      await Promise.all([
-        client.invalidateQueries({ queryKey: queryKeys.projects }),
-        client.invalidateQueries({ queryKey: queryKeys.projectBackups(projectId) }),
-      ]);
-    },
-  });
   const addRecord = async (event: FormEvent) => {
     event.preventDefault();
     if (!record.platform.trim() || !record.chapter.trim()) return;
@@ -265,7 +221,7 @@ export function PublishPage() {
       <option value="text">纯文本（TXT）</option>
       <option value="docx">DOCX</option>
       <option value="epub">EPUB</option>
-      <option value="narrative-bundle">文织备份包</option>
+      <option value="narrative-bundle">文织作品包</option>
     </select>
   </label>
   <div className="cf-publish-range-grid">
@@ -420,30 +376,20 @@ export function PublishPage() {
     </div>
   </section>
 
-  <section className="cf-card cf-backup-section">
+  <section className="cf-card cf-data-safety">
     <div className="cf-section-title">
       <div>
-        <h2>作品备份</h2>
-        <p>导出前创建一份可回溯的作品快照；同一备份恢复成功后不会再次创建副本。</p>
+        <h2>数据安全</h2>
+        <p>发布页只负责导出和发布记录。完整备份与恢复统一放到设置，减少重复入口；文织作品包可在新建作品时导入。</p>
       </div>
       <Archive size={24} />
     </div>
-    <div className="cf-backup-create">
-      <input aria-label="备份说明" value={label} onChange={(event) => setLabel(event.target.value)} placeholder="例如：第 20 章发布前" />
-      <button type="button" className="cf-button" disabled={backupMutation.isPending} onClick={() => backupMutation.mutate()}>{backupMutation.isPending ? "正在备份…" : "创建备份"}</button>
-    </div>
-    {backupMutation.isError ? <ErrorNote error={backupMutation.error} /> : null}
-    <div className="cf-backup-list">
-      {backups.isPending ? <p role="status">正在读取备份…</p> : backups.data?.length ? backups.data.map((backup) => (
-        <div className="cf-list-row" key={backup.id}>
-          <div><strong>{backup.label}{backup.restoredProjectId ? " · 已恢复" : ""}</strong><p>{new Date(backup.createdAt).toLocaleString("zh-CN")} · {formatBytes(backup.sizeBytes)} · {backup.bundleHash.slice(0, 10)}</p></div>
-          {backup.restoredProjectId ? <Link className="cf-text-link" to={`/books/${backup.restoredProjectId}/dashboard`}>打开恢复作品</Link> : <button type="button" className="cf-button" onClick={() => setRestoreTarget(backup)}>恢复为新作品</button>}
-        </div>
-      )) : <p>还没有作品备份。</p>}
+    <div className="cf-actions">
+      <Link className="cf-button" to="/settings/storage#system-backups">管理系统备份</Link>
+      <Link className="cf-text-link" to="/books/new?mode=import">导入文织作品包 →</Link>
     </div>
   </section>
 
-  {restoreTarget ? <ConfirmDialog title="从备份恢复为新作品？" confirmLabel="开始恢复" pending={restoreMutation.isPending} onCancel={() => setRestoreTarget(null)} onConfirm={() => restoreMutation.mutate(restoreTarget)}><p>原作品不会被覆盖；如果该备份之前已经恢复成功，系统会打开原恢复作品，不再创建重复副本。</p></ConfirmDialog> : null}
   {preview ? <div className="cf-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setPreview(null); }}><section className="cf-modal cf-publish-preview" role="dialog" aria-modal="true" aria-labelledby="cf-publish-preview-title"><header><div><h2 id="cf-publish-preview-title">导出预览</h2><p>{preview.filename} · {formatBytes(preview.sizeBytes)}</p></div><button type="button" className="cf-modal-close" aria-label="关闭预览" onClick={() => setPreview(null)}>×</button></header>{preview.artifact ? <ExportArtifactSummary artifact={preview.artifact} /> : null}<pre>{preview.content ?? "已完成结构检查。下载文件后可在对应编辑器中进行最终版式校对。"}</pre><footer><button type="button" className="cf-primary" onClick={() => setPreview(null)}>关闭</button></footer></section></div> : null}
 </div>;
 }

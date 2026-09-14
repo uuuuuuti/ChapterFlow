@@ -31,6 +31,13 @@ export const queryKeys = {
     ["chapterflow", "chapter-brief", projectId, outlineNodeId] as const,
   chapterBriefHistory: (projectId: string | null, outlineNodeId: string | null) =>
     ["chapterflow", "chapter-brief-history", projectId, outlineNodeId] as const,
+  readerPromises: (
+    projectId: string | null,
+    view: string = "all",
+    chapterId: string | null = null,
+  ) => ["chapterflow", "reader-promises", projectId, view, chapterId] as const,
+  readerPromiseEvents: (projectId: string | null, promiseId: string | null) =>
+    ["chapterflow", "reader-promise-events", projectId, promiseId] as const,
   webNovelCandidates: (projectId: string | null, kind: string | null, outlineNodeId: string | null = null) =>
     ["chapterflow", "web-novel-candidates", projectId, kind, outlineNodeId] as const,
   platformMetrics: (id: string | null) => ["chapterflow", "platform-metrics", id] as const,

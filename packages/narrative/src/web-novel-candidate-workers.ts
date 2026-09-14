@@ -18,6 +18,7 @@ import {
   SqliteDocumentRepository,
   SqliteNarrativeStateRepository,
   SqliteProjectRepository,
+  SqliteReaderPromiseRepository,
   SqliteStoryRepository,
   SqliteWebNovelCandidateRepository,
   SqliteWebNovelRepository,
@@ -126,6 +127,17 @@ export class WebNovelCandidateWorkerSuite {
     const brief = outlineNodeId
       ? this.webNovel.getChapterBrief(project.id, outlineNodeId)
       : null;
+    const readerPromises = new SqliteReaderPromiseRepository(this.database);
+    const currentChapterIndex = outlineNodeId
+      ? readerPromises.chapterIndex(project.id, outlineNodeId)
+      : readerPromises.latestChapterIndex(project.id);
+    const promiseView =
+      kind === "brief"
+        ? readerPromises.listViews(project.id, {
+            view: "open",
+            currentChapterIndex,
+          })
+        : { promises: [], health: null };
     const current =
       kind === "profile" ? profileToObject(profile) : briefToObject(brief);
     const document = outlineNodeId
@@ -150,6 +162,21 @@ export class WebNovelCandidateWorkerSuite {
     const timeline = state.listTimeline(project.id);
     const foreshadows = state.listForeshadows(project.id);
     const outline = this.story.listOutline(project.id);
+    const priorChapterSummaries = state.listLatestSummaries(
+      project.id,
+      "chapter",
+    );
+    const targetOutlineIndex = outlineNodeId
+      ? outline.findIndex((item) => item.id === outlineNodeId)
+      : -1;
+    const outlineBefore =
+      targetOutlineIndex >= 0
+        ? outline.slice(Math.max(0, targetOutlineIndex - 5), targetOutlineIndex)
+        : [];
+    const outlineAfter =
+      targetOutlineIndex >= 0
+        ? outline.slice(targetOutlineIndex + 1, targetOutlineIndex + 6)
+        : [];
     const evidenceIndex: Record<string, readonly string[]> = {
       outline: outline.map((item) => item.id),
       entity: entities.map((item) => item.id),
@@ -160,6 +187,7 @@ export class WebNovelCandidateWorkerSuite {
       document: document ? [document.id] : [],
       profile: [project.id],
       brief: brief ? [brief.id] : [],
+      reader_promise: promiseView.promises.map((item) => item.id),
     };
     const packet = {
       task: { kind, outlineNodeId, instruction },
@@ -171,6 +199,11 @@ export class WebNovelCandidateWorkerSuite {
       },
       currentProfile: profile,
       currentBrief: brief,
+      openReaderPromises: promiseView.promises,
+      readerPromiseHealth: promiseView.health,
+      priorChapterSummaries: priorChapterSummaries.slice(-50),
+      outlineBefore,
+      outlineAfter,
       targetOutline: node
         ? {
             id: node.id,
@@ -207,7 +240,13 @@ export class WebNovelCandidateWorkerSuite {
       },
       evidenceIndex,
     };
-    const baseFingerprint = sha256Hex(stableJson(current));
+    const baseFingerprint = sha256Hex(
+      stableJson(
+        kind === "brief"
+          ? { current, openReaderPromises: promiseView.promises }
+          : current,
+      ),
+    );
     return {
       artifactKind: "web-novel-context",
       output: {
@@ -249,14 +288,18 @@ export class WebNovelCandidateWorkerSuite {
               "绝不能直接写入数据库，也不能声称候选已经生效。每项必须有理由、影响和真实来源证据。",
               "afterJson 只放要修改的可编辑字段，不得包含 id、projectId、version、updatedAt、outlineNodeId 或 documentVersionId。",
               "引用来源时只能使用 evidenceIndex 中出现的真实 ID；不要编造 ID。",
-              "profile 候选只能修改题材、读者、承诺、风格、结局方向、视角、更新节奏、目标字数、边界、世界规则和长线弧光；brief 候选只能修改目标、冲突、回报、钩子、人物、伏笔、时间线、目标字数和节奏。",
+              "profile 候选只能修改题材、读者、承诺、风格、结局方向、视角、更新节奏、目标字数、边界、世界规则和长线弧光；brief 候选可以修改章节 Intent 的目的、读者期待、情绪目标/曲线、目标、冲突、OPEN/ADVANCE/PAYOFF 期待操作、回报强度、钩子类型/强度、信息增量、结尾牵引、场景结构、人物/伏笔/时间线、目标字数和节奏。",
+              "readerPromiseOperations 必须引用 openReaderPromises 中的真实 promiseId；新 OPEN 可以使用 promiseId=null 并填写 title。候选只进入审阅台，绝不直接生成正文。",
+              "章节候选必须综合 priorChapterSummaries、outlineBefore、targetOutline、outlineAfter 与 supportingIndex；不要只改写当前章纲的一句话。",
             ],
             en: [
               "You are ChapterFlow's web-novel planning editor. Using only the supplied project material, generate reviewable profile or chapter-brief candidates.",
               "Never write to the database or claim that a candidate is already active. Every item needs rationale, impact, and real evidence.",
               "afterJson contains only editable changed fields; never include ids, projectId, version, timestamps, outlineNodeId, or documentVersionId.",
               "Evidence IDs must come from evidenceIndex. Never invent IDs.",
-              "Profile candidates may edit only profile planning fields; brief candidates may edit only goal, conflict, payoff, hook, links, target words, and pacing.",
+              "Profile candidates may edit only profile planning fields; brief candidates may edit the Chapter Intent purpose, reader expectation, emotion target/curve, goal, conflict, OPEN/ADVANCE/PAYOFF promise operations, payoff/hook strengths and types, information gain, ending pull, scene structure, links, target words, and pacing.",
+              "readerPromiseOperations must use real promiseIds from openReaderPromises; a new OPEN may use promiseId=null and provide a title. Candidates are review-only and must never generate manuscript prose.",
+              "Use priorChapterSummaries, outlineBefore, targetOutline, outlineAfter, and supportingIndex together; do not merely paraphrase the current outline sentence.",
             ],
           },
         ),
@@ -408,10 +451,22 @@ function emptyProfileObject(): Record<string, unknown> {
 
 function emptyBriefObject(): Record<string, unknown> {
   return {
+    purpose: "progress",
+    secondaryPurposes: [],
     goal: null,
+    readerExpectation: null,
+    emotionTarget: null,
+    emotionCurve: [],
     conflict: null,
+    readerPromiseOperations: [],
     payoff: null,
+    payoffStrength: 0,
     hook: null,
+    hookType: null,
+    hookStrength: 0,
+    informationGain: 0,
+    endingPull: 0,
+    sceneStructure: [],
     characterIds: [],
     foreshadowIds: [],
     timelineIds: [],

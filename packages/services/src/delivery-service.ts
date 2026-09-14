@@ -19,12 +19,20 @@ import {
   createOutlineNode,
   createProject,
   type CanonEntity,
+  type ChapterEmotionCurvePoint,
+  type ChapterEmotionTarget,
+  type ChapterHookType,
+  type ChapterPurpose,
+  type ChapterSceneStructure,
   type ImportBatch,
   type ImportBatchDetail,
   type ImportCandidate,
   type ImportFormat,
   type ProjectPhase,
   type ProjectQualityReport,
+  type ReaderPromiseAction,
+  type ReaderPromiseOperation,
+  type ReaderPromiseStatus,
   type QualityIssue,
   type StyleProfile,
   type WritingSkill,
@@ -42,6 +50,7 @@ import {
   SqlitePublishRecordRepository,
   SqliteProjectCoverRepository,
   SqliteProjectRepository,
+  SqliteReaderPromiseRepository,
   SqliteRetrievalRepository,
   SqliteStoryRepository,
   SqliteWebNovelRepository,
@@ -90,6 +99,8 @@ const BundleCountsSchema = z.object({
   /** Added with the profile/brief candidate workbench; defaults keep older bundles restorable. */
   webNovelCandidateSets: z.number().int().nonnegative().default(0),
   webNovelCandidateItems: z.number().int().nonnegative().default(0),
+  readerPromises: z.number().int().nonnegative().default(0),
+  readerPromiseEvents: z.number().int().nonnegative().default(0),
 });
 export type BundleCounts = z.infer<typeof BundleCountsSchema>;
 
@@ -195,6 +206,9 @@ const BundleSchema = z.object({
   creativePresetHistory: z.array(z.record(z.string(), z.unknown())).default([]),
   chapterBriefs: z.array(z.record(z.string(), z.unknown())).default([]),
   chapterBriefHistory: z.array(z.record(z.string(), z.unknown())).default([]),
+  /** Reader Promise lifecycle is optional so v3 bundles remain restorable. */
+  readerPromises: z.array(z.record(z.string(), z.unknown())).default([]),
+  readerPromiseEvents: z.array(z.record(z.string(), z.unknown())).default([]),
   platformMetrics: z.array(z.record(z.string(), z.unknown())).default([]),
   publishRecords: z.array(z.record(z.string(), z.unknown())).default([]),
   exportBatches: z.array(z.record(z.string(), z.unknown())).default([]),
@@ -700,6 +714,13 @@ export class DeliveryService {
     const chapterBriefHistory = outline.flatMap((node) =>
       planning.listChapterBriefHistory(projectId, node.id, 100),
     );
+    const readerPromiseRepository = new SqliteReaderPromiseRepository(
+      this.database,
+    );
+    const readerPromises = readerPromiseRepository.list(projectId);
+    const readerPromiseEvents = readerPromises.flatMap((promise) =>
+      readerPromiseRepository.listEvents(projectId, promise.id),
+    );
     const webNovelCandidates = new SqliteWebNovelCandidateRepository(
       this.database,
     )
@@ -1025,6 +1046,8 @@ export class DeliveryService {
         (sum, candidate) => sum + candidate.items.length,
         0,
       ),
+      readerPromises: readerPromises.length,
+      readerPromiseEvents: readerPromiseEvents.length,
     });
     return BundleSchema.parse({
       manifest: {
@@ -1066,6 +1089,8 @@ export class DeliveryService {
       creativePresetHistory,
       chapterBriefs,
       chapterBriefHistory,
+      readerPromises,
+      readerPromiseEvents,
       platformMetrics,
       publishRecords,
       exportBatches,
@@ -2147,6 +2172,7 @@ export class DeliveryService {
     const activityMap = new Map<string, string>();
     const issueMap = new Map<string, string>();
     const creativePresetMap = new Map<string, string>();
+    const readerPromiseMap = new Map<string, string>();
     const candidateRunMap = new Map<
       string,
       { runId: string; stepId: string }
@@ -2178,6 +2204,8 @@ export class DeliveryService {
     let restoredOpeningCheckAudits = 0;
     let restoredWebNovelCandidateSets = 0;
     let restoredWebNovelCandidateItems = 0;
+    let restoredReaderPromises = 0;
+    let restoredReaderPromiseEvents = 0;
     // issueMap 保留 issue 旧 ID → 新 ID 的映射，便于后续扩展（如裁定回指）。
     const orderedOutline = [...bundle.outline].sort(
       (a, b) => numberField(a, "depth") - numberField(b, "depth"),
@@ -2582,16 +2610,107 @@ export class DeliveryService {
         );
       restoredBookProfileHistory += 1;
     }
+    for (const source of bundle.readerPromises) {
+      const oldId = required(stringField(source, "id"), "reader promise id");
+      const id = randomUuid();
+      readerPromiseMap.set(oldId, id);
+      const openedChapterId = stringField(source, "openedChapterId");
+      const targetChapterId = stringField(source, "targetChapterId");
+      const paidOffChapterId = stringField(source, "paidOffChapterId");
+      const lastAdvancedChapterId = stringField(
+        source,
+        "lastAdvancedChapterId",
+      );
+      this.database.raw
+        .prepare(
+          `INSERT INTO reader_promises(
+            id, project_id, title, description, status, opened_chapter_id,
+            opened_chapter_index, target_chapter_id, paid_off_chapter_id,
+            last_advanced_chapter_id, last_advanced_chapter_index,
+            advance_count, version, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          id,
+          projectId,
+          stringField(source, "title") ?? "恢复的 Reader Promise",
+          stringField(source, "description"),
+          readerPromiseStatus(stringField(source, "status")),
+          openedChapterId ? (nodeMap.get(openedChapterId) ?? null) : null,
+          Math.max(
+            1,
+            Math.floor(numberField(source, "openedChapterIndex") || 1),
+          ),
+          targetChapterId ? (nodeMap.get(targetChapterId) ?? null) : null,
+          paidOffChapterId ? (nodeMap.get(paidOffChapterId) ?? null) : null,
+          lastAdvancedChapterId
+            ? (nodeMap.get(lastAdvancedChapterId) ?? null)
+            : null,
+          nullablePositiveNumber(source.lastAdvancedChapterIndex),
+          Math.max(0, Math.floor(numberField(source, "advanceCount"))),
+          Math.max(0, Math.floor(numberField(source, "version"))),
+          stringField(source, "createdAt") ?? now,
+          stringField(source, "updatedAt") ?? now,
+        );
+      restoredReaderPromises += 1;
+    }
+    for (const source of bundle.readerPromiseEvents) {
+      const promiseId = readerPromiseMap.get(
+        stringField(source, "promiseId") ?? "",
+      );
+      if (!promiseId) continue;
+      const oldChapterId = stringField(source, "chapterId");
+      this.database.raw
+        .prepare(
+          `INSERT INTO reader_promise_events(
+            id, project_id, promise_id, action, chapter_id, chapter_index,
+            note, source, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          randomUuid(),
+          projectId,
+          promiseId,
+          readerPromiseAction(stringField(source, "action")),
+          oldChapterId ? (nodeMap.get(oldChapterId) ?? null) : null,
+          Math.max(1, Math.floor(numberField(source, "chapterIndex") || 1)),
+          stringField(source, "note"),
+          readerPromiseEventSource(stringField(source, "source")),
+          stringField(source, "createdAt") ?? now,
+        );
+      restoredReaderPromiseEvents += 1;
+    }
     for (const source of bundle.chapterBriefs) {
       const outlineNodeId = nodeMap.get(
         stringField(source, "outlineNodeId") ?? "",
       );
       if (!outlineNodeId) continue;
       const brief = planning.upsertChapterBrief(projectId, outlineNodeId, {
+        purpose: chapterPurpose(stringField(source, "purpose")),
+        secondaryPurposes: chapterPurposeArray(source.secondaryPurposes),
         goal: stringField(source, "goal"),
+        readerExpectation: stringField(source, "readerExpectation"),
+        emotionTarget: chapterEmotionTarget(
+          stringField(source, "emotionTarget"),
+        ),
+        emotionCurve: chapterEmotionCurve(source.emotionCurve),
         conflict: stringField(source, "conflict"),
+        readerPromiseOperations: readerPromiseOperations(
+          source.readerPromiseOperations,
+        ).map((operation) => ({
+          ...operation,
+          promiseId: operation.promiseId
+            ? (readerPromiseMap.get(operation.promiseId) ?? null)
+            : null,
+        })),
         payoff: stringField(source, "payoff"),
+        payoffStrength: boundedNumber(source.payoffStrength, 0, 5, 0),
         hook: stringField(source, "hook"),
+        hookType: chapterHookType(stringField(source, "hookType")),
+        hookStrength: boundedNumber(source.hookStrength, 0, 5, 0),
+        informationGain: boundedNumber(source.informationGain, 0, 5, 0),
+        endingPull: boundedNumber(source.endingPull, 0, 5, 0),
+        sceneStructure: chapterSceneStructure(source.sceneStructure),
         characterIds: stringArray(source.characterIds)
           .map((id) => entityMap.get(id))
           .filter((id): id is string => Boolean(id)),
@@ -2639,6 +2758,27 @@ export class DeliveryService {
       const snapshot = objectField(source, "snapshot");
       const remappedSnapshot = {
         ...snapshot,
+        purpose: chapterPurpose(stringField(snapshot, "purpose")),
+        secondaryPurposes: chapterPurposeArray(snapshot.secondaryPurposes),
+        readerExpectation: stringField(snapshot, "readerExpectation"),
+        emotionTarget: chapterEmotionTarget(
+          stringField(snapshot, "emotionTarget"),
+        ),
+        emotionCurve: chapterEmotionCurve(snapshot.emotionCurve),
+        readerPromiseOperations: readerPromiseOperations(
+          snapshot.readerPromiseOperations,
+        ).map((operation) => ({
+          ...operation,
+          promiseId: operation.promiseId
+            ? (readerPromiseMap.get(operation.promiseId) ?? null)
+            : null,
+        })),
+        payoffStrength: boundedNumber(snapshot.payoffStrength, 0, 5, 0),
+        hookType: chapterHookType(stringField(snapshot, "hookType")),
+        hookStrength: boundedNumber(snapshot.hookStrength, 0, 5, 0),
+        informationGain: boundedNumber(snapshot.informationGain, 0, 5, 0),
+        endingPull: boundedNumber(snapshot.endingPull, 0, 5, 0),
+        sceneStructure: chapterSceneStructure(snapshot.sceneStructure),
         characterIds: stringArray(snapshot.characterIds)
           .map((id) => entityMap.get(id))
           .filter((id): id is string => Boolean(id)),
@@ -3738,6 +3878,8 @@ export class DeliveryService {
       openingCheckAudits: restoredOpeningCheckAudits,
       webNovelCandidateSets: restoredWebNovelCandidateSets,
       webNovelCandidateItems: restoredWebNovelCandidateItems,
+      readerPromises: restoredReaderPromises,
+      readerPromiseEvents: restoredReaderPromiseEvents,
     });
     return { projectId, counts };
   }
@@ -4559,6 +4701,143 @@ function stringArray(value: unknown): string[] {
           typeof item === "string" && Boolean(item.trim()),
       )
     : [];
+}
+
+const CHAPTER_PURPOSE_VALUES = [
+  "setup",
+  "progress",
+  "conflict",
+  "reveal",
+  "payoff",
+  "turning_point",
+  "relationship",
+  "worldbuilding",
+  "transition",
+  "climax",
+] as const;
+const CHAPTER_HOOK_TYPE_VALUES = [
+  "question",
+  "reveal",
+  "danger",
+  "decision",
+  "arrival",
+  "identity",
+  "information_gap",
+  "emotional",
+  "reward",
+  "reverse",
+] as const;
+const CHAPTER_EMOTION_TARGET_VALUES = [
+  "爽",
+  "紧张",
+  "期待",
+  "惊讶",
+  "压迫",
+  "感动",
+  "暧昧",
+  "恐惧",
+  "轻松",
+] as const;
+
+function chapterPurpose(value: string | null): ChapterPurpose {
+  return CHAPTER_PURPOSE_VALUES.includes(value as ChapterPurpose)
+    ? (value as ChapterPurpose)
+    : "progress";
+}
+
+function chapterPurposeArray(value: unknown): ChapterPurpose[] {
+  return stringArray(value)
+    .map((item) => chapterPurpose(item))
+    .filter((item, index, values) => values.indexOf(item) === index)
+    .slice(0, 3);
+}
+
+function chapterEmotionTarget(
+  value: string | null,
+): ChapterEmotionTarget | null {
+  return CHAPTER_EMOTION_TARGET_VALUES.includes(
+    value as (typeof CHAPTER_EMOTION_TARGET_VALUES)[number],
+  )
+    ? (value as ChapterEmotionTarget)
+    : null;
+}
+
+function chapterHookType(value: string | null): ChapterHookType | null {
+  return CHAPTER_HOOK_TYPE_VALUES.includes(
+    value as (typeof CHAPTER_HOOK_TYPE_VALUES)[number],
+  )
+    ? (value as ChapterHookType)
+    : null;
+}
+
+function chapterEmotionCurve(value: unknown): ChapterEmotionCurvePoint[] {
+  return recordArray(value)
+    .map((item) => ({
+      label: stringField(item, "label") ?? "",
+      intensity: Math.floor(boundedNumber(item.intensity, 0, 5, 0)),
+    }))
+    .filter((item) => item.label.length > 0)
+    .slice(0, 8);
+}
+
+function chapterSceneStructure(value: unknown): ChapterSceneStructure[] {
+  return recordArray(value)
+    .map((item, index) => ({
+      order: Math.max(
+        1,
+        Math.min(
+          20,
+          Math.floor(typeof item.order === "number" ? item.order : index + 1),
+        ),
+      ),
+      purpose: chapterPurpose(stringField(item, "purpose")),
+      beat: stringField(item, "beat") ?? "",
+      payoff: stringField(item, "payoff"),
+    }))
+    .filter((item) => item.beat.length > 0)
+    .slice(0, 20);
+}
+
+function readerPromiseOperations(value: unknown): ReaderPromiseOperation[] {
+  return recordArray(value)
+    .map((item): ReaderPromiseOperation => {
+      const action = readerPromiseAction(stringField(item, "action"));
+      const promiseId = stringField(item, "promiseId");
+      return {
+        action,
+        promiseId,
+        title: stringField(item, "title"),
+        note: stringField(item, "note"),
+      };
+    })
+    .filter((item) =>
+      item.action === "OPEN"
+        ? Boolean(item.promiseId || item.title)
+        : Boolean(item.promiseId),
+    )
+    .slice(0, 30);
+}
+
+function readerPromiseAction(value: string | null): ReaderPromiseAction {
+  return value === "ADVANCE" || value === "PAYOFF" ? value : "OPEN";
+}
+
+function readerPromiseStatus(value: string | null): ReaderPromiseStatus {
+  return value === "paid_off" || value === "abandoned" ? value : "open";
+}
+
+function readerPromiseEventSource(
+  value: string | null,
+): "author" | "ai" | "settlement" | "restore" {
+  return value === "ai" || value === "settlement" || value === "restore"
+    ? value
+    : "author";
+}
+
+function nullablePositiveNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.floor(value)
+    : null;
 }
 
 function recordArray(value: unknown): Record<string, unknown>[] {

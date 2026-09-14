@@ -11,6 +11,9 @@ import {
   getBookProfileHistory,
   getChapterBrief,
   getChapterBriefHistory,
+  getReaderPromises,
+  createReaderPromise,
+  applyReaderPromiseAction,
   getCreativePresets,
   getOpeningCheckAudit,
   getOpeningThreeCheckHistory,
@@ -28,6 +31,7 @@ import type {
   BookProfileHistoryDto,
   ChapterBriefDto,
   ChapterBriefHistoryDto,
+  ReaderPromiseViewDto,
   CreativePresetDto,
   CreativePresetHistoryDto,
   OpeningThreeCheckReport,
@@ -43,6 +47,44 @@ const pacingLabels = {
   steady: "稳步",
   fast: "快节奏",
   cliffhanger: "钩子密集",
+} as const;
+
+const chapterPurposeLabels = {
+  setup: "铺垫",
+  progress: "推进",
+  conflict: "冲突",
+  reveal: "揭示",
+  payoff: "兑现",
+  turning_point: "转折",
+  relationship: "关系",
+  worldbuilding: "世界观",
+  transition: "过渡",
+  climax: "高潮",
+} as const;
+
+const emotionTargetLabels = {
+  爽: "爽",
+  紧张: "紧张",
+  期待: "期待",
+  惊讶: "惊讶",
+  压迫: "压迫",
+  感动: "感动",
+  暧昧: "暧昧",
+  恐惧: "恐惧",
+  轻松: "轻松",
+} as const;
+
+const hookTypeLabels = {
+  question: "问题",
+  reveal: "揭示",
+  danger: "危险",
+  decision: "抉择",
+  arrival: "到场",
+  identity: "身份",
+  information_gap: "信息缺口",
+  emotional: "情绪",
+  reward: "回报",
+  reverse: "反转",
 } as const;
 
 const profileConflictFields = [
@@ -73,10 +115,20 @@ const presetConflictFields = [
 ] as const;
 type PresetConflictField = (typeof presetConflictFields)[number][0];
 const briefConflictFields = [
+  ["purpose", "主目的"],
   ["goal", "本章目标"],
+  ["readerExpectation", "读者期待"],
+  ["emotionTarget", "情绪目标"],
   ["conflict", "核心冲突"],
+  ["readerPromiseOperations", "Promise 操作"],
   ["payoff", "读者回报"],
+  ["payoffStrength", "回报强度"],
   ["hook", "章尾钩子"],
+  ["hookType", "钩子类型"],
+  ["hookStrength", "钩子强度"],
+  ["informationGain", "信息增量"],
+  ["endingPull", "结尾牵引"],
+  ["sceneStructure", "场景结构"],
   ["targetWords", "目标字数"],
   ["pacing", "节奏"],
   ["characterIds", "本章人物"],
@@ -142,6 +194,7 @@ export function WebNovelPage({ projectId }: { projectId: string }) {
       ) : null}
       <ProfileCard key={`profile-${profile.data?.version ?? "new"}`} projectId={projectId} profile={profile.data ?? null} history={profileHistory.data ?? []} onSaved={invalidate} />
       <PresetCard projectId={projectId} profile={profile.data ?? null} presets={presets.data ?? []} onApplied={invalidate} onCreated={invalidate} />
+      <ReaderPromiseCard projectId={projectId} chapterId={selectedChapter} chapters={chapters} onChapterChange={(id) => { setParams({ tool: "web-novel", chapter: id }); }} />
       <BriefCard key={selectedChapter} projectId={projectId} chapterId={selectedChapter} chapters={chapters} story={story.data!} onChapterChange={(id) => { setParams({ tool: "web-novel", chapter: id }); }} />
       <OpeningCheckCard
         projectId={projectId}
@@ -682,6 +735,120 @@ function PresetFormFields({ draft, onChange }: { draft: PresetDraft; onChange: (
   return <><div className="cf-form-grid"><label>预设名称<input required value={draft.name} onChange={(e) => set("name", e.target.value)} placeholder="例如：快节奏都市悬疑" /></label><label>题材<input value={draft.genre} onChange={(e) => set("genre", e.target.value)} /></label><label>目标读者<input value={draft.audience} onChange={(e) => set("audience", e.target.value)} /></label><label>每章目标字数<input required type="number" min={1} value={draft.targetWordsPerChapter} onChange={(e) => set("targetWordsPerChapter", e.target.value)} /></label><label>更新节奏<input value={draft.updateCadence} onChange={(e) => set("updateCadence", e.target.value)} placeholder="例如：日更 1 章" /></label><label>节奏<select value={draft.pacing} onChange={(e) => set("pacing", e.target.value as PresetDraft["pacing"])}>{Object.entries(pacingLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label></div><label>读者承诺<textarea rows={2} value={draft.promise} onChange={(e) => set("promise", e.target.value)} /></label><div className="cf-form-grid"><label>创作边界（每行一项）<textarea rows={3} value={draft.boundaries} onChange={(e) => set("boundaries", e.target.value)} /></label><label>检查规则（每行一项）<textarea rows={3} value={draft.checkRules} onChange={(e) => set("checkRules", e.target.value)} /></label></div></>;
 }
 
+function ReaderPromiseCard({
+  projectId,
+  chapterId,
+  chapters,
+  onChapterChange,
+}: {
+  projectId: string;
+  chapterId: string;
+  chapters: { id: string; title: string }[];
+  onChapterChange: (id: string) => void;
+}) {
+  const client = useQueryClient();
+  const query = useQuery({
+    queryKey: queryKeys.readerPromises(projectId, "all", chapterId),
+    queryFn: ({ signal }) =>
+      getReaderPromises(projectId, { chapterId, signal }),
+    enabled: Boolean(chapterId),
+  });
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [targetChapterId, setTargetChapterId] = useState("");
+  const create = useMutation({
+    mutationFn: () =>
+      createReaderPromise(projectId, {
+        requestId: requestUuid(),
+        title,
+        description: description.trim() || null,
+        openedChapterId: chapterId,
+        targetChapterId: targetChapterId || null,
+      }),
+    onSuccess: () => {
+      setTitle("");
+      setDescription("");
+      setTargetChapterId("");
+      void client.invalidateQueries({
+        queryKey: queryKeys.readerPromises(projectId),
+      });
+    },
+  });
+  const action = useMutation({
+    mutationFn: (input: {
+      promiseId: string;
+      action: "ADVANCE" | "PAYOFF";
+    }) =>
+      applyReaderPromiseAction(projectId, input.promiseId, {
+        action: input.action,
+        chapterId,
+        note: null,
+      }),
+    onSuccess: () => {
+      void client.invalidateQueries({
+        queryKey: queryKeys.readerPromises(projectId),
+      });
+    },
+  });
+  const promises = query.data?.promises ?? [];
+  return (
+    <section className="cf-card cf-web-novel-card" aria-label="Reader Promise">
+      <div className="cf-section-title">
+        <div>
+          <h2>Reader Promise</h2>
+          <p>记录读者期待的开启、推进与兑现；只在作者确认后改变生命周期。</p>
+        </div>
+        <span className="cf-web-novel-badge">轻量追踪</span>
+      </div>
+      {!chapters.length ? (
+        <div className="cf-empty"><BookOpen size={34} /><p>先在大纲中创建章节，再登记 Reader Promise。</p></div>
+      ) : (
+        <>
+          <div className="cf-form-grid">
+            <label>当前章节<select value={chapterId} onChange={(event) => onChapterChange(event.target.value)}>{chapters.map((chapter) => <option key={chapter.id} value={chapter.id}>{chapter.title}</option>)}</select></label>
+            <label>新 Promise 标题<input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="例如：凶手身份何时揭晓" /></label>
+            <label>目标章节（可选）<select value={targetChapterId} onChange={(event) => setTargetChapterId(event.target.value)}><option value="">暂不指定</option>{chapters.map((chapter) => <option key={chapter.id} value={chapter.id}>{chapter.title}</option>)}</select></label>
+          </div>
+          <label>补充说明（可选）<input value={description} onChange={(event) => setDescription(event.target.value)} placeholder="读者为什么会期待它" /></label>
+          <div className="cf-actions"><button className="cf-primary" type="button" disabled={!title.trim() || create.isPending} onClick={() => create.mutate()}>{create.isPending ? "正在登记…" : "登记 OPEN"}</button></div>
+          {create.isError ? <ErrorNote error={create.error} title="Promise 登记失败" /> : null}
+          {action.isError ? <ErrorNote error={action.error} title="Promise 更新失败" /> : null}
+          {query.isPending ? <p role="status">正在读取 Promise…</p> : null}
+          {query.isError ? <ErrorNote error={query.error} title="Promise 读取失败" /> : null}
+          {query.data?.health.warningCodes.length ? <p className="cf-editor-notice" role="status">{query.data.health.warningCodes.map((code) => promiseWarningLabels[code] ?? code).join("；")}</p> : null}
+          {promises.length ? <div className="cf-list" aria-label="Reader Promise 列表">{promises.map((promise) => <ReaderPromiseRow key={promise.id} promise={promise} actionPending={action.isPending} onAction={(nextAction) => action.mutate({ promiseId: promise.id, action: nextAction })} />)}</div> : <p className="cf-muted">以当前章节作为年龄计算基准，还没有 Promise。</p>}
+        </>
+      )}
+    </section>
+  );
+}
+
+function ReaderPromiseRow({
+  promise,
+  actionPending,
+  onAction,
+}: {
+  promise: ReaderPromiseViewDto;
+  actionPending: boolean;
+  onAction: (action: "ADVANCE" | "PAYOFF") => void;
+}) {
+  const status = promise.status === "open" ? "开放" : promise.status === "paid_off" ? "已兑现" : "已放弃";
+  return <div className="cf-list-row"><div><strong>{promise.title}</strong><small>{status} · {promise.status === "open" ? `已开放 ${promise.openForChapters} 章` : "已结算"} · 最近 {promise.lastAction}</small>{promise.warningCodes.length ? <small className="cf-danger-text">{promise.warningCodes.map((code) => promiseWarningLabels[code] ?? code).join("、")}</small> : null}</div>{promise.status === "open" ? <div className="cf-actions"><button type="button" className="cf-text-link" disabled={actionPending} onClick={() => onAction("ADVANCE")}>推进</button><button type="button" className="cf-text-link" disabled={actionPending} onClick={() => onAction("PAYOFF")}>兑现</button></div> : null}</div>;
+}
+
+const promiseWarningLabels: Record<string, string> = {
+  "promise.long_unadvanced": "已连续多章未推进",
+  "promise.aging": "开放时间较长",
+  "promise.overloaded": "开放 Promise 数量偏多",
+};
+
+function requestUuid(): string {
+  if (typeof globalThis.crypto?.randomUUID === "function") {
+    return globalThis.crypto.randomUUID();
+  }
+  return "00000000-0000-4000-8000-000000000000";
+}
+
 function BriefCard({
   projectId,
   chapterId,
@@ -785,11 +952,13 @@ function BriefCard({
   });
   return (
     <section className="cf-card cf-web-novel-card">
-      <div className="cf-section-title"><div><h2>章节简报</h2><p>在动笔前写下本章目标、冲突、回报和章尾钩子，方便后续检查。</p></div><BookOpen size={22} /></div>
+      <div className="cf-section-title"><div><h2>章节规划（Chapter Intent）</h2><p>先明确 Expectation → Progress → Payoff，再进入正文；旧版章节简报字段仍保持兼容。</p></div><BookOpen size={22} /></div>
       {!chapters.length ? <div className="cf-empty"><BookOpen size={34} /><p>先在大纲中创建章节，再填写章节简报。</p></div> : <>
         <div className="cf-form-grid"><label>选择章节<select value={chapterId} onChange={(e) => { setHistoryOpen(false); onChapterChange(e.target.value); }}>{chapters.map((chapter) => <option key={chapter.id} value={chapter.id}>{chapter.title}</option>)}</select></label><button className="cf-button" type="button" onClick={() => setHistoryOpen((current) => !current)}>{historyOpen ? "收起简报历史" : "查看简报历史"}</button></div>
         {historyOpen ? <div className="cf-web-novel-check-history" aria-label="章节简报历史">{history.isPending ? <p role="status">正在读取简报历史…</p> : null}{history.isError ? <ErrorNote error={history.error} title="简报历史读取失败" /> : null}{history.data?.length ? <div className="cf-list">{history.data.map((item) => <div className="cf-list-row" key={item.id}><div><strong>保存前版本 v{item.briefVersion}</strong><small>{new Date(item.createdAt).toLocaleString("zh-CN")} · {item.snapshot.goal || "没有填写本章目标"}</small></div><button className="cf-text-link" type="button" disabled={restore.isPending || baseVersion === null} onClick={() => setRestoreTarget(item)}>恢复</button></div>)}</div> : null}{history.data && !history.data.length ? <p className="cf-muted">还没有可恢复的简报历史。</p> : null}</div> : null}
+        <div className="cf-form-grid"><label>主目的<select value={form.purpose} onChange={(e) => setDraft({ ...form, purpose: e.target.value as ChapterBriefDto["purpose"] })}>{Object.entries(chapterPurposeLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label><label>次目的（可多选）<select multiple size={3} value={form.secondaryPurposes} onChange={(e) => setDraft({ ...form, secondaryPurposes: Array.from(e.target.selectedOptions, (option) => option.value as ChapterBriefDto["purpose"]) })}>{Object.entries(chapterPurposeLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label><label>读者期待<textarea rows={2} value={form.readerExpectation} onChange={(e) => setDraft({ ...form, readerExpectation: e.target.value })} placeholder="读者此刻在等什么" /></label><label>情绪目标<select value={form.emotionTarget ?? ""} onChange={(e) => setDraft({ ...form, emotionTarget: (e.target.value || null) as ChapterBriefDto["emotionTarget"] })}><option value="">暂不指定</option>{Object.entries(emotionTargetLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label></div>
         <div className="cf-form-grid"><label>本章目标<textarea rows={3} value={form.goal} onChange={(e) => setDraft({ ...form, goal: e.target.value })} /></label><label>核心冲突<textarea rows={3} value={form.conflict} onChange={(e) => setDraft({ ...form, conflict: e.target.value })} /></label><label>读者回报<textarea rows={3} value={form.payoff} onChange={(e) => setDraft({ ...form, payoff: e.target.value })} /></label><label>章尾钩子<textarea rows={3} value={form.hook} onChange={(e) => setDraft({ ...form, hook: e.target.value })} /></label></div>
+        <details className="cf-progressive-disclosure"><summary>高级 Intent 字段（情绪曲线、Promise 操作、强度与场景结构）</summary><div className="cf-form-grid"><label>钩子类型<select value={form.hookType ?? ""} onChange={(e) => setDraft({ ...form, hookType: (e.target.value || null) as ChapterBriefDto["hookType"] })}><option value="">暂不指定</option>{Object.entries(hookTypeLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label><label>情绪曲线（每行：节点|0-5）<textarea rows={3} value={emotionCurveText(form.emotionCurve)} onChange={(e) => setDraft({ ...form, emotionCurve: parseEmotionCurve(e.target.value) })} placeholder="发现线索|2\n逼近真相|4\n章尾反转|5" /></label><label>Promise 操作（每行：ACTION|promiseId|标题|备注）<textarea rows={4} value={promiseOperationsText(form.readerPromiseOperations)} onChange={(e) => setDraft({ ...form, readerPromiseOperations: parsePromiseOperations(e.target.value) })} placeholder="OPEN||凶手身份|埋下线索\nADVANCE|promise-id||给出新线索" /></label><label>场景结构（每行：目的|场景推进|场景回报）<textarea rows={4} value={sceneStructureText(form.sceneStructure)} onChange={(e) => setDraft({ ...form, sceneStructure: parseSceneStructure(e.target.value) })} placeholder="conflict|主角逼问证人|获得矛盾口供" /></label></div><div className="cf-form-grid"><label>回报强度（0-5）<input type="number" min={0} max={5} value={form.payoffStrength} onChange={(e) => setDraft({ ...form, payoffStrength: Number(e.target.value) })} /></label><label>钩子强度（0-5）<input type="number" min={0} max={5} value={form.hookStrength} onChange={(e) => setDraft({ ...form, hookStrength: Number(e.target.value) })} /></label><label>信息增量（0-5）<input type="number" min={0} max={5} value={form.informationGain} onChange={(e) => setDraft({ ...form, informationGain: Number(e.target.value) })} /></label><label>结尾牵引（0-5）<input type="number" min={0} max={5} value={form.endingPull} onChange={(e) => setDraft({ ...form, endingPull: Number(e.target.value) })} /></label></div></details>
         <div className="cf-form-grid"><label>目标字数<input type="number" min={1} value={form.targetWords} onChange={(e) => setDraft({ ...form, targetWords: e.target.value })} /></label><label>节奏<select value={form.pacing} onChange={(e) => setDraft({ ...form, pacing: e.target.value as ChapterBriefDto["pacing"] })}>{Object.entries(pacingLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label></div>
         <div className="cf-form-grid"><MultiSelect label="本章人物" items={story.entities.filter((entity) => entity.type === "character").map((entity) => ({ id: entity.id, label: entity.name }))} selected={form.characterIds} onChange={(ids) => setDraft({ ...form, characterIds: ids })} empty="还没有人物设定" /><MultiSelect label="关联伏笔" items={story.foreshadows.map((item) => ({ id: item.id, label: item.title }))} selected={form.foreshadowIds} onChange={(ids) => setDraft({ ...form, foreshadowIds: ids })} empty="还没有伏笔" /><MultiSelect label="时间线事件" items={story.timeline.map((item) => ({ id: item.id, label: item.title }))} selected={form.timelineIds} onChange={(ids) => setDraft({ ...form, timelineIds: ids })} empty="还没有时间线事件" /></div>
         {query.isPending ? <p role="status">正在读取章节简报…</p> : null}{query.isError ? <ErrorNote error={query.error} /> : null}{save.isError ? <ErrorNote error={save.error} /> : null}
@@ -801,9 +970,9 @@ function BriefCard({
           projectId={projectId}
           kind="brief"
           outlineNodeId={chapterId}
-          title="AI 简报候选"
-          description="候选会绑定当前章节、大纲版本和正文版本，来源变化后必须重新生成。"
-          defaultInstruction="根据本章大纲和作品档案，补全目标、冲突、读者回报与章尾钩子。"
+          title="AI Chapter Intent 候选"
+          description="AI 只生成可审阅候选，不写正文、不静默修改；候选会绑定当前章节、大纲版本和正文版本。"
+          defaultInstruction="根据本章大纲、作品档案、当前 Chapter Intent 与开放 Reader Promise，提出可逐项审阅的章节规划候选。"
         />
         {restoreTarget ? <ConfirmDialog title={`恢复简报保存前版本 v${restoreTarget.briefVersion}？`} confirmLabel="确认恢复" pending={restore.isPending} onCancel={() => setRestoreTarget(null)} onConfirm={() => restore.mutate(restoreTarget)}><p>系统会把这份历史内容写成新的当前简报版本，并保留现在的内容作为新的历史记录。正文版本依据会按当前正文重新绑定。</p></ConfirmDialog> : null}
       </>}
@@ -1323,16 +1492,108 @@ function defaultBriefConflictChoices(): Record<
 
 function briefForm(brief: ChapterBriefDto | null) {
   return {
+    purpose: brief?.purpose ?? ("progress" as const),
+    secondaryPurposes: brief?.secondaryPurposes ?? [],
     goal: brief?.goal ?? "",
+    readerExpectation: brief?.readerExpectation ?? "",
+    emotionTarget: brief?.emotionTarget ?? null,
+    emotionCurve: brief?.emotionCurve ?? [],
     conflict: brief?.conflict ?? "",
+    readerPromiseOperations: brief?.readerPromiseOperations ?? [],
     payoff: brief?.payoff ?? "",
+    payoffStrength: brief?.payoffStrength ?? 0,
     hook: brief?.hook ?? "",
+    hookType: brief?.hookType ?? null,
+    hookStrength: brief?.hookStrength ?? 0,
+    informationGain: brief?.informationGain ?? 0,
+    endingPull: brief?.endingPull ?? 0,
+    sceneStructure: brief?.sceneStructure ?? [],
     targetWords: brief?.targetWords?.toString() ?? "2500",
     pacing: brief?.pacing ?? ("steady" as const),
     characterIds: brief?.characterIds ?? [],
     foreshadowIds: brief?.foreshadowIds ?? [],
     timelineIds: brief?.timelineIds ?? [],
   };
+}
+
+function emotionCurveText(value: ChapterBriefDto["emotionCurve"]): string {
+  return value.map((point) => `${point.label}|${point.intensity}`).join("\n");
+}
+
+function parseEmotionCurve(value: string): ChapterBriefDto["emotionCurve"] {
+  return value
+    .split("\n")
+    .map((line) => line.split("|"))
+    .map(([label, intensity]) => ({
+      label: label?.trim() ?? "",
+      intensity: Math.floor(Math.max(0, Math.min(5, Number(intensity ?? 0) || 0))),
+    }))
+    .filter((point) => point.label.length > 0)
+    .slice(0, 8);
+}
+
+function promiseOperationsText(
+  value: ChapterBriefDto["readerPromiseOperations"],
+): string {
+  return value
+    .map((operation) =>
+      [
+        operation.action,
+        operation.promiseId ?? "",
+        operation.title ?? "",
+        operation.note ?? "",
+      ].join("|"),
+    )
+    .join("\n");
+}
+
+function parsePromiseOperations(
+  value: string,
+): ChapterBriefDto["readerPromiseOperations"] {
+  return value
+    .split("\n")
+    .map((line) => line.split("|").map((part) => part.trim()))
+    .map(([action, promiseId, title, note]) => {
+      const normalizedAction: "OPEN" | "ADVANCE" | "PAYOFF" =
+        action === "ADVANCE" || action === "PAYOFF" ? action : "OPEN";
+      return {
+        action: normalizedAction,
+        promiseId: promiseId || null,
+        title: title || null,
+        note: note || null,
+      };
+    })
+    .filter((operation) =>
+      operation.action === "OPEN"
+        ? Boolean(operation.promiseId || operation.title)
+        : Boolean(operation.promiseId),
+    )
+    .slice(0, 30);
+}
+
+function sceneStructureText(value: ChapterBriefDto["sceneStructure"]): string {
+  return value
+    .map((scene) => [scene.purpose, scene.beat, scene.payoff ?? ""].join("|"))
+    .join("\n");
+}
+
+function parseSceneStructure(value: string): ChapterBriefDto["sceneStructure"] {
+  return value
+    .split("\n")
+    .map((line) => line.split("|").map((part) => part.trim()))
+    .map(([purpose, beat, payoff], index) => ({
+      order: index + 1,
+      purpose: Object.prototype.hasOwnProperty.call(
+        chapterPurposeLabels,
+        purpose ?? "",
+      )
+        ? (purpose as ChapterBriefDto["purpose"])
+        : "progress",
+      beat: beat ?? "",
+      payoff: payoff || null,
+    }))
+    .filter((scene) => scene.beat.length > 0)
+    .slice(0, 20);
 }
 
 function conflictDisplayValue(value: unknown): string {

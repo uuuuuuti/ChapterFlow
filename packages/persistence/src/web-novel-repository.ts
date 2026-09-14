@@ -5,11 +5,15 @@ import type {
   ChapterBrief,
   ChapterBriefHistory,
   ChapterBriefSnapshot,
+  ChapterEmotionCurvePoint,
+  ChapterPurpose,
+  ChapterSceneStructure,
   CreativePacing,
   CreativePreset,
   CreativePresetHistory,
   CreativePresetSnapshot,
   CreativePresetStatus,
+  ReaderPromiseOperation,
   NovelCheckIssueState,
   NovelCheckIssueStatus,
   OpeningCheckAuditEventType,
@@ -20,6 +24,7 @@ import { randomUuid } from "@narralume/domain";
 import { PersistenceNotFoundError } from "./project-repository.js";
 import { CreativePersistenceError } from "./creative-repository.js";
 import type { NarrativeDatabase } from "./database.js";
+import { SqliteReaderPromiseRepository } from "./reader-promise-repository.js";
 
 export interface CreativePresetInput {
   id: string;
@@ -484,10 +489,39 @@ export class SqliteWebNovelRepository {
       | "version"
       | "createdAt"
       | "updatedAt"
-    > & {
-      expectedVersion: number | null;
-      now: string;
-    },
+      | "purpose"
+      | "secondaryPurposes"
+      | "readerExpectation"
+      | "emotionTarget"
+      | "emotionCurve"
+      | "readerPromiseOperations"
+      | "payoffStrength"
+      | "hookType"
+      | "hookStrength"
+      | "informationGain"
+      | "endingPull"
+      | "sceneStructure"
+    > &
+      Partial<
+        Pick<
+          ChapterBrief,
+          | "purpose"
+          | "secondaryPurposes"
+          | "readerExpectation"
+          | "emotionTarget"
+          | "emotionCurve"
+          | "readerPromiseOperations"
+          | "payoffStrength"
+          | "hookType"
+          | "hookStrength"
+          | "informationGain"
+          | "endingPull"
+          | "sceneStructure"
+        >
+      > & {
+        expectedVersion: number | null;
+        now: string;
+      },
   ): ChapterBrief {
     return this.database.transaction(() => {
       const documentVersionId = this.getCurrentDocumentVersionId(
@@ -515,6 +549,25 @@ export class SqliteWebNovelRepository {
           },
         );
       }
+      const readerPromises = new SqliteReaderPromiseRepository(this.database);
+      const readerPromiseOperations = readerPromises.applyChapterOperations({
+        projectId,
+        chapterId: outlineNodeId,
+        operations: input.readerPromiseOperations ?? [],
+        source: "author",
+        now: input.now,
+      });
+      const purpose = input.purpose ?? "progress";
+      const secondaryPurposes = input.secondaryPurposes ?? [];
+      const readerExpectation = input.readerExpectation ?? null;
+      const emotionTarget = input.emotionTarget ?? null;
+      const emotionCurve = input.emotionCurve ?? [];
+      const payoffStrength = input.payoffStrength ?? 0;
+      const hookType = input.hookType ?? null;
+      const hookStrength = input.hookStrength ?? 0;
+      const informationGain = input.informationGain ?? 0;
+      const endingPull = input.endingPull ?? 0;
+      const sceneStructure = input.sceneStructure ?? [];
       if (current) {
         this.database.raw
           .prepare(
@@ -532,13 +585,23 @@ export class SqliteWebNovelRepository {
           );
         const result = this.database.raw
           .prepare(
-            `UPDATE chapter_briefs SET document_version_id = ?, goal = ?, conflict = ?, payoff = ?, hook = ?,
+            `UPDATE chapter_briefs SET document_version_id = ?, purpose = ?, secondary_purposes_json = ?,
+              reader_expectation = ?, emotion_target = ?, emotion_curve_json = ?,
+              reader_promise_operations_json = ?, goal = ?, conflict = ?, payoff = ?, hook = ?,
               character_ids_json = ?, foreshadow_ids_json = ?, timeline_ids_json = ?,
-              target_words = ?, pacing = ?, version = version + 1, updated_at = ?
+              target_words = ?, pacing = ?, payoff_strength = ?, hook_type = ?, hook_strength = ?,
+              information_gain = ?, ending_pull = ?, scene_structure_json = ?,
+              version = version + 1, updated_at = ?
              WHERE project_id = ? AND outline_node_id = ? AND version = ?`,
           )
           .run(
             documentVersionId,
+            purpose,
+            JSON.stringify(secondaryPurposes),
+            readerExpectation,
+            emotionTarget,
+            JSON.stringify(emotionCurve),
+            JSON.stringify(readerPromiseOperations),
             input.goal,
             input.conflict,
             input.payoff,
@@ -548,6 +611,12 @@ export class SqliteWebNovelRepository {
             JSON.stringify(input.timelineIds),
             input.targetWords,
             input.pacing,
+            payoffStrength,
+            hookType,
+            hookStrength,
+            informationGain,
+            endingPull,
+            JSON.stringify(sceneStructure),
             input.now,
             projectId,
             outlineNodeId,
@@ -567,16 +636,28 @@ export class SqliteWebNovelRepository {
         this.database.raw
           .prepare(
             `INSERT INTO chapter_briefs(
-              id, project_id, outline_node_id, document_version_id, goal, conflict, payoff, hook,
+              id, project_id, outline_node_id, document_version_id, purpose, secondary_purposes_json,
+              reader_expectation, emotion_target, emotion_curve_json, reader_promise_operations_json,
+              goal, conflict, payoff, hook,
               character_ids_json, foreshadow_ids_json, timeline_ids_json,
-              target_words, pacing, version, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+              target_words, pacing, payoff_strength, hook_type, hook_strength,
+              information_gain, ending_pull, scene_structure_json, version, created_at, updated_at
+            ) VALUES (
+              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?
+            )`,
           )
           .run(
             randomUuid(),
             projectId,
             outlineNodeId,
             documentVersionId,
+            purpose,
+            JSON.stringify(secondaryPurposes),
+            readerExpectation,
+            emotionTarget,
+            JSON.stringify(emotionCurve),
+            JSON.stringify(readerPromiseOperations),
             input.goal,
             input.conflict,
             input.payoff,
@@ -586,6 +667,12 @@ export class SqliteWebNovelRepository {
             JSON.stringify(input.timelineIds),
             input.targetWords,
             input.pacing,
+            payoffStrength,
+            hookType,
+            hookStrength,
+            informationGain,
+            endingPull,
+            JSON.stringify(sceneStructure),
             input.now,
             input.now,
           );
@@ -906,10 +993,22 @@ interface ChapterBriefRow {
   project_id: string;
   outline_node_id: string;
   document_version_id: string | null;
+  purpose: ChapterPurpose;
+  secondary_purposes_json: string;
+  reader_expectation: string | null;
+  emotion_target: ChapterBrief["emotionTarget"];
+  emotion_curve_json: string;
+  reader_promise_operations_json: string;
   goal: string | null;
   conflict: string | null;
+  payoff_strength: number;
   payoff: string | null;
   hook: string | null;
+  hook_type: ChapterBrief["hookType"];
+  hook_strength: number;
+  information_gain: number;
+  ending_pull: number;
+  scene_structure_json: string;
   character_ids_json: string;
   foreshadow_ids_json: string;
   timeline_ids_json: string;
@@ -966,6 +1065,184 @@ function jsonList(value: string): string[] {
     return Array.isArray(parsed)
       ? parsed.filter((entry): entry is string => typeof entry === "string")
       : [];
+  } catch {
+    return [];
+  }
+}
+
+const CHAPTER_PURPOSES: readonly ChapterPurpose[] = [
+  "setup",
+  "progress",
+  "conflict",
+  "reveal",
+  "payoff",
+  "turning_point",
+  "relationship",
+  "worldbuilding",
+  "transition",
+  "climax",
+];
+
+const CHAPTER_HOOK_TYPES: readonly NonNullable<ChapterBrief["hookType"]>[] = [
+  "question",
+  "reveal",
+  "danger",
+  "decision",
+  "arrival",
+  "identity",
+  "information_gap",
+  "emotional",
+  "reward",
+  "reverse",
+];
+
+const EMOTION_TARGETS: readonly NonNullable<ChapterBrief["emotionTarget"]>[] = [
+  "爽",
+  "紧张",
+  "期待",
+  "惊讶",
+  "压迫",
+  "感动",
+  "暧昧",
+  "恐惧",
+  "轻松",
+];
+
+function chapterPurpose(value: unknown): ChapterPurpose {
+  return typeof value === "string" &&
+    CHAPTER_PURPOSES.includes(value as ChapterPurpose)
+    ? (value as ChapterPurpose)
+    : "progress";
+}
+
+function chapterPurposeList(value: unknown): ChapterPurpose[] {
+  return Array.isArray(value)
+    ? value
+        .filter(
+          (entry): entry is string =>
+            typeof entry === "string" &&
+            CHAPTER_PURPOSES.includes(entry as ChapterPurpose),
+        )
+        .map((entry) => entry as ChapterPurpose)
+        .slice(0, 3)
+    : [];
+}
+
+function jsonChapterPurposes(value: string): ChapterPurpose[] {
+  try {
+    return chapterPurposeList(JSON.parse(value));
+  } catch {
+    return [];
+  }
+}
+
+function chapterEmotionTarget(value: unknown): ChapterBrief["emotionTarget"] {
+  return typeof value === "string" &&
+    EMOTION_TARGETS.includes(
+      value as NonNullable<ChapterBrief["emotionTarget"]>,
+    )
+    ? (value as NonNullable<ChapterBrief["emotionTarget"]>)
+    : null;
+}
+
+function chapterHookType(value: unknown): ChapterBrief["hookType"] {
+  return typeof value === "string" &&
+    CHAPTER_HOOK_TYPES.includes(value as NonNullable<ChapterBrief["hookType"]>)
+    ? (value as NonNullable<ChapterBrief["hookType"]>)
+    : null;
+}
+
+function boundedStrength(value: unknown): number {
+  return typeof value === "number" && Number.isInteger(value)
+    ? Math.max(0, Math.min(5, value))
+    : 0;
+}
+
+function emotionCurveValue(value: unknown): ChapterEmotionCurvePoint[] {
+  return Array.isArray(value)
+    ? value
+        .filter(
+          (entry): entry is Record<string, unknown> =>
+            Boolean(entry) &&
+            typeof entry === "object" &&
+            !Array.isArray(entry),
+        )
+        .map((entry) => ({
+          label: typeof entry.label === "string" ? entry.label : "",
+          intensity: boundedStrength(entry.intensity),
+        }))
+        .filter((entry) => entry.label.trim().length > 0)
+        .slice(0, 8)
+    : [];
+}
+
+function jsonEmotionCurve(value: string): ChapterEmotionCurvePoint[] {
+  try {
+    return emotionCurveValue(JSON.parse(value));
+  } catch {
+    return [];
+  }
+}
+
+function sceneStructureValue(value: unknown): ChapterSceneStructure[] {
+  return Array.isArray(value)
+    ? value
+        .filter(
+          (entry): entry is Record<string, unknown> =>
+            Boolean(entry) &&
+            typeof entry === "object" &&
+            !Array.isArray(entry),
+        )
+        .map((entry, index) => ({
+          order:
+            typeof entry.order === "number" && Number.isInteger(entry.order)
+              ? Math.max(1, Math.min(20, entry.order))
+              : index + 1,
+          purpose: chapterPurpose(entry.purpose),
+          beat: typeof entry.beat === "string" ? entry.beat : "",
+          payoff: typeof entry.payoff === "string" ? entry.payoff : null,
+        }))
+        .filter((entry) => entry.beat.trim().length > 0)
+        .slice(0, 20)
+    : [];
+}
+
+function jsonSceneStructure(value: string): ChapterSceneStructure[] {
+  try {
+    return sceneStructureValue(JSON.parse(value));
+  } catch {
+    return [];
+  }
+}
+
+function promiseOperationsValue(value: unknown): ReaderPromiseOperation[] {
+  return Array.isArray(value)
+    ? value
+        .filter(
+          (entry): entry is Record<string, unknown> =>
+            Boolean(entry) &&
+            typeof entry === "object" &&
+            !Array.isArray(entry),
+        )
+        .map((entry): ReaderPromiseOperation => ({
+          action:
+            entry.action === "ADVANCE" || entry.action === "PAYOFF"
+              ? entry.action
+              : "OPEN",
+          promiseId:
+            typeof entry.promiseId === "string" && entry.promiseId.trim()
+              ? entry.promiseId
+              : null,
+          title: typeof entry.title === "string" ? entry.title : null,
+          note: typeof entry.note === "string" ? entry.note : null,
+        }))
+        .slice(0, 30)
+    : [];
+}
+
+function jsonPromiseOperations(value: string): ReaderPromiseOperation[] {
+  try {
+    return promiseOperationsValue(JSON.parse(value));
   } catch {
     return [];
   }
@@ -1162,10 +1439,24 @@ function mapChapterBrief(row: ChapterBriefRow): ChapterBrief {
     projectId: row.project_id,
     outlineNodeId: row.outline_node_id,
     documentVersionId: row.document_version_id,
+    purpose: chapterPurpose(row.purpose),
+    secondaryPurposes: jsonChapterPurposes(row.secondary_purposes_json),
     goal: row.goal,
+    readerExpectation: row.reader_expectation,
+    emotionTarget: chapterEmotionTarget(row.emotion_target),
+    emotionCurve: jsonEmotionCurve(row.emotion_curve_json),
     conflict: row.conflict,
+    readerPromiseOperations: jsonPromiseOperations(
+      row.reader_promise_operations_json,
+    ),
     payoff: row.payoff,
+    payoffStrength: boundedStrength(row.payoff_strength),
     hook: row.hook,
+    hookType: chapterHookType(row.hook_type),
+    hookStrength: boundedStrength(row.hook_strength),
+    informationGain: boundedStrength(row.information_gain),
+    endingPull: boundedStrength(row.ending_pull),
+    sceneStructure: jsonSceneStructure(row.scene_structure_json),
     characterIds: jsonList(row.character_ids_json),
     foreshadowIds: jsonList(row.foreshadow_ids_json),
     timelineIds: jsonList(row.timeline_ids_json),
@@ -1179,10 +1470,22 @@ function mapChapterBrief(row: ChapterBriefRow): ChapterBrief {
 
 function chapterBriefSnapshot(brief: ChapterBrief): ChapterBriefSnapshot {
   return {
+    purpose: brief.purpose,
+    secondaryPurposes: brief.secondaryPurposes,
     goal: brief.goal,
+    readerExpectation: brief.readerExpectation,
+    emotionTarget: brief.emotionTarget,
+    emotionCurve: brief.emotionCurve,
     conflict: brief.conflict,
+    readerPromiseOperations: brief.readerPromiseOperations,
     payoff: brief.payoff,
+    payoffStrength: brief.payoffStrength,
     hook: brief.hook,
+    hookType: brief.hookType,
+    hookStrength: brief.hookStrength,
+    informationGain: brief.informationGain,
+    endingPull: brief.endingPull,
+    sceneStructure: brief.sceneStructure,
     characterIds: brief.characterIds,
     foreshadowIds: brief.foreshadowIds,
     timelineIds: brief.timelineIds,
@@ -1202,10 +1505,27 @@ function mapChapterBriefHistory(
     }
     const value = parsed as Record<string, unknown>;
     snapshot = {
+      purpose: chapterPurpose(value.purpose),
+      secondaryPurposes: chapterPurposeList(value.secondaryPurposes),
       goal: typeof value.goal === "string" ? value.goal : null,
+      readerExpectation:
+        typeof value.readerExpectation === "string"
+          ? value.readerExpectation
+          : null,
+      emotionTarget: chapterEmotionTarget(value.emotionTarget),
+      emotionCurve: emotionCurveValue(value.emotionCurve),
       conflict: typeof value.conflict === "string" ? value.conflict : null,
+      readerPromiseOperations: promiseOperationsValue(
+        value.readerPromiseOperations,
+      ),
       payoff: typeof value.payoff === "string" ? value.payoff : null,
+      payoffStrength: boundedStrength(value.payoffStrength),
       hook: typeof value.hook === "string" ? value.hook : null,
+      hookType: chapterHookType(value.hookType),
+      hookStrength: boundedStrength(value.hookStrength),
+      informationGain: boundedStrength(value.informationGain),
+      endingPull: boundedStrength(value.endingPull),
+      sceneStructure: sceneStructureValue(value.sceneStructure),
       characterIds: jsonListValue(value.characterIds),
       foreshadowIds: jsonListValue(value.foreshadowIds),
       timelineIds: jsonListValue(value.timelineIds),
