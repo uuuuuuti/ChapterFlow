@@ -220,7 +220,11 @@ export class SqliteOfficialKnowledgeRepository {
       ...(genre ? { genre } : {}),
       status: "ACTIVE",
       limit,
-    });
+    }).filter((card) =>
+      card.sourceRefs.some(
+        (ref) => this.getSource(ref.sourceId)?.status === "ACTIVE",
+      ),
+    );
   }
 }
 

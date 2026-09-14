@@ -6,6 +6,7 @@ import {
   BookPackagingSchema,
   BookPositioningSchema,
   OpeningBlueprintSchema,
+  OpeningReviewSchema,
   SigningReadinessReportSchema,
   SigningSprintTaskSchema,
 } from "@narralume/contracts";
@@ -19,6 +20,8 @@ const EvaluationSchema = z
     officialMatches: z.array(z.string().trim().min(1).max(2_000)).max(20),
   })
   .strict();
+
+const OpeningReviewPayloadSchema = OpeningReviewSchema;
 
 const PackagingPayloadSchema = z
   .object({ candidates: z.array(BookPackagingSchema).min(3).max(5) })
@@ -42,11 +45,13 @@ export const SigningSprintModelResultSchema = z
             ? PackagingPayloadSchema
             : value.task === "GenerateOpeningBlueprint"
               ? OpeningBlueprintSchema
-              : value.task === "SigningReadinessReview"
-                ? SigningReadinessReportSchema
-                : value.task === "GenerateChapterFromIntent"
-                  ? ChapterIntentPlanSchema
-                  : EvaluationSchema;
+              : value.task === "EvaluateOpening"
+                ? OpeningReviewPayloadSchema
+                : value.task === "SigningReadinessReview"
+                  ? SigningReadinessReportSchema
+                  : value.task === "GenerateChapterFromIntent"
+                    ? ChapterIntentPlanSchema
+                    : EvaluationSchema;
     const parsed = schema.safeParse(value.payload);
     if (!parsed.success) {
       context.addIssue({

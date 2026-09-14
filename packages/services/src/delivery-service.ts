@@ -3,7 +3,11 @@ import {
   randomUuid,
   sha256Hex,
 } from "@narralume/domain";
-import { AUTOMATION_DEFAULTS } from "@narralume/contracts";
+import {
+  AUTOMATION_DEFAULTS,
+  SigningSprintCandidateSchema,
+  SigningSprintWorkflowSchema,
+} from "@narralume/contracts";
 import { decodeBase64 as decodeBase64Bytes } from "./internal/bytes.js";
 import { declaredUncompressedSize } from "./internal/zip.js";
 import {
@@ -52,6 +56,7 @@ import {
   SqliteProjectRepository,
   SqliteReaderPromiseRepository,
   SqliteRetrievalRepository,
+  SqliteSigningSprintRepository,
   SqliteStoryRepository,
   SqliteWebNovelRepository,
   SqliteWebNovelCandidateRepository,
@@ -101,6 +106,8 @@ const BundleCountsSchema = z.object({
   webNovelCandidateItems: z.number().int().nonnegative().default(0),
   readerPromises: z.number().int().nonnegative().default(0),
   readerPromiseEvents: z.number().int().nonnegative().default(0),
+  signingSprintWorkflows: z.number().int().nonnegative().default(0),
+  signingSprintCandidates: z.number().int().nonnegative().default(0),
 });
 export type BundleCounts = z.infer<typeof BundleCountsSchema>;
 
@@ -222,6 +229,14 @@ const BundleSchema = z.object({
       }),
     )
     .default([]),
+  /** Quick-start signing preparation is kept as one workflow plus reviewable candidates. */
+  signingSprint: z
+    .object({
+      workflow: z.record(z.string(), z.unknown()),
+      candidates: z.array(z.record(z.string(), z.unknown())).default([]),
+    })
+    .nullable()
+    .default(null),
 });
 
 export type NarrativeBundle = z.infer<typeof BundleSchema>;
@@ -726,6 +741,16 @@ export class DeliveryService {
     )
       .list(projectId)
       .map(({ set, items }) => ({ set, items }));
+    const signingSprintRepository = new SqliteSigningSprintRepository(
+      this.database,
+    );
+    const signingSprintWorkflow = signingSprintRepository.get(projectId);
+    const signingSprint = signingSprintWorkflow
+      ? {
+          workflow: signingSprintWorkflow,
+          candidates: signingSprintRepository.listCandidates(projectId),
+        }
+      : null;
     const openingCheckReports = planning
       .listOpeningCheckReports(projectId, 100)
       .map((record) => record.report);
@@ -1048,6 +1073,8 @@ export class DeliveryService {
       ),
       readerPromises: readerPromises.length,
       readerPromiseEvents: readerPromiseEvents.length,
+      signingSprintWorkflows: signingSprint ? 1 : 0,
+      signingSprintCandidates: signingSprint?.candidates.length ?? 0,
     });
     return BundleSchema.parse({
       manifest: {
@@ -1097,6 +1124,7 @@ export class DeliveryService {
       openingCheckReports,
       openingCheckAudits,
       webNovelCandidates,
+      signingSprint,
     });
   }
 
@@ -2155,6 +2183,9 @@ export class DeliveryService {
     });
     this.projects.insert(project);
     const planning = new SqliteWebNovelRepository(this.database);
+    const signingSprintRepository = new SqliteSigningSprintRepository(
+      this.database,
+    );
     const platformMetrics = new SqlitePlatformMetricsRepository(this.database);
     const publishRecords = new SqlitePublishRecordRepository(this.database);
     const exportBatches = new SqliteExportBatchRepository(this.database);
@@ -2206,6 +2237,8 @@ export class DeliveryService {
     let restoredWebNovelCandidateItems = 0;
     let restoredReaderPromises = 0;
     let restoredReaderPromiseEvents = 0;
+    let restoredSigningSprintWorkflows = 0;
+    let restoredSigningSprintCandidates = 0;
     // issueMap 保留 issue 旧 ID → 新 ID 的映射，便于后续扩展（如裁定回指）。
     const orderedOutline = [...bundle.outline].sort(
       (a, b) => numberField(a, "depth") - numberField(b, "depth"),
@@ -2609,6 +2642,36 @@ export class DeliveryService {
           stringField(source, "createdAt") ?? now,
         );
       restoredBookProfileHistory += 1;
+    }
+    if (bundle.signingSprint) {
+      const sourceWorkflow = bundle.signingSprint.workflow;
+      const restoredWorkflow = SigningSprintWorkflowSchema.safeParse({
+        ...sourceWorkflow,
+        id: randomUuid(),
+        projectId,
+      });
+      if (restoredWorkflow.success) {
+        const workflow = signingSprintRepository.insertWorkflow(
+          restoredWorkflow.data,
+        );
+        restoredSigningSprintWorkflows += 1;
+        for (const sourceCandidate of bundle.signingSprint.candidates) {
+          const restoredCandidate = SigningSprintCandidateSchema.safeParse({
+            ...sourceCandidate,
+            id: randomUuid(),
+            workflowId: workflow.id,
+            projectId,
+            provenance: {
+              ...objectField(sourceCandidate, "provenance"),
+              // Runs are intentionally not restored as executable history.
+              runId: null,
+            },
+          });
+          if (!restoredCandidate.success) continue;
+          signingSprintRepository.insertCandidate(restoredCandidate.data);
+          restoredSigningSprintCandidates += 1;
+        }
+      }
     }
     for (const source of bundle.readerPromises) {
       const oldId = required(stringField(source, "id"), "reader promise id");
@@ -3880,6 +3943,8 @@ export class DeliveryService {
       webNovelCandidateItems: restoredWebNovelCandidateItems,
       readerPromises: restoredReaderPromises,
       readerPromiseEvents: restoredReaderPromiseEvents,
+      signingSprintWorkflows: restoredSigningSprintWorkflows,
+      signingSprintCandidates: restoredSigningSprintCandidates,
     });
     return { projectId, counts };
   }

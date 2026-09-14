@@ -198,6 +198,8 @@ export const OpeningSignalSchema = z
     threshold: z.number().nonnegative().nullable(),
     direction: z.enum(["higher_is_risk", "lower_is_risk", "observation"]),
     explanation: TextSchema.max(1_000),
+    /** Paragraph-level anchors keep deterministic signals actionable. */
+    locations: z.array(TextSchema.max(200)).max(100).default([]),
   })
   .strict();
 
@@ -210,6 +212,31 @@ export const OpeningSignalReportSchema = z
   })
   .strict();
 export type OpeningSignalReportDto = z.infer<typeof OpeningSignalReportSchema>;
+
+/** Concrete, reviewable editor findings for the first three chapters. */
+export const OpeningReviewIssueSchema = z
+  .object({
+    code: IdSchema,
+    title: TextSchema.max(500),
+    problem: TextSchema.max(4_000),
+    impact: TextSchema.max(4_000),
+    suggestion: TextSchema.max(4_000),
+    locations: z.array(TextSchema.max(500)).max(100),
+    evidence: TextListSchema,
+    source: z.enum(["official", "chapterflow"]),
+    sourceRefs: z.array(KnowledgeCardSourceRefSchema),
+  })
+  .strict();
+
+export const OpeningReviewSchema = z
+  .object({
+    summary: TextSchema.max(4_000),
+    strengths: TextListSchema,
+    issues: z.array(OpeningReviewIssueSchema).max(50),
+    officialMatches: TextListSchema,
+  })
+  .strict();
+export type OpeningReviewDto = z.infer<typeof OpeningReviewSchema>;
 
 export const ReadinessIssueSchema = z
   .object({
@@ -236,6 +263,7 @@ export const SigningReadinessReportSchema = z
         content: z.enum(["ready", "needs_attention"]),
         consistency: z.enum(["ready", "needs_attention"]),
         officialMatching: z.enum(["ready", "needs_attention", "unconfirmed"]),
+        technicalSafety: z.enum(["ready", "needs_attention"]),
       })
       .strict(),
     generatedAt: TimestampSchema,
@@ -393,6 +421,7 @@ export type DecideSigningSprintCandidateRequest = z.infer<
 export const OfficialKnowledgeQuerySchema = z.object({
   stage: z.string().trim().max(100).optional(),
   genre: z.string().trim().max(200).optional(),
+  sourceType: OfficialSourceTypeSchema.optional(),
   status: z.enum(["ACTIVE", "CANDIDATE", "DISABLED"]).optional(),
   limit: z.coerce.number().int().positive().max(100).default(20),
 });

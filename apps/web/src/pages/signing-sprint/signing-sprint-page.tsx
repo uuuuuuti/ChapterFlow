@@ -64,10 +64,13 @@ export function SigningSprintPage() {
   const save = useMutation({
     mutationFn: (input: UpdateSigningSprintRequest) =>
       updateSigningSprint(projectId, input),
-    onSuccess: (value) => {
+    onSuccess: (value, input) => {
       queryClient.setQueryData(queryKeys.signingSprint(projectId), value);
       void queryClient.invalidateQueries({ queryKey: queryKeys.story(projectId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.bookProfile(projectId) });
+      setSelectedStep(
+        input.currentStep ? uiStep(input.currentStep) : uiStep(value.workflow.currentStep),
+      );
       setNotice("已保存，可以继续下一步。");
     },
     onError: (error) => setNotice(apiErrorMessage(error)),
@@ -189,6 +192,12 @@ export function SigningSprintPage() {
   const firstChapter = story.data?.outline.find(
     (node) => node.kind === "chapter" && node.metadata.createdWith === "signing-sprint",
   ) ?? story.data?.outline.find((node) => node.kind === "chapter") ?? null;
+  const openingChapters = story.data?.outline
+    .filter(
+      (node) =>
+        node.kind === "chapter" && node.metadata.createdWith === "signing-sprint",
+    )
+    .slice(0, 3) ?? [];
 
   return (
     <div className="cf-page cf-signing-sprint-page">
@@ -228,6 +237,7 @@ export function SigningSprintPage() {
           workflow={workflow}
           busy={save.isPending}
           onAi={() => ai.mutate("RefineBookPositioning")}
+          onEvaluate={() => ai.mutate("EvaluatePositioning")}
           onSave={(positioning) => save.mutate({
             expectedVersion: workflow.version,
             state: { positioning },
@@ -255,6 +265,7 @@ export function SigningSprintPage() {
           workflow={workflow}
           busy={save.isPending}
           onAi={() => ai.mutate("GenerateBookPackaging")}
+          onEvaluate={() => ai.mutate("EvaluateBookPackaging")}
           onSave={(packaging, selectedPackagingId) => save.mutate({
             expectedVersion: workflow.version,
             state: { packaging, selectedPackagingId },
@@ -283,8 +294,11 @@ export function SigningSprintPage() {
       {activeStep === "writing" ? (
         <WritingStep
           workflow={workflow}
+          projectId={projectId}
           firstChapter={firstChapter}
+          chapters={openingChapters}
           onOpeningCheck={() => openingCheck.mutate()}
+          onOpeningAi={() => ai.mutate("EvaluateOpening")}
           openingCheckPending={openingCheck.isPending}
           onReadiness={() => readiness.mutate()}
           readinessPending={readiness.isPending}
@@ -344,11 +358,13 @@ function PositioningStep({
   workflow,
   busy,
   onAi,
+  onEvaluate,
   onSave,
 }: {
   workflow: SprintWorkflow;
   busy: boolean;
   onAi: () => void;
+  onEvaluate: () => void;
   onSave: (positioning: Positioning) => void;
 }) {
   const saved = workflow.state.positioning;
@@ -372,7 +388,7 @@ function PositioningStep({
         <label>长期期待<input required value={form.longTermExpectation} onChange={(event) => set("longTermExpectation", event.target.value)} placeholder="读者会期待主角最终走到哪里？" /></label>
         <label>卖点（每行一项）<textarea rows={3} value={form.sellingPoints.join("\n")} onChange={(event) => set("sellingPoints", lines(event.target.value))} /></label>
         <div className="cf-signing-sprint-subgrid"><label>短期吸引力<textarea rows={2} value={form.sustainability.shortTermAppeal} onChange={(event) => set("sustainability", { ...form.sustainability, shortTermAppeal: event.target.value })} /></label><label>中期扩展空间<textarea rows={2} value={form.sustainability.midTermExpansion} onChange={(event) => set("sustainability", { ...form.sustainability, midTermExpansion: event.target.value })} /></label><label>长期主线空间<textarea rows={2} value={form.sustainability.longTermSpace} onChange={(event) => set("sustainability", { ...form.sustainability, longTermSpace: event.target.value })} /></label></div>
-        <div className="cf-actions"><button type="button" className="cf-button" onClick={onAi} disabled={busy}>✦ 让 AI 帮我检查定位</button><button className="cf-primary" disabled={busy || !ready}>{busy ? "正在保存…" : "保存定位并继续"}</button></div>
+        <div className="cf-actions"><button type="button" className="cf-button" onClick={onAi} disabled={busy}>✦ 让 AI 帮我检查定位</button><button type="button" className="cf-button" onClick={onEvaluate} disabled={busy}>复核当前定位</button><button className="cf-primary" disabled={busy || !ready}>{busy ? "正在保存…" : "保存定位并继续"}</button></div>
       </form>
     </section>
   );
@@ -410,11 +426,13 @@ function PackagingStep({
   workflow,
   busy,
   onAi,
+  onEvaluate,
   onSave,
 }: {
   workflow: SprintWorkflow;
   busy: boolean;
   onAi: () => void;
+  onEvaluate: () => void;
   onSave: (packaging: BookPackagingDto[], selectedPackagingId: string | null) => void;
 }) {
   const [title, setTitle] = useState("");
@@ -433,7 +451,7 @@ function PackagingStep({
       <StepTitle title="给作品一个能兑现的包装" description="书名、简介和标签要指向同一个阅读承诺。先选方向，再慢慢打磨。" />
       <div className="cf-form-grid"><label>书名<input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="先写一个你愿意继续写的名字" /></label><label>标签（用逗号或换行分隔）<input value={tags} onChange={(event) => setTags(event.target.value)} /></label></div>
       <label>简介<textarea rows={4} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="谁遇到了什么，又将付出什么代价？" /></label>
-      <div className="cf-actions"><button type="button" className="cf-button" onClick={onAi} disabled={busy}>✦ 生成 3—5 个包装方向</button><button type="button" className="cf-primary" onClick={add} disabled={busy || !title.trim() || !description.trim()}>加入我的候选</button></div>
+      <div className="cf-actions"><button type="button" className="cf-button" onClick={onAi} disabled={busy}>✦ 生成 3—5 个包装方向</button><button type="button" className="cf-button" onClick={onEvaluate} disabled={busy}>复核当前包装</button><button type="button" className="cf-primary" onClick={add} disabled={busy || !title.trim() || !description.trim()}>加入我的候选</button></div>
       {list.length > 0 ? <div className="cf-signing-sprint-candidate-grid">{list.map((item, index) => <button type="button" className={`cf-signing-sprint-package ${selected === String(index) ? "is-selected" : ""}`} key={`${item.title}-${index}`} onClick={() => onSave(list, String(index))}><strong>{item.title}</strong><span>{item.description}</span><small>{item.tags.join(" · ") || "未填写标签"}</small></button>)}</div> : <p className="cf-muted">还没有包装候选，先手动填写或让 AI 提供几个方向。</p>}
     </section>
   );
@@ -467,8 +485,11 @@ function OpeningStep({
 
 function WritingStep({
   workflow,
+  projectId,
   firstChapter,
+  chapters,
   onOpeningCheck,
+  onOpeningAi,
   openingCheckPending,
   onReadiness,
   readinessPending,
@@ -476,8 +497,11 @@ function WritingStep({
   writingPending,
 }: {
   workflow: SprintWorkflow;
+  projectId: string;
   firstChapter: { id: string; title: string } | null;
+  chapters: readonly { id: string; title: string }[];
   onOpeningCheck: () => void;
+  onOpeningAi: () => void;
   openingCheckPending: boolean;
   onReadiness: () => void;
   readinessPending: boolean;
@@ -489,8 +513,9 @@ function WritingStep({
   return (
     <section className="cf-card cf-signing-sprint-card">
       <StepTitle title="现在开始写，再回看开篇" description="快速开书到这里就已经完成主线；正文、检查和签约准备可以循环进行。" />
-      <div className="cf-signing-sprint-actions-large"><button className="cf-primary" onClick={onWrite} disabled={!firstChapter || writingPending}>{writingPending ? "正在准备写作任务…" : firstChapter ? `开始写《${firstChapter.title}》` : "先完成开篇计划"}</button>{firstChapter ? <Link className="cf-button" to={`/books/${firstChapter ? "" : ""}`}>打开章节列表</Link> : null}</div>
-      <div className="cf-signing-sprint-review-row"><div><h3>开篇检查</h3><p>查看段落、对话、人物密度等信号，回到原文做作者判断。</p><button className="cf-button" onClick={onOpeningCheck} disabled={openingCheckPending}>{openingCheckPending ? "正在检查…" : "更新开篇检查"}</button>{report ? <SignalSummary report={report} /> : null}</div><div><h3>签约准备预检</h3><p>检查作品资料、开篇内容、一致性和当前官方来源状态。</p><button className="cf-button" onClick={onReadiness} disabled={readinessPending}>{readinessPending ? "正在预检…" : "更新签约准备预检"}</button>{readiness ? <ReadinessSummary report={readiness} /> : null}</div></div>
+      <div className="cf-signing-sprint-actions-large"><button className="cf-primary" onClick={onWrite} disabled={!firstChapter || writingPending}>{writingPending ? "正在准备写作任务…" : firstChapter ? `开始写《${firstChapter.title}》` : "先完成开篇计划"}</button>{firstChapter ? <Link className="cf-button" to={`/books/${projectId}/write`}>打开章节列表</Link> : null}</div>
+      {chapters.length > 0 ? <div className="cf-signing-sprint-chapter-links"><strong>开篇章节</strong>{chapters.map((chapter, index) => <Link key={chapter.id} className="cf-text-link" to={`/books/${projectId}/write/${chapter.id}`}>第 {index + 1} 章 · {chapter.title}</Link>)}</div> : null}
+      <div className="cf-signing-sprint-review-row"><div><h3>开篇检查</h3><p>查看段落、对话、人物密度等信号，回到原文做作者判断。</p><div className="cf-actions"><button className="cf-button" onClick={onOpeningCheck} disabled={openingCheckPending}>{openingCheckPending ? "正在检查…" : "更新开篇检查"}</button><button className="cf-button" onClick={onOpeningAi} disabled={openingCheckPending}>让 AI 做开篇编辑复核</button></div>{report ? <SignalSummary report={report} /> : null}</div><div><h3>签约准备预检</h3><p>检查作品资料、开篇内容、一致性和当前官方来源状态。</p><button className="cf-button" onClick={onReadiness} disabled={readinessPending}>{readinessPending ? "正在预检…" : "更新签约准备预检"}</button>{readiness ? <ReadinessSummary report={readiness} /> : null}</div></div>
       <p className="cf-muted">作品是否提交、何时提交和提交后的结果，仍由作者根据当前官方规则自行决定。</p>
     </section>
   );
@@ -506,11 +531,12 @@ function CandidatePreview({ candidate }: { candidate: SigningSprintCandidateDto 
   if (candidate.task === "RefineBookPositioning") return <p className="cf-signing-sprint-preview">{text(payload.oneLineStory)}{payload.coreConflict ? ` · 冲突：${text(payload.coreConflict)}` : ""}</p>;
   if (candidate.task === "GenerateBookPackaging" && Array.isArray(payload.candidates)) return <div className="cf-signing-sprint-preview">{payload.candidates.slice(0, 5).map((item, index) => <span key={index}>{recordText(item, "title")}</span>)}</div>;
   if (candidate.task === "GenerateOpeningBlueprint") return <p className="cf-signing-sprint-preview">{text(payload.openingHook)}{Array.isArray(payload.firstThreeChapters) ? ` · ${payload.firstThreeChapters.length} 个开篇章节` : ""}</p>;
+  if (candidate.task === "EvaluateOpening" && Array.isArray(payload.issues)) return <div className="cf-signing-sprint-preview">{payload.issues.slice(0, 3).map((issue, index) => <span key={index}>{recordText(issue, "title")}{recordList(issue, "locations").length ? ` · ${recordList(issue, "locations").join("、")}` : ""}</span>)}</div>;
   return <p className="cf-signing-sprint-preview">这是一个可继续审阅的编辑建议，请结合你的作品资料判断。</p>;
 }
 
 function SignalSummary({ report }: { report: NonNullable<SprintWorkflow["state"]["openingCheck"]> }) {
-  return <div className="cf-signing-sprint-mini-report"><strong>{report.analyzedChapterCount} 个章节已检查</strong><span>{report.metrics.characterCount} 字 · 对话占比 {Math.round(report.metrics.dialogueRatio * 100)}%</span><span>长段落 {report.metrics.longParagraphCount} · 重复段落 {report.metrics.repeatedParagraphCount}</span></div>;
+  return <div className="cf-signing-sprint-mini-report"><strong>{report.analyzedChapterCount} 个章节已检查</strong><span>{report.metrics.characterCount} 字 · 对话占比 {Math.round(report.metrics.dialogueRatio * 100)}%</span><span>长段落 {report.metrics.longParagraphCount} · 重复段落 {report.metrics.repeatedParagraphCount}</span><div className="cf-signing-sprint-signal-list">{report.signals.map((signal) => <span key={signal.code}><strong>{signal.label}</strong> {signal.value} · {signal.locations.length ? signal.locations.join("、") : "全文观察"}</span>)}</div></div>;
 }
 
 function ReadinessSummary({ report }: { report: NonNullable<SprintWorkflow["state"]["readiness"]> }) {
@@ -524,7 +550,7 @@ function candidateForStep(task: SigningSprintTask, step: SigningSprintStep): boo
   if (step === "positioning") return task === "RefineBookPositioning" || task === "EvaluatePositioning";
   if (step === "packaging") return task === "GenerateBookPackaging" || task === "EvaluateBookPackaging";
   if (step === "opening") return task === "GenerateOpeningBlueprint" || task === "EvaluateOpening";
-  if (step === "writing") return task === "GenerateChapterFromIntent" || task === "SigningReadinessReview";
+  if (step === "writing") return task === "GenerateChapterFromIntent" || task === "SigningReadinessReview" || task === "EvaluateOpening";
   return false;
 }
 
@@ -593,3 +619,4 @@ function openingDefaults(workflow: SprintWorkflow): OpeningBlueprintDto {
 function lines(value: string): string[] { return value.split(/[\n,，]/u).map((item) => item.trim()).filter(Boolean); }
 function text(value: unknown): string { return typeof value === "string" ? value : ""; }
 function recordText(value: unknown, key: string): string { return value && typeof value === "object" && !Array.isArray(value) ? text((value as Record<string, unknown>)[key]) : ""; }
+function recordList(value: unknown, key: string): string[] { const field = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>)[key] : null; return Array.isArray(field) ? field.filter((item): item is string => typeof item === "string") : []; }

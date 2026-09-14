@@ -344,6 +344,77 @@ export class ChapterWorkerSuite {
     const signingSprint = this.signingSprint.get(run.projectId);
     if (signingSprint) {
       const profile = this.webNovel.getBookProfile(run.projectId);
+      if (signingSprint.state.direction) {
+        sources.push({
+          id: `signing-sprint:direction:${signingSprint.version}`,
+          kind: "author-intent",
+          label: "快速开书 · 开书方向",
+          content: JSON.stringify(signingSprint.state.direction),
+          authority: "confirmed",
+          priority: 96,
+          required: true,
+          compressible: false,
+          sourceType: "signing_sprint",
+          sourceId: signingSprint.id,
+          metadata: { provenance: "chapterflow" },
+        });
+      }
+      if (signingSprint.state.positioning) {
+        sources.push({
+          id: `signing-sprint:positioning:${signingSprint.version}`,
+          kind: "author-intent",
+          label: "快速开书 · 作品定位",
+          content: JSON.stringify(signingSprint.state.positioning),
+          authority: "confirmed",
+          priority: 100,
+          required: true,
+          compressible: false,
+          sourceType: "signing_sprint",
+          sourceId: signingSprint.id,
+          metadata: { provenance: "chapterflow" },
+        });
+      }
+      if (signingSprint.state.storyEngine) {
+        sources.push({
+          id: `signing-sprint:story-engine:${signingSprint.version}`,
+          kind: "author-intent",
+          label: "快速开书 · 人物与故事发动机",
+          content: JSON.stringify(signingSprint.state.storyEngine),
+          authority: "confirmed",
+          priority: 99,
+          required: true,
+          compressible: false,
+          sourceType: "signing_sprint",
+          sourceId: signingSprint.id,
+          metadata: { provenance: "chapterflow" },
+        });
+      }
+      const selectedPackaging =
+        signingSprint.state.selectedPackagingId === null
+          ? null
+          : (signingSprint.state.packaging[
+              Number(signingSprint.state.selectedPackagingId)
+            ] ??
+            signingSprint.state.packaging.find(
+              (candidate) =>
+                candidate.title === signingSprint.state.selectedPackagingId,
+            ) ??
+            null);
+      if (selectedPackaging) {
+        sources.push({
+          id: `signing-sprint:packaging:${signingSprint.version}`,
+          kind: "author-intent",
+          label: "快速开书 · 已确认作品包装",
+          content: JSON.stringify(selectedPackaging),
+          authority: "confirmed",
+          priority: 96,
+          required: true,
+          compressible: false,
+          sourceType: "signing_sprint",
+          sourceId: signingSprint.id,
+          metadata: { provenance: "chapterflow" },
+        });
+      }
       const openingCards = this.officialKnowledge.retrieve(
         "opening",
         profile?.genre ?? null,

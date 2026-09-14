@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import type { NarrativeModelClient } from "@narralume/narrative";
+import { SqliteSigningSprintRepository } from "@narralume/persistence";
 import { NodeNarrativeDatabase } from "@narralume/persistence/node";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -607,6 +608,91 @@ describe("project backup fidelity (R8)", () => {
     expect(restoredReview?.run_id).not.toBe(reviewRunId);
     expect(restoredReview?.step_id).not.toBe(reviewStepId);
     expect(restoredReview?.document_version_id).not.toBe(version.id);
+  });
+
+  it("round-trips the quick-start workflow and candidates", async () => {
+    const { app, database } = await setup();
+    const project = await request<{ id: string }>(
+      app,
+      "POST",
+      "/api/projects",
+      {
+        requestId: globalThis.crypto.randomUUID(),
+        title: "快速开书备份样本",
+        premise: "一个侦探在停电前追查失踪案。",
+      },
+    );
+    const sprint = await request<{
+      workflow: { id: string; projectId: string; version: number };
+    }>(
+      app,
+      "POST",
+      `/api/projects/${project.id}/signing-sprint`,
+      {
+        premise: "一个侦探在停电前追查失踪案。",
+        genre: "都市悬疑",
+        audience: "喜欢反转和追更的读者",
+        coreEmotion: "紧张",
+      },
+      200,
+    );
+    const repository = new SqliteSigningSprintRepository(database);
+    repository.insertCandidate({
+      id: globalThis.crypto.randomUUID(),
+      workflowId: sprint.workflow.id,
+      projectId: project.id,
+      task: "BrainstormBookDirection",
+      status: "candidate",
+      payload: {
+        premise: "一个侦探在停电前追查失踪案。",
+        genre: "都市悬疑",
+        audience: "喜欢反转和追更的读者",
+        coreEmotion: "紧张",
+        protagonistSeed: "被停职的刑警",
+        hook: "失踪者在七秒后留下了第二条讯息",
+        differentiation: ["限时追查", "临终信息"],
+      },
+      rationale: "备份恢复候选",
+      provenance: { kind: "model", sourceRefs: [], runId: null },
+      baseWorkflowVersion: sprint.workflow.version,
+      createdAt: new Date().toISOString(),
+      decidedAt: null,
+    });
+    const backup = await request<{
+      id: string;
+      counts: Record<string, number>;
+    }>(app, "POST", `/api/projects/${project.id}/backups`, {
+      label: "快速开书快照",
+    });
+    expect(backup.counts).toMatchObject({
+      signingSprintWorkflows: 1,
+      signingSprintCandidates: 1,
+    });
+    const restored = await request<{
+      projectId: string;
+      counts: Record<string, number>;
+    }>(app, "POST", `/api/backups/${backup.id}/restore`, {
+      requestId: "signing-sprint-backup-restore",
+    });
+    expect(restored.counts).toMatchObject({
+      signingSprintWorkflows: 1,
+      signingSprintCandidates: 1,
+    });
+    expect(restored.projectId).not.toBe(project.id);
+    const restoredSprint = await request<{
+      workflow: { state: { direction: { premise: string } | null } };
+      candidates: {
+        payload: { premise: string };
+        provenance: { runId: string | null };
+      }[];
+    }>(app, "GET", `/api/projects/${restored.projectId}/signing-sprint`);
+    expect(restoredSprint.workflow.state.direction?.premise).toBe(
+      "一个侦探在停电前追查失踪案。",
+    );
+    expect(restoredSprint.candidates[0]?.payload.premise).toBe(
+      "一个侦探在停电前追查失踪案。",
+    );
+    expect(restoredSprint.candidates[0]?.provenance.runId).toBeNull();
   });
 
   it("fails restore atomically when a bundle section is dropped", async () => {

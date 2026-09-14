@@ -20,6 +20,109 @@ test("快速开书从想法入口进入签约准备工作流", async ({ page }, 
   await expect(
     page.getByRole("navigation", { name: "快速开书步骤", exact: true }),
   ).toBeVisible();
+
+  await page
+    .getByRole("textbox", { name: "故事想法", exact: true })
+    .fill("修复师在旧书里发现来自未来的留言，必须在停电前找到妹妹。");
+  await page.getByLabel("大致题材", { exact: true }).fill("都市悬疑");
+  await page.getByLabel("想写给谁", { exact: true }).fill("喜欢反转的追更读者");
+  await page.getByLabel("核心阅读体验", { exact: true }).fill("紧张与期待");
+  await page
+    .getByRole("button", { name: "保存并继续定位", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", {
+      name: "把故事变成一句可追更的承诺",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await page
+    .getByLabel("一句话故事", { exact: true })
+    .fill("修复师在失踪妹妹留下的未来留言中追查真相。");
+  await page
+    .getByLabel("核心创意", { exact: true })
+    .fill("每条留言都比现实早七秒出现。");
+  await page
+    .getByLabel("主角想要什么", { exact: true })
+    .fill("找到妹妹并阻止下一起案件。");
+  await page
+    .getByLabel("谁或什么在阻拦", { exact: true })
+    .fill("篡改留言的凶手和逐渐失效的记忆。");
+  await page
+    .getByLabel("故事靠什么持续推进", { exact: true })
+    .fill("每次修复旧书都会得到一条新的线索。");
+  await page
+    .getByLabel("核心冲突", { exact: true })
+    .fill("主角必须用失去记忆的代价换取真相。");
+  await page
+    .getByLabel("读者最后想得到什么体验", { exact: true })
+    .fill("紧张追查后获得反转和成长。");
+  await page
+    .getByLabel("目标读者", { exact: true })
+    .fill("喜欢都市悬疑和反转的追更读者");
+  await page
+    .getByLabel("长期期待", { exact: true })
+    .fill("主角最终直面自己隐瞒的旧案。");
+  await page
+    .getByLabel("短期吸引力", { exact: true })
+    .fill("七秒预知制造即时悬念。");
+  await page
+    .getByLabel("中期扩展空间", { exact: true })
+    .fill("不同案件逐步指向同一条留言网络。");
+  await page
+    .getByLabel("长期主线空间", { exact: true })
+    .fill("妹妹失踪与主角旧案最终汇合。");
+  await page
+    .getByRole("button", { name: "保存定位并继续", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "让人物和规则互相拉扯", exact: true }),
+  ).toBeVisible();
+  await page.getByLabel("主角", { exact: true }).fill("林野，落魄修复师");
+  await page
+    .getByLabel("第一阶段冲突", { exact: true })
+    .fill("在城市停电前找到留言来源。");
+  await page
+    .getByLabel("核心机制", { exact: true })
+    .fill("读取旧书会看见死者临终前七秒。");
+  await page
+    .getByLabel("主要对手或阻力", { exact: true })
+    .fill("篡改留言的凶手");
+  await page
+    .getByRole("button", { name: "保存人物与冲突并继续", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "给作品一个能兑现的包装", exact: true }),
+  ).toBeVisible();
+  await page.getByLabel("书名", { exact: true }).fill("七秒留言");
+  await page
+    .getByLabel("标签（用逗号或换行分隔）", { exact: true })
+    .fill("都市,悬疑");
+  await page
+    .getByLabel("简介", { exact: true })
+    .fill("修复师追查来自未来的留言，代价是失去自己的记忆。");
+  await page.getByRole("button", { name: "加入我的候选", exact: true }).click();
+  await expect(
+    page.getByRole("heading", {
+      name: "安排一个能马上动笔的开篇",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "保存开篇并进入写作", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "现在开始写，再回看开篇", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "打开章节列表", exact: true }),
+  ).toHaveAttribute("href", /\/books\/[^/]+\/write$/);
+  await page.getByRole("button", { name: "更新开篇检查", exact: true }).click();
+  await expect(page.getByText(/个章节已检查/)).toBeVisible();
+  await page
+    .getByRole("button", { name: "更新签约准备预检", exact: true })
+    .click();
+  await expect(page.getByText(/需要回看|暂未发现需要处理/)).toBeVisible();
 });
 
 test("ChapterFlow 作品入口与创作首页", async ({ page }, info) => {
@@ -33,6 +136,7 @@ test("ChapterFlow 作品入口与创作首页", async ({ page }, info) => {
     .getByRole("link", { name: /新建作品|创建第一部作品/ })
     .first()
     .click();
+  await page.getByRole("button", { name: /自己创建/ }).click();
   await page
     .getByLabel("书名", { exact: true })
     .fill(`文织验收-${info.project.name}-${Date.now()}`);
@@ -70,6 +174,7 @@ test("ChapterFlow 作品入口与创作首页", async ({ page }, info) => {
 
 test("V2 手工写作、离页保存与版本恢复", async ({ page }, info) => {
   await page.goto("/books/new");
+  await page.getByRole("button", { name: /自己创建/ }).click();
   await page
     .getByLabel("书名", { exact: true })
     .fill(`手工作品-${info.project.name}-${Date.now()}`);
@@ -184,6 +289,7 @@ test("V2 手工写作、离页保存与版本恢复", async ({ page }, info) => 
 
 test("V2 大纲章节直接进入新写作台", async ({ page }, info) => {
   await page.goto("/books/new");
+  await page.getByRole("button", { name: /自己创建/ }).click();
   await page
     .getByLabel("书名", { exact: true })
     .fill(`大纲衔接-${info.project.name}-${Date.now()}`);
@@ -204,7 +310,7 @@ test("V2 大纲章节直接进入新写作台", async ({ page }, info) => {
   await expect(page.getByRole("status")).toContainText("已写入服务端");
   await page
     .getByRole("combobox", { name: "编辑对象", exact: true })
-    .selectOption({ label: "第1章 风起之时" });
+    .selectOption({ label: "第 1 章 · 第1章 风起之时" });
   await page.getByRole("link", { name: "去写作台写本章", exact: true }).click();
   await expect(page).toHaveURL(/\/books\/[^/]+\/write\/[^/?]+$/);
   await expect(page.getByRole("textbox", { name: "章节正文" })).toBeVisible();

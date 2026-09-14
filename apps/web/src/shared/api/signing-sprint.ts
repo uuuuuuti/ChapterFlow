@@ -143,7 +143,11 @@ export async function updateOfficialSourceStatus(
 
 export async function requestOfficialSourceRefresh(
   sourceId: string,
-): Promise<{ status: "review_required"; source: OfficialSourceDto; message: string }> {
+): Promise<{
+  status: "review_required" | "fetch_failed";
+  source: OfficialSourceDto;
+  message: string;
+}> {
   return requestJson(
     `/api/official-knowledge/sources/${encodeURIComponent(sourceId)}/refresh`,
     jsonRequest("POST", {}),

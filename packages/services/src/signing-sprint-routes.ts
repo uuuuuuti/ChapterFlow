@@ -1,11 +1,18 @@
 import {
   analyzeOpeningText,
+  createCanonEntity,
   createDocument,
   createOutlineNode,
   randomUuid,
+  sha256Hex,
+  type CanonEntity,
+  type ChapterEmotionTarget,
+  type ChapterHookType,
+  type ChapterPurpose,
   type KnowledgeCardSourceRef,
   type OpeningChapterBlueprint,
   type OpeningSignalReport,
+  type ReaderPromiseOperation,
   type Project,
   type ReadinessIssue,
   type SigningReadinessReport,
@@ -35,9 +42,11 @@ import {
 } from "@narralume/contracts";
 import { buildSigningSprintRecipe } from "@narralume/harness";
 import {
+  SqliteCanonRepository,
   SqliteDocumentRepository,
   SqliteOfficialKnowledgeRepository,
   SqliteProjectRepository,
+  SqliteReaderPromiseRepository,
   SqliteRunRepository,
   SqliteSigningSprintRepository,
   SqliteStoryRepository,
@@ -74,6 +83,7 @@ export function registerSigningSprintRoutes(
 ): void {
   seedOfficialKnowledge(database);
   const projects = new SqliteProjectRepository(database);
+  const canon = new SqliteCanonRepository(database);
   const workflows = new SqliteSigningSprintRepository(database);
   const knowledge = new SqliteOfficialKnowledgeRepository(database);
   const story = new SqliteStoryRepository(database);
@@ -84,7 +94,10 @@ export function registerSigningSprintRoutes(
   app.route("GET", "/api/official-knowledge/sources", async (request) => {
     const query = OfficialSourceQuerySchema.parse(request.query);
     return knowledge
-      .listSources({ ...(query.status ? { status: query.status } : {}) })
+      .listSources({
+        ...(query.status ? { status: query.status } : {}),
+        ...(query.sourceType ? { sourceType: query.sourceType } : {}),
+      })
       .map((source) => OfficialSourceSchema.parse(source));
   });
 
@@ -135,12 +148,58 @@ export function registerSigningSprintRoutes(
     async (request) => {
       const { sourceId } = SourceParamsSchema.parse(request.params);
       const source = knowledge.requireSource(sourceId);
-      return {
-        status: "review_required",
-        source: OfficialSourceSchema.parse(source),
-        message:
-          "请打开官方来源核对最新内容，再提交新版本；ChapterFlow 不会静默改变已激活知识。",
-      };
+      assertOfficialSourceUrl(source.url);
+      const now = new Date().toISOString();
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 8_000);
+        const response = await fetch(source.url, {
+          signal: controller.signal,
+          headers: { accept: "text/html, text/plain;q=0.9" },
+        }).finally(() => clearTimeout(timer));
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const length = Number(response.headers.get("content-length") ?? 0);
+        if (length > 2_000_000) throw new Error("response exceeds 2 MB");
+        const content = await response.text();
+        if (!content.trim()) throw new Error("response is empty");
+        const contentHash = sha256Hex(content);
+        const candidate = knowledge.insertSource({
+          ...source,
+          id: randomUuid(),
+          retrievedAt: now,
+          contentHash,
+          sourceVersion: `candidate-${now.slice(0, 10)}-${contentHash.slice(0, 8)}`,
+          status: "CANDIDATE",
+          createdAt: now,
+          updatedAt: now,
+        });
+        return {
+          status: "review_required",
+          source: OfficialSourceSchema.parse(candidate),
+          message:
+            "已抓取新版本候选；请打开官方来源核对内容，再决定是否启用。ChapterFlow 不会静默改变已激活知识。",
+        };
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        const failureHash = sha256Hex(`${source.url}\0${detail}`);
+        const failedCandidate = knowledge.insertSource({
+          ...source,
+          id: randomUuid(),
+          retrievedAt: now,
+          contentHash: failureHash,
+          sourceVersion: `fetch-failed-${now.slice(0, 10)}-${failureHash.slice(0, 8)}`,
+          status: "FETCH_FAILED",
+          summary: `${source.summary} 本次抓取失败：${detail.slice(0, 300)}`,
+          createdAt: now,
+          updatedAt: now,
+        });
+        return {
+          status: "fetch_failed",
+          source: OfficialSourceSchema.parse(failedCandidate),
+          message:
+            "官方来源抓取失败，已保留原激活版本；请稍后重试或手动打开官方页面核对。",
+        };
+      }
     },
   );
 
@@ -160,6 +219,7 @@ export function registerSigningSprintRoutes(
       })
         .extend({ sourceVersion: z.string().trim().min(1).max(100) })
         .parse(request.body);
+      assertOfficialSourceUrl(input.url);
       const now = new Date().toISOString();
       const candidate = knowledge.insertSource({
         id: randomUuid(),
@@ -283,27 +343,46 @@ export function registerSigningSprintRoutes(
               : { readiness: input.state.readiness }),
           }
         : undefined;
-      const next = workflows.update(current.id, {
-        expectedVersion: input.expectedVersion,
-        ...(input.currentStep === undefined
-          ? {}
-          : { currentStep: input.currentStep }),
-        ...(input.status === undefined ? {} : { status: input.status }),
-        ...(input.completedSteps === undefined
-          ? {}
-          : { completedSteps: input.completedSteps }),
-        ...(state === undefined ? {} : { state }),
-        ...(input.selectedStrategyId === undefined
-          ? {}
-          : { selectedStrategyId: input.selectedStrategyId }),
-        ...(input.knowledgeRefs === undefined
-          ? {}
-          : { knowledgeRefs: input.knowledgeRefs }),
-        now,
+      const next = database.transaction(() => {
+        const updated = workflows.update(current.id, {
+          expectedVersion: input.expectedVersion,
+          ...(input.currentStep === undefined
+            ? {}
+            : { currentStep: input.currentStep }),
+          ...(input.status === undefined ? {} : { status: input.status }),
+          ...(input.completedSteps === undefined
+            ? {}
+            : { completedSteps: input.completedSteps }),
+          ...(state === undefined ? {} : { state }),
+          ...(input.selectedStrategyId === undefined
+            ? {}
+            : { selectedStrategyId: input.selectedStrategyId }),
+          ...(input.knowledgeRefs === undefined
+            ? {}
+            : { knowledgeRefs: input.knowledgeRefs }),
+          now,
+        });
+        syncSigningSprintAuthorData(
+          updated,
+          state,
+          projects,
+          planning,
+          story,
+          canon,
+          now,
+        );
+        if (updated.state.openingBlueprint) {
+          materializeOpeningPlan(
+            updated,
+            database,
+            story,
+            documents,
+            planning,
+            now,
+          );
+        }
+        return updated;
       });
-      if (next.state.openingBlueprint) {
-        materializeOpeningPlan(next, story, documents, planning, now);
-      }
       return workflowResponse(next, workflows, knowledge);
     },
   );
@@ -440,7 +519,14 @@ export function registerSigningSprintRoutes(
         );
         workflows.decideCandidate(candidate.id, "accepted", now);
         if (updated.state.openingBlueprint) {
-          materializeOpeningPlan(updated, story, documents, planning, now);
+          materializeOpeningPlan(
+            updated,
+            database,
+            story,
+            documents,
+            planning,
+            now,
+          );
         }
         return updated;
       });
@@ -632,6 +718,7 @@ function applyCandidate(
         .object({ candidates: z.array(BookPackagingSchema).min(1) })
         .parse(payload);
       state.packaging = parsed.candidates;
+      state.selectedPackagingId = null;
       break;
     }
     case "GenerateOpeningBlueprint": {
@@ -652,10 +739,17 @@ function applyCandidate(
       break;
   }
   const step = stepForTask(candidate.task);
-  const completedSteps = workflow.completedSteps.includes(step)
+  const packagingNeedsSelection =
+    candidate.task === "GenerateBookPackaging" &&
+    state.selectedPackagingId === null;
+  const completedSteps = packagingNeedsSelection
     ? workflow.completedSteps
-    : [...workflow.completedSteps, step];
-  const nextStep = nextWorkflowStep(step, completedSteps);
+    : workflow.completedSteps.includes(step)
+      ? workflow.completedSteps
+      : [...workflow.completedSteps, step];
+  const nextStep = packagingNeedsSelection
+    ? "packaging"
+    : nextWorkflowStep(step, completedSteps);
   return workflows.update(workflow.id, {
     expectedVersion: workflow.version,
     state,
@@ -702,6 +796,236 @@ function nextWorkflowStep(
   );
 }
 
+/**
+ * The sprint is an author-facing workflow, but its confirmed decisions must
+ * remain useful to the existing writing surfaces.  Keep the projection small:
+ * the workflow owns the richer draft, while BookProfile, AuthorIntent and
+ * Canon remain the durable sources consumed by the rest of ChapterFlow.
+ */
+function syncSigningSprintAuthorData(
+  workflow: ReturnType<SqliteSigningSprintRepository["ensure"]>,
+  changedState: Partial<SigningSprintState> | undefined,
+  projects: SqliteProjectRepository,
+  planning: SqliteWebNovelRepository,
+  story: SqliteStoryRepository,
+  canon: SqliteCanonRepository,
+  now: string,
+): void {
+  if (!changedState) return;
+  const changedAuthorData = Boolean(
+    changedState.direction !== undefined ||
+    changedState.positioning !== undefined ||
+    changedState.storyEngine !== undefined ||
+    changedState.selectedPackagingId !== undefined,
+  );
+  if (!changedAuthorData) return;
+
+  const state = workflow.state;
+  const direction = state.direction;
+  const positioning = state.positioning;
+  const engine = state.storyEngine;
+  const selected = selectedPackaging(state);
+  if (
+    changedState.selectedPackagingId !== undefined &&
+    state.selectedPackagingId !== null &&
+    !selected
+  ) {
+    throw new SigningSprintRouteError(
+      "signing_sprint.packaging.selection_invalid",
+      "The selected packaging candidate does not exist",
+      422,
+    );
+  }
+
+  const project = projects.get(workflow.projectId);
+  if (!project)
+    throw new SigningSprintRouteError(
+      "project.not_found",
+      "Project not found",
+      404,
+    );
+
+  if (
+    changedState.selectedPackagingId !== undefined &&
+    selected &&
+    (selected.title !== project.title ||
+      selected.description !== (project.premise ?? "") ||
+      (selected.tagline ?? null) !== project.subtitle)
+  ) {
+    projects.update({
+      ...project,
+      title: selected.title,
+      premise: selected.description,
+      subtitle: selected.tagline,
+      updatedAt: now,
+    });
+  }
+
+  const profile = planning.ensureBookProfile(workflow.projectId, now);
+  if (
+    changedState.direction !== undefined ||
+    changedState.positioning !== undefined ||
+    changedState.storyEngine !== undefined ||
+    changedState.selectedPackagingId !== undefined
+  ) {
+    const sprintNotes = [
+      engine?.mechanism ? `快速开书 · 核心机制：${engine.mechanism}` : null,
+      engine?.conflict ? `快速开书 · 第一阶段冲突：${engine.conflict}` : null,
+      engine?.relationships.length
+        ? `快速开书 · 关键关系：${engine.relationships.join("；")}`
+        : null,
+    ].filter((note): note is string => Boolean(note));
+    const preservedNotes = profile.arcNotes.filter(
+      (note) => !note.startsWith("快速开书 · "),
+    );
+    updateProfile(planning, workflow.projectId, profile, {
+      genre: selected?.genre ?? direction?.genre ?? profile.genre,
+      audience:
+        positioning?.readerProfile ?? direction?.audience ?? profile.audience,
+      promise:
+        positioning?.emotionalPayoff ??
+        direction?.coreEmotion ??
+        profile.promise,
+      endingDirection:
+        positioning?.longTermExpectation ?? profile.endingDirection,
+      worldRules: engine ? engine.worldRules : profile.worldRules,
+      arcNotes:
+        engine || positioning
+          ? [
+              ...preservedNotes,
+              ...(positioning
+                ? [
+                    `快速开书 · 核心冲突：${positioning.coreConflict}`,
+                    `快速开书 · 中期扩展：${positioning.sustainability.midTermExpansion}`,
+                    `快速开书 · 长期空间：${positioning.sustainability.longTermSpace}`,
+                  ]
+                : []),
+              ...sprintNotes,
+            ].filter(Boolean)
+          : profile.arcNotes,
+      now,
+    });
+  }
+
+  if (direction || positioning || engine) {
+    const intent = story.getAuthorIntent(workflow.projectId);
+    story.upsertAuthorIntent({
+      projectId: workflow.projectId,
+      promise:
+        positioning?.emotionalPayoff ??
+        direction?.coreEmotion ??
+        intent?.promise ??
+        null,
+      themes: intent?.themes ?? [],
+      audience:
+        positioning?.readerProfile ??
+        direction?.audience ??
+        intent?.audience ??
+        null,
+      tone: intent?.tone ?? null,
+      boundaries: intent?.boundaries ?? [],
+      endingDirection:
+        positioning?.longTermExpectation ?? intent?.endingDirection ?? null,
+      currentFocus: engine
+        ? [
+            engine.protagonist && `主角：${engine.protagonist}`,
+            engine.antagonist && `阻力：${engine.antagonist}`,
+            engine.mechanism && `机制：${engine.mechanism}`,
+            engine.conflict && `冲突：${engine.conflict}`,
+          ]
+            .filter(Boolean)
+            .join("；") || "快速开书：人物与冲突"
+        : positioning
+          ? "快速开书：定位"
+          : "快速开书：方向",
+      lockedFields: intent?.lockedFields ?? [],
+      updatedAt: now,
+    });
+  }
+
+  if (engine) {
+    const entities = canon.listEntities(workflow.projectId, {
+      includeRetired: true,
+    });
+    syncRoleEntity(
+      canon,
+      entities,
+      workflow.projectId,
+      "protagonist",
+      engine.protagonist,
+      "快速开书确认的主角",
+      now,
+    );
+    syncRoleEntity(
+      canon,
+      entities,
+      workflow.projectId,
+      "antagonist",
+      engine.antagonist,
+      "快速开书确认的主要阻力或对手",
+      now,
+    );
+  }
+}
+
+function selectedPackaging(
+  state: SigningSprintState,
+): SigningSprintState["packaging"][number] | null {
+  if (state.selectedPackagingId === null) return null;
+  const index = Number(state.selectedPackagingId);
+  return Number.isInteger(index) && index >= 0
+    ? (state.packaging[index] ?? null)
+    : (state.packaging.find(
+        (candidate) => candidate.title === state.selectedPackagingId,
+      ) ?? null);
+}
+
+function syncRoleEntity(
+  canon: SqliteCanonRepository,
+  entities: readonly CanonEntity[],
+  projectId: string,
+  role: "protagonist" | "antagonist",
+  value: string | null,
+  description: string,
+  now: string,
+): void {
+  const name = value?.trim();
+  if (!name) return;
+  const existing =
+    entities.find((entity) => entity.attributes.signingSprintRole === role) ??
+    entities.find(
+      (entity) => entity.type === "character" && entity.name === name,
+    );
+  if (existing) {
+    canon.updateEntity({
+      ...existing,
+      name,
+      description,
+      attributes: {
+        ...existing.attributes,
+        signingSprintRole: role,
+        signingSprintSource: "signing-sprint",
+      },
+      updatedAt: now,
+    });
+    return;
+  }
+  canon.insertEntity(
+    createCanonEntity({
+      id: randomUuid(),
+      projectId,
+      type: "character",
+      name,
+      description,
+      attributes: {
+        signingSprintRole: role,
+        signingSprintSource: "signing-sprint",
+      },
+      now,
+    }),
+  );
+}
+
 function updateProfile(
   planning: SqliteWebNovelRepository,
   projectId: string,
@@ -739,6 +1063,7 @@ function updateProfile(
 
 function materializeOpeningPlan(
   workflow: ReturnType<SqliteSigningSprintRepository["ensure"]>,
+  database: NarrativeDatabase,
   story: SqliteStoryRepository,
   documents: SqliteDocumentRepository,
   planning: SqliteWebNovelRepository,
@@ -784,6 +1109,13 @@ function materializeOpeningPlan(
   const specs = [...blueprint.firstArcChapters].sort(
     (left, right) => left.index - right.index,
   );
+  const readerPromises = new SqliteReaderPromiseRepository(database);
+  const openingPromiseId = `${workflow.id}:opening-reader-promise`;
+  const needsPromiseLifecycle = !readerPromises.get(
+    workflow.projectId,
+    openingPromiseId,
+  );
+  const firstPayoffIndex = specs.findIndex((spec) => isPayoffPurpose(spec));
   for (const spec of specs) {
     let chapter = outline.find(
       (node) =>
@@ -822,6 +1154,18 @@ function materializeOpeningPlan(
         }),
       );
     }
+    const currentBrief = planning.getChapterBrief(
+      workflow.projectId,
+      chapter.id,
+    );
+    const specIndex = specs.indexOf(spec);
+    const plannedPromiseOperations = readerPromiseOperationsFor(
+      blueprint,
+      spec,
+      specIndex,
+      firstPayoffIndex,
+      openingPromiseId,
+    );
     planning.upsertChapterBrief(workflow.projectId, chapter.id, {
       goal: spec.protagonistAction,
       conflict: spec.conflict,
@@ -831,46 +1175,159 @@ function materializeOpeningPlan(
       targetWords: spec.targetWords,
       purpose: purposeOf(spec),
       secondaryPurposes: [],
-      emotionTarget: null,
+      emotionTarget: emotionTargetOf(spec.emotionTarget),
       emotionCurve: [],
-      readerPromiseOperations: [],
-      payoffStrength: 0,
-      hookType: null,
-      hookStrength: 0,
-      informationGain: 1,
-      endingPull: 1,
-      sceneStructure: [],
+      readerPromiseOperations:
+        currentBrief && currentBrief.readerPromiseOperations.length > 0
+          ? currentBrief.readerPromiseOperations
+          : needsPromiseLifecycle
+            ? plannedPromiseOperations
+            : [],
+      payoffStrength: spec.payoff.trim() ? 3 : 0,
+      hookType: hookTypeOf(spec.hook),
+      hookStrength: spec.hook.trim() ? 3 : 0,
+      informationGain: spec.readerExpectation.trim() ? 3 : 1,
+      endingPull: spec.hook.trim() ? 3 : 1,
+      sceneStructure: [
+        {
+          order: 1,
+          purpose: purposeOf(spec),
+          beat: spec.protagonistAction,
+          payoff: spec.payoff,
+        },
+      ],
       characterIds: [],
       foreshadowIds: [],
       timelineIds: [],
       pacing: "fast",
-      expectedVersion: null,
+      expectedVersion: currentBrief?.version ?? null,
       now,
     });
   }
 }
 
-function purposeOf(
-  spec: OpeningChapterBlueprint,
-):
-  | "setup"
-  | "progress"
-  | "conflict"
-  | "reveal"
-  | "payoff"
-  | "turning_point"
-  | "relationship"
-  | "worldbuilding"
-  | "transition"
-  | "climax" {
-  const value = spec.purpose.toLowerCase();
+function purposeOf(spec: OpeningChapterBlueprint): ChapterPurpose {
+  const value = spec.purpose.trim().toLowerCase();
+  const exact: readonly ChapterPurpose[] = [
+    "setup",
+    "progress",
+    "conflict",
+    "reveal",
+    "payoff",
+    "turning_point",
+    "relationship",
+    "worldbuilding",
+    "transition",
+    "climax",
+  ];
+  if ((exact as readonly string[]).includes(value))
+    return value as ChapterPurpose;
   if (value.includes("冲突") || value.includes("conflict")) return "conflict";
   if (value.includes("揭") || value.includes("reveal")) return "reveal";
   if (value.includes("转") || value.includes("turn")) return "turning_point";
   if (value.includes("关系") || value.includes("relationship"))
     return "relationship";
-  if (value.includes("回收") || value.includes("payoff")) return "payoff";
+  if (
+    value.includes("回收") ||
+    value.includes("兑现") ||
+    value.includes("payoff")
+  )
+    return "payoff";
+  if (value.includes("设定") || value.includes("world")) return "worldbuilding";
   return "progress";
+}
+
+function isPayoffPurpose(spec: OpeningChapterBlueprint): boolean {
+  return purposeOf(spec) === "payoff";
+}
+
+function emotionTargetOf(value: string): ChapterEmotionTarget | null {
+  const normalized = value.trim();
+  const aliases: Readonly<Record<string, ChapterEmotionTarget>> = {
+    爽感: "爽",
+    爽: "爽",
+    紧张: "紧张",
+    期待: "期待",
+    惊讶: "惊讶",
+    震惊: "惊讶",
+    压迫: "压迫",
+    感动: "感动",
+    暧昧: "暧昧",
+    恐惧: "恐惧",
+    轻松: "轻松",
+  };
+  return aliases[normalized] ?? null;
+}
+
+function hookTypeOf(value: string): ChapterHookType | null {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return null;
+  if (
+    normalized.includes("危险") ||
+    normalized.includes("追") ||
+    normalized.includes("danger")
+  )
+    return "danger";
+  if (
+    normalized.includes("决定") ||
+    normalized.includes("选择") ||
+    normalized.includes("decision")
+  )
+    return "decision";
+  if (normalized.includes("身份") || normalized.includes("identity"))
+    return "identity";
+  if (normalized.includes("反转") || normalized.includes("reverse"))
+    return "reverse";
+  if (
+    normalized.includes("揭") ||
+    normalized.includes("真相") ||
+    normalized.includes("reveal")
+  )
+    return "reveal";
+  if (normalized.includes("到来") || normalized.includes("arrival"))
+    return "arrival";
+  if (/[？?]/u.test(value)) return "question";
+  return "information_gap";
+}
+
+function readerPromiseOperationsFor(
+  blueprint: NonNullable<SigningSprintState["openingBlueprint"]>,
+  spec: OpeningChapterBlueprint,
+  specIndex: number,
+  firstPayoffIndex: number,
+  promiseId: string,
+): ReaderPromiseOperation[] {
+  if (specIndex === 0) {
+    return [
+      {
+        action: "OPEN",
+        promiseId,
+        title: blueprint.readerPromise,
+        note: spec.readerExpectation || blueprint.expectation,
+      },
+    ];
+  }
+  if (firstPayoffIndex >= 0 && specIndex === firstPayoffIndex) {
+    return [
+      {
+        action: "PAYOFF",
+        promiseId,
+        title: null,
+        note: spec.payoff,
+      },
+    ];
+  }
+  if (firstPayoffIndex < 0 || specIndex < firstPayoffIndex) {
+    return [
+      {
+        action: "ADVANCE",
+        promiseId,
+        title: null,
+        note: spec.readerExpectation || spec.hook,
+      },
+    ];
+  }
+  return [];
 }
 
 function buildOpeningReport(
@@ -918,7 +1375,9 @@ function buildReadinessReport(
   const refs = knowledge
     .retrieve("readiness", profile?.genre ?? null, 12)
     .flatMap((card) => card.sourceRefs);
-  const sourceRefs = uniqueRefs(refs);
+  const sourceRefs = uniqueRefs(refs).filter(
+    (ref) => knowledge.getSource(ref.sourceId)?.status === "ACTIVE",
+  );
   if (!profile?.genre || !profile.audience || !profile.promise) {
     issues.push({
       code: "metadata.incomplete",
@@ -961,6 +1420,27 @@ function buildReadinessReport(
         : ["还没有章节"],
       locations: ["快速开书 · 开篇与写作"],
       suggestions: ["先完成计划中的开篇章节，再用开篇检查回看具体文本。"],
+      sourceRefs: [],
+    });
+  }
+  const invalidDocumentVersions = chapters.filter((chapter) => {
+    const document = documents.getByOutlineNodeId(projectId, chapter.id);
+    return Boolean(
+      document?.currentVersionId &&
+      !documents.getVersion(projectId, document.id, document.currentVersionId),
+    );
+  });
+  if (invalidDocumentVersions.length > 0) {
+    issues.push({
+      code: "technical.document_version_unreadable",
+      title: "开篇正文版本无法安全读取",
+      severity: "error",
+      source: "chapterflow",
+      detail:
+        "至少一个开篇章节的当前版本引用不存在，预检不会把它当作已完成正文。",
+      evidence: invalidDocumentVersions.map((chapter) => chapter.title),
+      locations: ["作品写作 · 章节版本"],
+      suggestions: ["打开对应章节，重新保存或恢复一个有效版本后再检查。"],
       sourceRefs: [],
     });
   }
@@ -1016,6 +1496,11 @@ function buildReadinessReport(
         ? "needs_attention"
         : "ready",
       officialMatching,
+      technicalSafety: issues.some((issue) =>
+        issue.code.startsWith("technical."),
+      )
+        ? "needs_attention"
+        : "ready",
     },
     generatedAt: new Date().toISOString(),
   };
@@ -1025,6 +1510,30 @@ function uniqueRefs(
   refs: readonly KnowledgeCardSourceRef[],
 ): KnowledgeCardSourceRef[] {
   return [...new Map(refs.map((ref) => [ref.sourceId, ref])).values()];
+}
+
+function assertOfficialSourceUrl(url: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new SigningSprintRouteError(
+      "official_knowledge.source_url.invalid",
+      "Official knowledge sources must use a valid HTTPS URL",
+      422,
+    );
+  }
+  const hostname = parsed.hostname.toLocaleLowerCase();
+  if (
+    parsed.protocol !== "https:" ||
+    (hostname !== "fanqienovel.com" && !hostname.endsWith(".fanqienovel.com"))
+  ) {
+    throw new SigningSprintRouteError(
+      "official_knowledge.source_url.not_official",
+      "Official knowledge sources must come from fanqienovel.com",
+      422,
+    );
+  }
 }
 
 export class SigningSprintRouteError extends Error {

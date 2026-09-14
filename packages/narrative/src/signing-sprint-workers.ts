@@ -14,6 +14,7 @@ import type {
 } from "@narralume/harness";
 import {
   SqliteOfficialKnowledgeRepository,
+  SqliteDocumentRepository,
   SqliteProjectRepository,
   SqliteSigningSprintRepository,
   SqliteStoryRepository,
@@ -42,6 +43,7 @@ interface SigningSprintContextArtifact extends Readonly<
 
 export class SigningSprintWorkerSuite {
   private readonly projects: SqliteProjectRepository;
+  private readonly documents: SqliteDocumentRepository;
   private readonly story: SqliteStoryRepository;
   private readonly webNovel: SqliteWebNovelRepository;
   private readonly workflows: SqliteSigningSprintRepository;
@@ -53,6 +55,7 @@ export class SigningSprintWorkerSuite {
     private readonly now: () => Date = () => new Date(),
   ) {
     this.projects = new SqliteProjectRepository(database);
+    this.documents = new SqliteDocumentRepository(database);
     this.story = new SqliteStoryRepository(database);
     this.webNovel = new SqliteWebNovelRepository(database);
     this.workflows = new SqliteSigningSprintRepository(database);
@@ -118,6 +121,29 @@ export class SigningSprintWorkerSuite {
         outcome: node.outcome,
         metadata: node.metadata,
       }));
+    const manuscript = this.story
+      .listOutline(project.id)
+      .filter((node) => node.kind === "chapter")
+      .slice(0, 3)
+      .flatMap((node) => {
+        const document = this.documents.getByOutlineNodeId(project.id, node.id);
+        if (!document?.currentVersionId) return [];
+        const version = this.documents.getVersion(
+          project.id,
+          document.id,
+          document.currentVersionId,
+        );
+        return version
+          ? [
+              {
+                chapterId: node.id,
+                title: node.title,
+                content: version.content.slice(0, 40_000),
+                versionId: version.id,
+              },
+            ]
+          : [];
+      });
     const packet = {
       task,
       instruction,
@@ -131,6 +157,7 @@ export class SigningSprintWorkerSuite {
       bookProfile: profile,
       authorIntent: intent,
       outline,
+      manuscript,
       officialKnowledge: cards.map((card) => ({
         id: card.id,
         title: card.title,

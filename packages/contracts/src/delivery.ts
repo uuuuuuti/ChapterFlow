@@ -258,6 +258,8 @@ export const BundleCountsSchema = z.object({
   exportBatches: z.number().int().nonnegative().default(0),
   openingCheckReports: z.number().int().nonnegative().default(0),
   openingCheckAudits: z.number().int().nonnegative().default(0),
+  signingSprintWorkflows: z.number().int().nonnegative().default(0),
+  signingSprintCandidates: z.number().int().nonnegative().default(0),
 });
 export type BundleCounts = z.infer<typeof BundleCountsSchema>;
 

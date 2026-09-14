@@ -208,6 +208,8 @@ export interface OpeningSignal {
   threshold: number | null;
   direction: "higher_is_risk" | "lower_is_risk" | "observation";
   explanation: string;
+  /** Human-readable paragraph locations for author review. */
+  locations: string[];
 }
 
 export interface OpeningSignalReport {
@@ -241,6 +243,7 @@ export interface SigningReadinessReport {
     content: "ready" | "needs_attention";
     consistency: "ready" | "needs_attention";
     officialMatching: "ready" | "needs_attention" | "unconfirmed";
+    technicalSafety: "ready" | "needs_attention";
   };
   generatedAt: IsoDateTime;
 }
@@ -318,20 +321,24 @@ export function analyzeOpeningText(
   const longParagraphCount = paragraphs.filter(
     (paragraph) => [...paragraph].length >= longParagraphThreshold,
   ).length;
-  const namedPersonMatches = text.match(
-    /[\p{Script=Han}A-Za-z·]{2,8}(?=(?:说|问|喊|看着|盯着|的目光|回答))/gu,
-  );
-  const properNounMatches = text.match(
-    /(?:“[^”]{1,20}”|[A-Z][a-zA-Z]{1,20}|[\p{Script=Han}]{2,8}(?:门|城|宗|府|局|集团|公司|学院|计划|系统))/gu,
-  );
-  const expositionRunCount = (
-    text.match(
+  const namedPersonMatches = [
+    ...text.matchAll(
+      /[\p{Script=Han}A-Za-z·]{2,8}(?=(?:说|问|喊|看着|盯着|的目光|回答))/gu,
+    ),
+  ];
+  const properNounMatches = [
+    ...text.matchAll(
+      /(?:“[^”]{1,20}”|[A-Z][a-zA-Z]{1,20}|[\p{Script=Han}]{2,8}(?:门|城|宗|府|局|集团|公司|学院|计划|系统))/gu,
+    ),
+  ];
+  const expositionMatches = [
+    ...text.matchAll(
       /(?:因为|所谓|也就是说|简单来说|在这个世界|历史上|众所周知|原来|其实)[^。！？!?]{45,}/gu,
-    ) ?? []
-  ).length;
-  const viewpointMarkerCount = (
-    text.match(/(?:我|他|她|它|视线|回忆|想到|意识到|心里|耳边|眼前)/gu) ?? []
-  ).length;
+    ),
+  ];
+  const viewpointMatches = [
+    ...text.matchAll(/(?:我|他|她|它|视线|回忆|想到|意识到|心里|耳边|眼前)/gu),
+  ];
   const normalizedParagraphs = paragraphs.map((paragraph) =>
     paragraph.replace(/\s+/gu, "").toLowerCase(),
   );
@@ -359,8 +366,8 @@ export function analyzeOpeningText(
       (properNounMatches ?? []).length,
       Math.max(1, paragraphs.length),
     ),
-    expositionRunCount,
-    viewpointMarkerCount,
+    expositionRunCount: expositionMatches.length,
+    viewpointMarkerCount: viewpointMatches.length,
     repeatedParagraphCount,
   };
   const signals: OpeningSignal[] = [
@@ -371,6 +378,14 @@ export function analyzeOpeningText(
       threshold: 0.35,
       direction: "higher_is_risk",
       explanation: "用于提醒开篇是否有较多信息堆叠，不能单独判断正文质量。",
+      locations: paragraphLocations(
+        paragraphs,
+        paragraphs
+          .map((paragraph, index) =>
+            [...paragraph].length >= longParagraphThreshold ? index : -1,
+          )
+          .filter((index) => index >= 0),
+      ),
     },
     {
       code: "dialogue_ratio",
@@ -379,6 +394,7 @@ export function analyzeOpeningText(
       threshold: null,
       direction: "observation",
       explanation: "帮助作者观察开篇的叙述与互动分布。",
+      locations: paragraphs.length > 0 ? [paragraphLocation(0)] : [],
     },
     {
       code: "named_person_density",
@@ -387,6 +403,7 @@ export function analyzeOpeningText(
       threshold: 1.5,
       direction: "higher_is_risk",
       explanation: "人物过密时，读者可能需要更多时间建立关系。",
+      locations: matchLocations(text, namedPersonMatches, paragraphs),
     },
     {
       code: "exposition_runs",
@@ -395,6 +412,7 @@ export function analyzeOpeningText(
       threshold: 2,
       direction: "higher_is_risk",
       explanation: "提示连续背景解释的位置，建议回看是否能改为行动或冲突。",
+      locations: matchLocations(text, expositionMatches, paragraphs),
     },
     {
       code: "repeated_paragraphs",
@@ -403,6 +421,17 @@ export function analyzeOpeningText(
       threshold: 1,
       direction: "higher_is_risk",
       explanation: "提示可能存在重复表达或重复粘贴。",
+      locations: paragraphLocations(
+        paragraphs,
+        normalizedParagraphs
+          .map((paragraph, index) =>
+            paragraph.length > 20 &&
+            normalizedParagraphs.indexOf(paragraph) !== index
+              ? index
+              : -1,
+          )
+          .filter((index) => index >= 0),
+      ),
     },
     {
       code: "viewpoint_markers",
@@ -411,6 +440,7 @@ export function analyzeOpeningText(
       threshold: null,
       direction: "observation",
       explanation: "辅助作者回看开篇视角是否稳定。",
+      locations: matchLocations(text, viewpointMatches, paragraphs),
     },
   ];
   return {
@@ -419,6 +449,45 @@ export function analyzeOpeningText(
     analyzedChapterCount: paragraphs.length > 0 ? 1 : 0,
     analyzedAt,
   };
+}
+
+function paragraphLocation(index: number): string {
+  return `第 ${index + 1} 段`;
+}
+
+function paragraphLocations(
+  paragraphs: readonly string[],
+  indices: readonly number[],
+): string[] {
+  return [...new Set(indices)]
+    .filter((index) => index >= 0 && index < paragraphs.length)
+    .map(paragraphLocation);
+}
+
+function matchLocations(
+  text: string,
+  matches: readonly RegExpMatchArray[],
+  paragraphs: readonly string[],
+): string[] {
+  if (paragraphs.length === 0) return [];
+  const starts: number[] = [];
+  let cursor = 0;
+  for (const paragraph of paragraphs) {
+    const start = text.indexOf(paragraph, cursor);
+    starts.push(start >= 0 ? start : cursor);
+    cursor = Math.max(cursor, start >= 0 ? start + paragraph.length : cursor);
+  }
+  const indices = matches.flatMap((match) => {
+    const offset = match.index ?? -1;
+    if (offset < 0) return [];
+    let index = 0;
+    for (let candidate = 0; candidate < starts.length; candidate += 1) {
+      if (starts[candidate]! <= offset) index = candidate;
+      else break;
+    }
+    return [index];
+  });
+  return paragraphLocations(paragraphs, indices);
 }
 
 function roundRatio(numerator: number, denominator: number): number {

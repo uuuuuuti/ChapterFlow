@@ -49,6 +49,33 @@ export class SqliteSigningSprintRepository {
     return workflow;
   }
 
+  /** Restore a workflow with its persisted version and review state intact. */
+  insertWorkflow(workflow: SigningSprintWorkflow): SigningSprintWorkflow {
+    const existing = this.get(workflow.projectId);
+    if (existing) return existing;
+    this.database.raw
+      .prepare(
+        `INSERT INTO signing_sprint_workflows(
+          id, project_id, status, current_step, completed_steps_json, state_json,
+          selected_strategy_id, knowledge_refs_json, version, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        workflow.id,
+        workflow.projectId,
+        workflow.status,
+        workflow.currentStep,
+        JSON.stringify(workflow.completedSteps),
+        JSON.stringify(workflow.state),
+        workflow.selectedStrategyId,
+        JSON.stringify(workflow.knowledgeRefs),
+        workflow.version,
+        workflow.createdAt,
+        workflow.updatedAt,
+      );
+    return this.require(workflow.projectId);
+  }
+
   ensure(projectId: string, now: string): SigningSprintWorkflow {
     const existing = this.get(projectId);
     if (existing) return existing;

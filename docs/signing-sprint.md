@@ -45,3 +45,9 @@ AI 任务通过 `sprint.context → sprint.generate → sprint.stage` 三段式�
 - `GET|POST /api/projects/:projectId/signing-sprint/readiness`
 
 写接口使用工作流版本做乐观并发控制；候选和接受动作会保留 provenance，方便审阅、恢复和后续追踪。
+
+## 备份与真实模型验证
+
+作品备份会连同快速开书工作流、候选、开篇计划、Chapter Intent 和 Reader Promise 一起保存；恢复副本会重映射项目、章节和文档 ID，运行 ID 不会被续跑，候选里的运行 provenance 会标记为已脱钩。
+
+本地有真实模型配置时，可运行 `npm run test:real:signing-sprint -- --protocol=openai-responses` 验证一次结构化开书候选生成。缺少 API 配置时该检查会明确失败，不会用假响应冒充真实模型通过。
