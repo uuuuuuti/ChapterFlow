@@ -21,6 +21,7 @@ import {
   OutlineOperationError,
   PersistenceNotFoundError,
   RunPersistenceError,
+  SigningSprintPersistenceError,
   TemplatePersistenceError,
 } from "@narralume/persistence";
 import { RecipeTemplateError, PromptTemplateError } from "@narralume/harness";
@@ -176,6 +177,7 @@ export function mapRouteError(
     error instanceof DeliveryVersionConflictError ||
     error instanceof DeliveryPersistenceError ||
     error instanceof RunPersistenceError ||
+    error instanceof SigningSprintPersistenceError ||
     error instanceof TemplatePersistenceError
   ) {
     const shaped = error as {

@@ -112,6 +112,7 @@ export * from "./demo-relay-seed.js";
 export * from "./provider-defaults.js";
 export * from "./delivery-service.js";
 export * from "./task-classification.js";
+export * from "./official-knowledge.js";
 
 // ---- 路由注册器（Fastify 与浏览器内核双宿主）----
 export * from "./route-error.js";
@@ -131,5 +132,6 @@ export * from "./story-routes.js";
 export * from "./studio-routes.js";
 export * from "./template-routes.js";
 export * from "./web-novel-routes.js";
+export * from "./signing-sprint-routes.js";
 export { mapRouteError, type ApiErrorPayload } from "./route-error-mapper.js";
 export { RouteTable } from "./route-dispatch.js";

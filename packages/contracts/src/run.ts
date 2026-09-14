@@ -73,6 +73,9 @@ export const RunStepKindSchema = z.enum([
   "webnovel.context",
   "webnovel.candidate",
   "webnovel.stage",
+  "sprint.context",
+  "sprint.generate",
+  "sprint.stage",
 ]);
 
 export const ChapterStepKindSchema = RunStepKindSchema.extract([

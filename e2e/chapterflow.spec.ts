@@ -1,5 +1,27 @@
 import { expect, test } from "@playwright/test";
 
+test("快速开书从想法入口进入签约准备工作流", async ({ page }, info) => {
+  await page.goto("/books/new?mode=signing-sprint");
+  await expect(
+    page.getByRole("heading", { name: "快速开书", exact: true }),
+  ).toBeVisible();
+  await page
+    .getByLabel("作品名（可先留空）", { exact: true })
+    .fill(`快速开书-${info.project.name}-${Date.now()}`);
+  await page.getByLabel("大致题材", { exact: true }).fill("都市悬疑");
+  await page
+    .getByLabel("一句话想法（可选）", { exact: true })
+    .fill("修复师在旧书里发现来自未来的留言。");
+  await page.getByRole("button", { name: "进入快速开书", exact: true }).click();
+  await expect(page).toHaveURL(/\/books\/[^/]+\/signing-sprint$/);
+  await expect(
+    page.getByRole("heading", { name: "快速开书", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("navigation", { name: "快速开书步骤", exact: true }),
+  ).toBeVisible();
+});
+
 test("ChapterFlow 作品入口与创作首页", async ({ page }, info) => {
   await page.goto("/");
   await expect(page).toHaveURL(/\/books$/);

@@ -76,4 +76,7 @@ export const queryKeys = {
   qualityReports: (id: string | null) => ["chapterflow", "quality", id] as const,
   openingCheckHistory: (id: string | null) => ["chapterflow", "opening-check-history", id] as const,
   openingCheckAudit: (id: string | null) => ["chapterflow", "opening-check-audit", id] as const,
+  signingSprint: (id: string | null) => ["chapterflow", "signing-sprint", id] as const,
+  signingReadiness: (id: string | null) => ["chapterflow", "signing-readiness", id] as const,
+  officialKnowledge: (stage: string | null = null) => ["chapterflow", "official-knowledge", stage] as const,
 };

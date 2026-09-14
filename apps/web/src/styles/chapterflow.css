@@ -671,7 +671,7 @@
   justify-self: end;
 }
 .cf-back-button { border: 0 !important; background: transparent !important; padding-inline: 0 !important; }
-.cf-create-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 15px; margin-top: 28px; }
+.cf-create-options { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 15px; margin-top: 28px; }
 .cf-shell .cf-create-option {
   display: flex;
   flex-direction: column;
@@ -689,6 +689,10 @@
 .cf-create-option h2 { margin-bottom: 7px; }
 .cf-create-option p { min-height: 74px; font-size: 12px; }
 .cf-create-option strong { color: #2878ff; font-size: 12px; }
+.cf-create-option-featured { border-color: #a9c9ff; background: linear-gradient(150deg, #f4f8ff, #ffffff 72%); }
+.cf-signing-sprint-create-form { max-width: none; }
+.cf-signing-sprint-create-form .cf-actions { align-items: center; }
+.cf-signing-sprint-create-form .cf-error { color: #a34040; font-size: 12px; }
 .cf-import-drop { text-align: center; padding: 60px 25px; margin-top: 26px; }
 .cf-import-drop input { max-width: 280px; margin: 0 auto 22px; }
 .cf-import-drop h2 { margin-bottom: 5px; }
@@ -700,7 +704,53 @@
 .cf-import-analysis-running { display: flex; align-items: center; gap: 14px; padding: 12px 14px; border: 1px solid #dce9fb; border-radius: 8px; background: #f8fbff; }
 .cf-import-analysis-running p { flex: 1; margin: 0; }
 .cf-shell .cf-import-preview .cf-actions { justify-content: flex-end; }
+@media (max-width: 1080px) { .cf-create-options { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 780px) { .cf-create-options { grid-template-columns: 1fr; } .cf-create-option { min-height: 0; } .cf-create-option p { min-height: 0; } }
+.cf-signing-sprint-page { max-width: 1180px; }
+.cf-signing-sprint-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; margin-bottom: 22px; }
+.cf-signing-sprint-heading h1 { margin: 18px 0 6px; }
+.cf-signing-sprint-heading p { max-width: 700px; }
+.cf-signing-sprint-badge { border: 1px solid #c9dcfa; border-radius: 999px; padding: 7px 11px; color: #356aa8; background: #f4f8ff; font-size: 12px; white-space: nowrap; }
+.cf-signing-sprint-steps { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; margin-bottom: 18px; }
+.cf-signing-sprint-steps button { display: grid; gap: 4px; min-width: 0; border: 1px solid var(--cf-line); border-radius: 9px; padding: 10px; text-align: left; background: #fff; color: var(--cf-muted); cursor: pointer; }
+.cf-signing-sprint-steps button > span { display: grid; place-items: center; width: 23px; height: 23px; border-radius: 50%; background: #edf3fb; color: #54749c; font-size: 11px; }
+.cf-signing-sprint-steps button strong { color: #405b7b; font-size: 12px; }
+.cf-signing-sprint-steps button small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.cf-signing-sprint-steps button.is-active { border-color: #8fb8f2; background: #f5f9ff; box-shadow: 0 0 0 2px #e6f0ff; }
+.cf-signing-sprint-steps button.is-active > span, .cf-signing-sprint-steps button.is-done > span { background: #3d82df; color: #fff; }
+.cf-signing-sprint-card { display: grid; gap: 16px; }
+.cf-signing-sprint-card form, .cf-signing-sprint-card > label { display: grid; gap: 8px; }
+.cf-signing-sprint-card label { color: #526982; font-size: 12px; }
+.cf-signing-sprint-card input, .cf-signing-sprint-card textarea { width: 100%; border: 1px solid var(--cf-line); border-radius: 7px; padding: 10px 11px; background: #fbfcfe; color: var(--cf-ink); resize: vertical; }
+.cf-signing-sprint-subgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.cf-signing-sprint-chapters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.cf-signing-sprint-chapters article { display: grid; gap: 8px; border: 1px solid #e1eaf5; border-radius: 9px; padding: 12px; background: #fbfdff; }
+.cf-signing-sprint-chapters h3 { margin: 0; color: #35577e; font-size: 14px; }
+.cf-signing-sprint-actions-large { display: flex; flex-wrap: wrap; gap: 9px; }
+.cf-signing-sprint-review-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; border-top: 1px solid #edf1f6; padding-top: 16px; }
+.cf-signing-sprint-review-row > div { display: grid; align-content: start; gap: 8px; border: 1px solid #e1eaf5; border-radius: 9px; padding: 13px; background: #fbfdff; }
+.cf-signing-sprint-review-row h3 { margin: 0; color: #35577e; font-size: 14px; }
+.cf-signing-sprint-review-row p { margin: 0; font-size: 12px; }
+.cf-signing-sprint-mini-report { display: grid; gap: 4px; border-top: 1px solid #edf1f6; padding-top: 9px; color: #687d96; font-size: 11px; }
+.cf-signing-sprint-mini-report strong { color: #35577e; font-size: 12px; }
+.cf-signing-sprint-candidate-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.cf-signing-sprint-package { display: grid; gap: 5px; border: 1px solid #e1eaf5; border-radius: 8px; padding: 11px; text-align: left; background: #fff; cursor: pointer; }
+.cf-signing-sprint-package.is-selected { border-color: #8fb8f2; background: #f5f9ff; box-shadow: 0 0 0 2px #e6f0ff; }
+.cf-signing-sprint-package strong { color: #2d5f9a; }
+.cf-signing-sprint-package span { color: #526982; font-size: 12px; }
+.cf-signing-sprint-package small, .cf-signing-sprint-preview { color: #7d91aa; font-size: 11px; }
+.cf-signing-sprint-candidates { display: grid; gap: 12px; margin-top: 16px; }
+.cf-signing-sprint-candidates > h2 { margin: 0; }
+.cf-signing-sprint-candidates > p { margin: -5px 0 0; }
+.cf-signing-sprint-candidates article { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; border-top: 1px solid #edf1f6; padding-top: 12px; }
+.cf-signing-sprint-candidates article > div:first-child { min-width: 0; }
+.cf-signing-sprint-candidates article p { margin: 4px 0; font-size: 12px; }
+.cf-signing-sprint-preview { display: flex; flex-wrap: wrap; gap: 5px; margin: 5px 0 0; }
+.cf-signing-sprint-preview span { border-radius: 999px; padding: 3px 7px; background: #f1f5fa; }
+.cf-signing-sprint-ai-status { margin-top: 12px; color: #54749c; font-size: 12px; }
+.cf-signing-sprint-footnote { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 18px; color: #8392a5; font-size: 11px; }
+@media (max-width: 900px) { .cf-signing-sprint-steps { grid-template-columns: repeat(3, minmax(0, 1fr)); } .cf-signing-sprint-chapters, .cf-signing-sprint-review-row { grid-template-columns: 1fr; } }
+@media (max-width: 620px) { .cf-signing-sprint-heading { display: grid; } .cf-signing-sprint-subgrid, .cf-signing-sprint-candidate-grid { grid-template-columns: 1fr; } .cf-signing-sprint-steps { gap: 5px; } .cf-signing-sprint-steps button { padding: 8px; } }
 .cf-dashboard-hero {
   display: grid;
   grid-template-columns: 125px minmax(0, 1fr) minmax(200px, 0.85fr);
@@ -2994,6 +3044,30 @@
 .cf-foundation-plan-risks { border-top: 1px solid #e5edf7; padding-top: 8px; color: #8c5d1d; font-size: 11px; line-height: 1.5; }
 .cf-foundation-plan-risks ul { margin: 4px 0 0; padding-left: 18px; }
 .cf-inline-hint { color: #7e91ad; font-size: 12px; }
+.cf-official-knowledge-page { max-width: 1180px; }
+.cf-official-knowledge-page .cf-page-title { align-items: flex-start; }
+.cf-official-knowledge-page .cf-page-title h1 { margin: 18px 0 6px; }
+.cf-official-knowledge-page .cf-signing-sprint-badge { display: inline-flex; align-items: center; gap: 5px; }
+.cf-official-knowledge-section { display: grid; gap: 14px; margin-top: 16px; }
+.cf-official-source-list { display: grid; gap: 0; }
+.cf-official-source { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; border-top: 1px solid #edf1f6; padding: 14px 0; }
+.cf-official-source:first-child { border-top: 0; padding-top: 0; }
+.cf-official-source > div:first-child { min-width: 0; }
+.cf-official-source-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.cf-official-source-heading strong { color: #35577e; }
+.cf-official-source-heading span { border-radius: 999px; padding: 3px 7px; color: #54749c; background: #edf3fb; font-size: 10px; }
+.cf-official-source-heading span[data-status="ACTIVE"] { color: #31734c; background: #eaf7ee; }
+.cf-official-source-heading span[data-status="DISABLED"], .cf-official-source-heading span[data-status="FETCH_FAILED"] { color: #9a4d4d; background: #fff0f0; }
+.cf-official-source p { margin: 5px 0; font-size: 12px; }
+.cf-official-source small, .cf-official-card small { color: #7d91aa; font-size: 11px; }
+.cf-official-source .cf-actions { justify-content: flex-end; flex: none; }
+.cf-official-source .cf-actions button, .cf-official-source .cf-actions a { display: inline-flex; align-items: center; gap: 4px; }
+.cf-official-card-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
+.cf-official-card { display: grid; gap: 7px; border: 1px solid #e1eaf5; border-radius: 9px; padding: 12px; background: #fbfdff; }
+.cf-official-card p { margin: 0; color: #526982; font-size: 12px; line-height: 1.55; }
+.cf-official-card-suggestions { display: flex; flex-wrap: wrap; gap: 5px; }
+.cf-official-card-suggestions span { border-radius: 999px; padding: 3px 7px; color: #61758e; background: #f0f4f9; font-size: 10px; }
+@media (max-width: 900px) { .cf-official-source { display: grid; } .cf-official-source .cf-actions { justify-content: flex-start; } .cf-official-card-grid { grid-template-columns: 1fr; } }
 @media (max-width: 720px) { .cf-foundation-candidate-grid { grid-template-columns: 1fr; } }
 @media (max-width: 1080px) { .cf-foundation-plan-grid { grid-template-columns: 1fr; } }
 .cf-error-text-inline { color: #a34040 !important; }

@@ -40,6 +40,7 @@ import { queryKeys } from "../../shared/query/keys";
 import { BookCover, bookStatus } from "../../shared/ui/book-cover";
 import { ErrorNote } from "../../shared/ui";
 import type { Project } from "../../shared/api/types";
+import { createSigningSprint } from "../../shared/api/signing-sprint";
 export function LibraryPage() {
   const query = useProjects();
   const [params, setParams] = useSearchParams();
@@ -340,10 +341,11 @@ export function QuoteCard() {
 export function BookCreatePage() {
   const [params] = useSearchParams();
   const requestedMode = params.get("mode");
-  const queryMode: "choose" | "manual" | "ai" | "import" =
+  const queryMode: "choose" | "manual" | "ai" | "import" | "signing-sprint" =
     requestedMode === "manual" ||
     requestedMode === "ai" ||
-    requestedMode === "import"
+    requestedMode === "import" ||
+    requestedMode === "signing-sprint"
       ? requestedMode
       : "choose";
   return <BookCreateMode key={queryMode} initialMode={queryMode} />;
@@ -352,18 +354,67 @@ export function BookCreatePage() {
 function BookCreateMode({
   initialMode,
 }: {
-  initialMode: "choose" | "manual" | "ai" | "import";
+  initialMode: "choose" | "manual" | "ai" | "import" | "signing-sprint";
 }) {
-  const [mode, setMode] = useState<"choose" | "manual" | "ai" | "import">(
+  const [mode, setMode] = useState<"choose" | "manual" | "ai" | "import" | "signing-sprint">(
     initialMode,
   );
   if (mode === "choose") return <CreateModeChooser onChoose={setMode} />;
   if (mode === "import") return <ImportCreateFlow onBack={() => setMode("choose")} />;
+  if (mode === "signing-sprint") {
+    return <SigningSprintCreateForm onBack={() => setMode("choose")} />;
+  }
   return <CreateForm key={mode} mode={mode} onBack={() => setMode("choose")} />;
 }
 
-function CreateModeChooser({ onChoose }: { onChoose: (mode: "manual" | "ai" | "import") => void }) {
-  return <div className="cf-page cf-create"><Link className="cf-text-link" to="/books">← 我的作品</Link><h1>开始一个新故事</h1><p>选择最适合现在的方式，之后仍可以随时切换为手工创作。</p><div className="cf-create-options"><button className="cf-card cf-create-option" onClick={() => onChoose("ai")}><span className="cf-create-option-icon">✦</span><h2>AI 帮我开书</h2><p>从一句话想法开始，生成作品定位、主线和章节规划草案。</p><strong>输入想法 →</strong></button><button className="cf-card cf-create-option" onClick={() => onChoose("manual")}><span className="cf-create-option-icon">✎</span><h2>自己创建</h2><p>只填写书名和简介，人物、大纲和正文都由你慢慢补全。</p><strong>从空白开始 →</strong></button><button className="cf-card cf-create-option" onClick={() => onChoose("import")}><span className="cf-create-option-icon">↥</span><h2>导入已有作品</h2><p>上传 Markdown、TXT、DOCX、HTML、EPUB 或文织备份，先预览再导入。</p><strong>上传作品 →</strong></button></div></div>;
+function CreateModeChooser({ onChoose }: { onChoose: (mode: "manual" | "ai" | "import" | "signing-sprint") => void }) {
+  return <div className="cf-page cf-create"><Link className="cf-text-link" to="/books">← 我的作品</Link><h1>开始一个新故事</h1><p>选择最适合现在的方式，之后仍可以随时切换为手工创作。</p><div className="cf-create-options"><button className="cf-card cf-create-option cf-create-option-featured" onClick={() => onChoose("signing-sprint")}><span className="cf-create-option-icon">↗</span><h2>快速开书</h2><p>从一句话想法走到作品定位、包装和前三章，边确认边开始写。</p><strong>进入签约准备工作流 →</strong></button><button className="cf-card cf-create-option" onClick={() => onChoose("ai")}><span className="cf-create-option-icon">✦</span><h2>AI 帮我开书</h2><p>从一句话想法开始，生成作品定位、主线和章节规划草案。</p><strong>输入想法 →</strong></button><button className="cf-card cf-create-option" onClick={() => onChoose("manual")}><span className="cf-create-option-icon">✎</span><h2>自己创建</h2><p>只填写书名和简介，人物、大纲和正文都由你慢慢补全。</p><strong>从空白开始 →</strong></button><button className="cf-card cf-create-option" onClick={() => onChoose("import")}><span className="cf-create-option-icon">↥</span><h2>导入已有作品</h2><p>上传 Markdown、TXT、DOCX、HTML、EPUB 或文织备份，先预览再导入。</p><strong>上传作品 →</strong></button></div></div>;
+}
+
+function SigningSprintCreateForm({ onBack }: { onBack: () => void }) {
+  const [title, setTitle] = useState("");
+  const [premise, setPremise] = useState("");
+  const [genre, setGenre] = useState("");
+  const [audience, setAudience] = useState("");
+  const [coreEmotion, setCoreEmotion] = useState("");
+  const navigate = useNavigate();
+  const client = useQueryClient();
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const project = await createProject({
+        requestId: crypto.randomUUID(),
+        title: title.trim() || "未命名作品",
+        premise: premise.trim() || null,
+        language: "zh-CN",
+        bookProfile: {
+          presetId: null,
+          genre: genre.trim() || null,
+          audience: audience.trim() || null,
+          promise: null,
+          tone: null,
+          endingDirection: null,
+          pov: null,
+          updateCadence: null,
+          targetWordsPerChapter: null,
+          boundaries: [],
+          worldRules: [],
+          arcNotes: [],
+        },
+      });
+      await createSigningSprint(project.id, {
+        premise: premise.trim() || null,
+        genre: genre.trim() || null,
+        audience: audience.trim() || null,
+        coreEmotion: coreEmotion.trim() || null,
+      });
+      return project;
+    },
+    onSuccess: async (project) => {
+      await client.invalidateQueries({ queryKey: queryKeys.projects });
+      navigate(`/books/${project.id}/signing-sprint`);
+    },
+  });
+  return <div className="cf-page cf-create"><button className="cf-text-link cf-back-button" onClick={onBack}>← 选择其他方式</button><h1>快速开书</h1><p>可以从空白开始，也可以先写下一个模糊想法。后面每一步都能修改。</p><form className="cf-card cf-signing-sprint-create-form" onSubmit={(event) => { event.preventDefault(); mutation.mutate(); }}><h2>先建立一个可编辑的起点</h2><div className="cf-form-grid"><label>作品名（可先留空）<input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="暂时不确定也没关系" /></label><label>大致题材<input value={genre} onChange={(event) => setGenre(event.target.value)} placeholder="都市、悬疑、玄幻……" /></label><label>目标读者<input value={audience} onChange={(event) => setAudience(event.target.value)} placeholder="想写给谁看？" /></label><label>核心阅读体验<input value={coreEmotion} onChange={(event) => setCoreEmotion(event.target.value)} placeholder="爽感、紧张、治愈、反转……" /></label></div><label>一句话想法（可选）<textarea rows={5} value={premise} onChange={(event) => setPremise(event.target.value)} placeholder="例如：一个能看见临终前七秒的人，必须在城市停电前找到真正的凶手。" /></label><div className="cf-actions"><button type="submit" className="cf-primary" disabled={mutation.isPending}>{mutation.isPending ? "正在建立作品…" : "进入快速开书"}</button>{mutation.isError ? <span className="cf-error">{mutation.error instanceof Error ? mutation.error.message : "建立作品失败，请重试。"}</span> : null}</div></form></div>;
 }
 
 type NewBookDraft = {

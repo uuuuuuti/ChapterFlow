@@ -99,6 +99,7 @@ export * from "./delivery.js";
 export * from "./story.js";
 export * from "./web-novel.js";
 export * from "./manuscript-quality.js";
+export * from "./signing-sprint.js";
 
 function normalizeOptionalText(
   value: string | null | undefined,

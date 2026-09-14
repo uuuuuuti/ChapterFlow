@@ -45,6 +45,7 @@ import {
   registerStudioRoutes,
   registerTemplateRoutes,
   registerWebNovelRoutes,
+  registerSigningSprintRoutes,
   seedDemoRelayProvider,
   seedEnvironmentModelConfig,
   seedHarnessTemplates,
@@ -58,6 +59,7 @@ import {
   CollaborationWorkerSuite,
   DeliveryWorkerSuite,
   GatewayNarrativeModelClient,
+  SigningSprintWorkerSuite,
 } from "@narralume/narrative";
 import { HarnessSupervisor } from "@narralume/harness";
 
@@ -139,6 +141,7 @@ async function boot(): Promise<void> {
     ...new AutomationWorkerSuite(database, modelClient).registry(),
     ...new CollaborationWorkerSuite(database, modelClient).registry(),
     ...new DeliveryWorkerSuite(database, modelClient).registry(),
+    ...new SigningSprintWorkerSuite(database, modelClient).registry(),
   };
   const runStore = new SqliteRunRepository(database);
   database.onRunEvent((event) => {
@@ -265,6 +268,11 @@ async function boot(): Promise<void> {
   registerLongNovelRoutes(table, database);
   registerTemplateRoutes(table, database);
   registerWebNovelRoutes(table, database);
+  registerSigningSprintRoutes(table, database, {
+    runCoordinator: coordinator,
+    enableBackgroundWorker: true,
+    environment: {},
+  });
   registerAutomationRoutes(table, database, {
     coordinator: autopilotCoordinator,
     runCoordinator: coordinator,

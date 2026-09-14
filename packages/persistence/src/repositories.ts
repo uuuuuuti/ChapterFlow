@@ -32,3 +32,5 @@ export * from "./reader-promise-repository.js";
 export * from "./platform-metrics-repository.js";
 export * from "./publish-record-repository.js";
 export * from "./export-batch-repository.js";
+export * from "./official-knowledge-repository.js";
+export * from "./signing-sprint-repository.js";

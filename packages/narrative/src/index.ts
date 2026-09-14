@@ -20,4 +20,6 @@ export * from "./canon-candidate-workers.js";
 export * from "./canon-candidate-service.js";
 export * from "./web-novel-candidate-schemas.js";
 export * from "./web-novel-candidate-workers.js";
+export * from "./signing-sprint-schemas.js";
+export * from "./signing-sprint-workers.js";
 export * from "./workers.js";

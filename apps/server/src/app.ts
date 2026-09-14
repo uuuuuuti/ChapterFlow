@@ -20,6 +20,7 @@ import {
   CollaborationWorkerSuite,
   DeliveryWorkerSuite,
   GatewayNarrativeModelClient,
+  SigningSprintWorkerSuite,
   type NarrativeModelClient,
 } from "@narralume/narrative";
 import {
@@ -44,6 +45,7 @@ import {
   registerStudioRoutes,
   registerTemplateRoutes,
   registerWebNovelRoutes,
+  registerSigningSprintRoutes,
   seedEnvironmentModelConfig,
   seedHarnessTemplates,
 } from "@narralume/services";
@@ -106,6 +108,7 @@ export async function buildApp(
     ...new AutomationWorkerSuite(database, modelClient).registry(),
     ...new CollaborationWorkerSuite(database, modelClient).registry(),
     ...new DeliveryWorkerSuite(database, modelClient).registry(),
+    ...new SigningSprintWorkerSuite(database, modelClient).registry(),
   };
   const runStore = new SqliteRunRepository(database);
   // Database-level subscription: every persisted run_events row is broadcast,
@@ -341,6 +344,11 @@ export async function buildApp(
   registerLongNovelRoutes(routes, database);
   registerTemplateRoutes(routes, database);
   registerWebNovelRoutes(routes, database);
+  registerSigningSprintRoutes(routes, database, {
+    runCoordinator: coordinator,
+    enableBackgroundWorker,
+    environment,
+  });
   registerAutomationRoutes(routes, database, {
     coordinator: autopilotCoordinator,
     runCoordinator: coordinator,

@@ -58,6 +58,9 @@ const DEFAULT_ATTEMPTS: Readonly<Record<RunStepKind, number>> = {
   "webnovel.context": 1,
   "webnovel.candidate": 5,
   "webnovel.stage": 1,
+  "sprint.context": 2,
+  "sprint.generate": 5,
+  "sprint.stage": 1,
 };
 
 interface ParsedStep {

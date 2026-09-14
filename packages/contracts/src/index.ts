@@ -17,6 +17,7 @@ export * from "./agent-skills.js";
 export * from "./canon-candidate.js";
 export * from "./web-novel.js";
 export * from "./web-novel-candidate.js";
+export * from "./signing-sprint.js";
 
 export const HealthResponseSchema = z.object({
   status: z.literal("ok"),

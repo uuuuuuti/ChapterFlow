@@ -54,6 +54,8 @@ import { TemplatesPage } from "../../pages/templates/templates-page";
 import { AnalyticsPage } from "../../pages/analytics/analytics-page";
 import { AdvancedPage } from "../../pages/advanced/advanced-page";
 import { QuickCreatePage } from "../../pages/quick-create/quick-create-page";
+import { SigningSprintPage } from "../../pages/signing-sprint/signing-sprint-page";
+import { OfficialKnowledgePage } from "../../pages/official-knowledge/official-knowledge-page";
 import { ProjectAssistant } from "../project-assistant";
 import type { AssistantContext } from "../../shared/api/types";
 import { getHealth } from "../../shared/api/client";
@@ -117,6 +119,7 @@ export function ChapterFlowShell() {
     { path: "analytics", label: "数据", icon: ChartNoAxesCombined },
     { path: "publish", label: "发布", icon: Send },
     { path: "tasks", label: "任务中心", icon: ListChecks },
+    { path: "signing-sprint", label: "快速开书", icon: Plus },
     { path: "quick-create", label: "连续创作", icon: WandSparkles },
     { path: "advanced", label: "高级工具", icon: Brain },
   ];
@@ -170,6 +173,10 @@ export function ChapterFlowShell() {
                 <NavLink to="/settings">
                   <Settings size={21} />
                   设置
+                </NavLink>
+                <NavLink to="/official-knowledge">
+                  <Shield size={21} />
+                  官方知识
                 </NavLink>
               </>
             )}
@@ -267,6 +274,7 @@ export function ChapterFlowShell() {
                 <Route path="/books/trash" element={<TrashPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="/settings/:section" element={<SettingsPage />} />
+                <Route path="/official-knowledge" element={<OfficialKnowledgePage />} />
                 <Route path="/books/new" element={<BookCreatePage />} />
                 <Route
                   path="/books/templates"
@@ -303,6 +311,7 @@ export function ChapterFlowShell() {
                 <Route path="/books/:projectId/knowledge/*" element={<KnowledgePage />} />
                 <Route path="/books/:projectId/advanced" element={<AdvancedPage />} />
                 <Route path="/books/:projectId/quick-create" element={<QuickCreatePage />} />
+                <Route path="/books/:projectId/signing-sprint" element={<SigningSprintPage />} />
                 <Route path="/books/:projectId/autopilot" element={<QuickCreatePage />} />
                 <Route path="/books/:projectId/overview" element={<BookLegacyAlias workspace="overview" />} />
                 <Route path="/books/:projectId/bible" element={<BookLegacyAlias workspace="bible" />} />

@@ -38,6 +38,8 @@ import {
   SqliteReviewRepository,
   SqliteRunRepository,
   SqliteReaderPromiseRepository,
+  SqliteOfficialKnowledgeRepository,
+  SqliteSigningSprintRepository,
   SqliteStoryRepository,
   SqliteTemplateRepository,
   SqliteWebNovelRepository,
@@ -105,6 +107,8 @@ export class ChapterWorkerSuite {
   private readonly delivery: SqliteDeliveryRepository;
   private readonly webNovel: SqliteWebNovelRepository;
   private readonly readerPromises: SqliteReaderPromiseRepository;
+  private readonly officialKnowledge: SqliteOfficialKnowledgeRepository;
+  private readonly signingSprint: SqliteSigningSprintRepository;
   private readonly compiler: ContextCompiler;
   private readonly templates: SqliteTemplateRepository;
   private readonly storyState: StoryStatePacketBuilder;
@@ -132,6 +136,8 @@ export class ChapterWorkerSuite {
     this.delivery = new SqliteDeliveryRepository(database);
     this.webNovel = new SqliteWebNovelRepository(database);
     this.readerPromises = new SqliteReaderPromiseRepository(database);
+    this.officialKnowledge = new SqliteOfficialKnowledgeRepository(database);
+    this.signingSprint = new SqliteSigningSprintRepository(database);
     this.compiler = new ContextCompiler(now);
     this.templates = new SqliteTemplateRepository(database);
     this.storyState = new StoryStatePacketBuilder(
@@ -335,6 +341,53 @@ export class ChapterWorkerSuite {
       sourceType: "reader_promise",
       sourceId: run.projectId,
     });
+    const signingSprint = this.signingSprint.get(run.projectId);
+    if (signingSprint) {
+      const profile = this.webNovel.getBookProfile(run.projectId);
+      const openingCards = this.officialKnowledge.retrieve(
+        "opening",
+        profile?.genre ?? null,
+        8,
+      );
+      for (const card of openingCards) {
+        sources.push({
+          id: `official-knowledge:${card.id}`,
+          kind: "system",
+          label: `官方创作建议 · ${card.title}`,
+          content: [
+            `原则：${card.principle}`,
+            `原因：${card.why}`,
+            card.signals.length > 0 && `观察信号：${card.signals.join("；")}`,
+            card.suggestions.length > 0 &&
+              `建议：${card.suggestions.join("；")}`,
+            `来源：${card.sourceRefs.map((ref) => `${ref.title}（${ref.url}）`).join("；")}`,
+          ]
+            .filter(Boolean)
+            .join("\n"),
+          authority: "reference",
+          priority: 72,
+          compressible: true,
+          sourceType: "official_knowledge",
+          sourceId: card.id,
+          metadata: { provenance: "official", sourceRefs: card.sourceRefs },
+        });
+      }
+      if (signingSprint.state.openingBlueprint) {
+        sources.push({
+          id: `signing-sprint:opening-blueprint:${signingSprint.version}`,
+          kind: "author-intent",
+          label: "快速开书 · 开篇计划",
+          content: JSON.stringify(signingSprint.state.openingBlueprint),
+          authority: "confirmed",
+          priority: 96,
+          required: true,
+          compressible: false,
+          sourceType: "signing_sprint",
+          sourceId: signingSprint.id,
+          metadata: { provenance: "chapterflow" },
+        });
+      }
+    }
     const activeStyle = this.delivery.getActiveStyleProfile(run.projectId);
     if (activeStyle) {
       sources.push({
