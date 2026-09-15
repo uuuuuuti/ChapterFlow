@@ -306,6 +306,17 @@ describe("Signing Sprint structured candidate contract", () => {
         },
       }),
     ).toThrow();
+    expect(() =>
+      SigningSprintModelResultSchema.parse({
+        task: "GenerateOpeningBlueprint",
+        summary: "第一阶段",
+        rationale: "理由",
+        payload: {
+          ...openingPayload(),
+          firstArcChapters: [openingChapter(1)],
+        },
+      }),
+    ).toThrow();
   });
 });
 

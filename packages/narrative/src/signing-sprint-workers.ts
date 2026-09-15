@@ -335,23 +335,23 @@ function stagesForTask(task: SigningSprintTask): string[] {
 function taskGuidance(task: SigningSprintTask): string {
   switch (task) {
     case "BrainstormBookDirection":
-      return "给出一个可比较的开书方向：题材、读者、核心情绪、主角种子、钩子和差异化。";
+      return "payload 必须严格只使用这些字段且类型完全匹配：premise(string)、genre(string|null)、audience(string|null)、coreEmotion(string|null)、protagonistSeed(string|null)、hook(string|null)、differentiation(string[])。给出一个可比较的开书方向：题材、读者、核心情绪、主角种子、钩子和差异化。";
     case "RefineBookPositioning":
-      return "完善一句话故事、核心创意、卖点、读者、主角目标、阻力、机制、核心冲突和短中长期空间。";
+      return "payload 必须严格只使用这些字段且类型完全匹配：oneLineStory(string)、coreIdea(string)、sellingPoints(string[])、emotionalPayoff(string)、readerProfile(string)、protagonistDesire(string)、obstacle(string)、mechanism(string)、coreConflict(string)、longTermExpectation(string)、sustainability({shortTermAppeal:string,midTermExpansion:string,longTermSpace:string})、riskNotes(string[])。不要把 protagonistDesire、obstacle 或 mechanism 拆成对象，不要使用 targetAudience、coreObstacle、midTermScalability、longTermStorySpace 等别名。完善一句话故事、核心创意、卖点、读者、主角目标、阻力、机制、核心冲突和短中长期空间。";
     case "EvaluatePositioning":
-      return "评价当前定位的优势、风险、可持续性和需要作者决定的事项。";
+      return "payload 必须严格只使用 strengths(string[])、concerns(string[])、suggestions(string[])、officialMatches(string[]) 四个字段，不要添加或改名。评价当前定位的优势、风险、可持续性和需要作者决定的事项。";
     case "GenerateBookPackaging":
-      return "生成 3 到 5 个真正不同方向的书名、简介、标签、宣传语和封面 brief 候选。";
+      return "payload 必须严格只使用 candidates(string[] object)，数量 3 到 5；每个候选严格只使用 title(string)、titleDirection(string)、description(string)、genre(string|null)、tags(string[])、tagline(string|null)、coverBrief(string|null)、rationale(string) 八个字段，不要改名或添加字段。生成 3 到 5 个真正不同方向的书名、简介、标签、宣传语和封面 brief 候选。";
     case "EvaluateBookPackaging":
-      return "检查包装是否与定位和开篇承诺一致，给出可定位的改进建议。";
+      return "payload 必须严格只使用 strengths(string[])、concerns(string[])、suggestions(string[])、officialMatches(string[]) 四个字段，不要添加或改名。检查包装是否与定位和开篇承诺一致，给出可定位的改进建议。";
     case "GenerateOpeningBlueprint":
-      return "生成读者期待、开篇钩子、前三章和第一阶段计划；前三章是 ChapterFlow 方法，不是官方硬规则。";
+      return "payload 必须严格只使用 readerPromise(string)、openingHook(string)、expectation(string)、informationRevealPlan(string[])、firstThreeChapters(恰好 3 个章节对象)、firstArcTitle(string)、firstArcGoal(string)、firstArcConflict(string)、firstArcPayoff(string)、firstArcChapters(至少 3 个章节对象)、riskNotes(string[])。每个章节对象严格只使用 index(integer)、title(string)、purpose(string)、protagonistAction(string)、conflict(string)、readerExpectation(string)、emotionTarget(string)、hook(string)、payoff(string)、targetWords(integer|null)。不要使用 chapters、arcChapters、readerPromiseOperations 等别名；前三章是 ChapterFlow 方法，不是官方硬规则。";
     case "EvaluateOpening":
-      return "根据已有开篇检查信号和正文上下文给出编辑建议，指出具体位置，不做签约保证。";
+      return "payload 必须严格只使用 summary(string)、strengths(string[])、issues(array)、officialMatches(string[])。每个 issues 对象严格只使用 code(string)、title(string)、problem(string)、impact(string)、suggestion(string)、locations(string[])、evidence(string[])、source(official 或 chapterflow)、sourceRefs(array)，并且每个问题至少有一个具体 locations（例如‘第 1 章 · 第 2 段’）。根据已有开篇检查信号和正文上下文给出编辑建议，不做签约保证。";
     case "GenerateChapterFromIntent":
-      return "根据定位和开篇计划生成一章的可审阅写作意图，供已有章节写作流程继续处理。";
+      return "payload 只能包含 Chapter Intent 字段：purpose、secondaryPurposes、readerExpectation、emotionTarget、emotionCurve、goal、conflict、readerPromiseOperations、payoff、payoffStrength、hook、hookType、hookStrength、informationGain、endingPull、sceneStructure、characterIds、foreshadowIds、timelineIds、targetWords、pacing；字段类型和枚举必须匹配上下文中的 Chapter Intent 约束，不要输出 prose/content/body/text。根据定位和开篇计划生成一章的可审阅写作意图，供已有章节写作流程继续处理。";
     case "SigningReadinessReview":
-      return "检查资料、内容准备度、一致性和官方规则匹配情况，输出可以准备提交或建议先处理问题。";
+      return "payload 必须严格只使用 status(ready_to_prepare_submission 或 needs_attention)、headline(string)、issues(array)、checks(object)、generatedAt(string)。issues 对象严格只使用 code、title、severity(info|warning|error)、source(official|chapterflow)、detail、evidence(string[])、locations(string[])、suggestions(string[])、sourceRefs(array)；checks 严格只使用 metadata、content、openingQuality、consistency、officialMatching、technicalSafety，各值按上下文枚举。只能输出准备度预检，不得出现签约概率、分数、保证签约或官方评分。检查资料、内容准备度、一致性和官方规则匹配情况。";
   }
 }
 

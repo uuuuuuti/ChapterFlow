@@ -77,6 +77,7 @@ const OpeningBlueprintCandidatePayloadSchema = OpeningBlueprintSchema.extend({
   firstThreeChapters: OpeningBlueprintSchema.shape.firstThreeChapters
     .min(3)
     .max(3),
+  firstArcChapters: OpeningBlueprintSchema.shape.firstArcChapters.min(3),
 });
 
 export interface RegisterSigningSprintRouteOptions {
@@ -1717,9 +1718,11 @@ function buildReadinessReport(
   }
   const blueprint = workflow.state.openingBlueprint;
   const firstThree = blueprint?.firstThreeChapters ?? [];
+  const firstArc = blueprint?.firstArcChapters ?? [];
   if (
     !blueprint ||
     firstThree.length < 3 ||
+    firstArc.length < 3 ||
     firstThree.some(
       (chapter) =>
         !chapter.title.trim() ||
@@ -1734,10 +1737,13 @@ function buildReadinessReport(
       title: "开篇三章计划还不完整",
       severity: "warning",
       source: "chapterflow",
-      detail: "每章至少需要行动、阻力、读者期待和章尾变化，才能回到正文验证。",
+      detail:
+        "前三章和第一阶段计划都需要有足够章节；每章至少需要行动、阻力、读者期待和章尾变化，才能回到正文验证。",
       evidence: ["Opening Blueprint"],
       locations: ["快速开书 · 开篇"],
-      suggestions: ["补齐前三章的行动、阻力、期待和 Hook。"],
+      suggestions: [
+        "补齐前三章以及第一阶段至少三章的行动、阻力、期待和 Hook。",
+      ],
       sourceRefs: [],
     });
   }

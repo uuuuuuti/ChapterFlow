@@ -30,6 +30,7 @@ const OpeningBlueprintCandidateSchema = OpeningBlueprintSchema.extend({
   firstThreeChapters: OpeningBlueprintSchema.shape.firstThreeChapters
     .min(3)
     .max(3),
+  firstArcChapters: OpeningBlueprintSchema.shape.firstArcChapters.min(3),
 });
 
 const PackagingPayloadSchema = z

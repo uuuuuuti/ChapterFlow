@@ -633,12 +633,18 @@ function artifactList(workspace: SmokeWorkspace) {
     .filter((name) => name !== "summary.json")
     .map((name) => {
       const path = join(workspace.dir, name);
-      return {
-        file: name,
-        bytes: statSync(path).size,
-        sha256: sha256(readFileSync(path)),
-      };
+      const stat = statSync(path);
+      return stat.isFile()
+        ? {
+            file: name,
+            bytes: stat.size,
+            sha256: sha256(readFileSync(path)),
+          }
+        : null;
     })
+    .filter(
+      (artifact): artifact is NonNullable<typeof artifact> => artifact !== null,
+    )
     .sort((a, b) => a.file.localeCompare(b.file, "en"));
 }
 
