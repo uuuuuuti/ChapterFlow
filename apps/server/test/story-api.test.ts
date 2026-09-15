@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 
-import { buildCanonCandidateRecipe } from "@narralume/harness";
+import {
+  buildCanonCandidateRecipe,
+  buildSigningSprintRecipe,
+} from "@narralume/harness";
 import { SqliteRunRepository } from "@narralume/persistence";
 import { NodeNarrativeDatabase } from "@narralume/persistence/node";
 import { afterEach, describe, expect, it } from "vitest";
@@ -680,6 +683,42 @@ describe("story kernel API", () => {
     expect(response.json()).toMatchObject({
       activeTask: null,
       nextAction: { kind: "build_outline", targetId: null },
+    });
+  });
+
+  it("keeps an in-flight signing sprint visible without breaking the overview", async () => {
+    const database = new NodeNarrativeDatabase();
+    const app = await buildApp({
+      config,
+      database,
+      environment: {},
+      enableRunWorker: false,
+      logger: false,
+    });
+    resources.push({ app, database });
+    const project = await createProject(app, "快速开书总览");
+    const runId = randomUUID();
+    const recipe = buildSigningSprintRecipe(runId);
+    new SqliteRunRepository(database).create({
+      id: runId,
+      projectId: project.id,
+      recipe: recipe.name,
+      recipeVersion: recipe.version,
+      mode: "manual",
+      targetOutlineNodeId: null,
+      policy: {},
+      steps: recipe.steps,
+      now: new Date().toISOString(),
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/projects/${project.id}/overview`,
+    });
+
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json()).toMatchObject({
+      activeTask: { kind: "foundation", id: runId, status: "pending" },
     });
   });
 

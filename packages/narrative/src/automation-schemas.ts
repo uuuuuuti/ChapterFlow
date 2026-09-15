@@ -44,8 +44,6 @@ const EMOTION_TARGET_VALUES = [
   "恐惧",
   "轻松",
 ] as const;
-const READER_PROMISE_ACTION_VALUES = ["OPEN", "ADVANCE", "PAYOFF"] as const;
-
 const IntentProposalSchema = z.object({
   promise: z.string().min(1),
   themes: z.array(z.string().min(1)).min(1).max(12),
@@ -188,6 +186,31 @@ export const RollingOutlineProposalSchema = z.object({
 export type RollingOutlineProposal = z.infer<
   typeof RollingOutlineProposalSchema
 >;
+
+/**
+ * A missing Promise id is a recoverable model mistake, not a reason to lose a
+ * whole rolling outline.  The planner still validates the complete outline;
+ * this validator only removes lifecycle operations that cannot be applied
+ * against the Promise state supplied to the model.
+ */
+export function rollingOutlineValidator(
+  knownPromiseIds: readonly string[] = [],
+): StructuredValidator<RollingOutlineProposal> {
+  const knownIds = new Set(knownPromiseIds);
+  return (value) => {
+    const parsed = RollingOutlineProposalSchema.safeParse(
+      sanitizeRollingPromiseOperations(value, knownIds),
+    );
+    return parsed.success
+      ? { success: true, data: parsed.data }
+      : {
+          success: false,
+          issues: parsed.error.issues.map(
+            (issue) => `${issue.path.join(".")}: ${issue.message}`,
+          ),
+        };
+  };
+}
 
 export const SteerClassificationResultSchema = z.object({
   classification: z.enum([
@@ -490,18 +513,33 @@ export const ROLLING_OUTLINE_CONTRACT: JsonSchemaContract = {
               type: "array",
               maxItems: 30,
               items: {
-                type: "object",
-                additionalProperties: false,
-                required: ["action", "promiseId", "title", "note"],
-                properties: {
-                  action: {
-                    type: "string",
-                    enum: [...READER_PROMISE_ACTION_VALUES],
+                oneOf: [
+                  {
+                    type: "object",
+                    additionalProperties: false,
+                    required: ["action", "promiseId", "title", "note"],
+                    properties: {
+                      action: { type: "string", enum: ["OPEN"] },
+                      promiseId: { type: ["string", "null"] },
+                      title: { type: ["string", "null"] },
+                      note: { type: ["string", "null"] },
+                    },
                   },
-                  promiseId: { type: ["string", "null"] },
-                  title: { type: ["string", "null"] },
-                  note: { type: ["string", "null"] },
-                },
+                  {
+                    type: "object",
+                    additionalProperties: false,
+                    required: ["action", "promiseId", "title", "note"],
+                    properties: {
+                      action: {
+                        type: "string",
+                        enum: ["ADVANCE", "PAYOFF"],
+                      },
+                      promiseId: { type: "string", minLength: 1 },
+                      title: { type: ["string", "null"] },
+                      note: { type: ["string", "null"] },
+                    },
+                  },
+                ],
               },
             },
             payoffStrength: { type: "integer", minimum: 0, maximum: 5 },
@@ -681,6 +719,47 @@ export function automationValidator<T>(
           ),
         };
   };
+}
+
+function sanitizeRollingPromiseOperations(
+  value: unknown,
+  knownPromiseIds: ReadonlySet<string>,
+): unknown {
+  if (!isRecord(value) || !Array.isArray(value.chapters)) return value;
+  return {
+    ...value,
+    chapters: value.chapters.map((chapter) => {
+      if (
+        !isRecord(chapter) ||
+        !Array.isArray(chapter.readerPromiseOperations)
+      ) {
+        return chapter;
+      }
+      return {
+        ...chapter,
+        readerPromiseOperations: chapter.readerPromiseOperations.filter(
+          (operation) => {
+            if (!isRecord(operation)) return true;
+            if (operation.action === "OPEN") return true;
+            if (
+              operation.action !== "ADVANCE" &&
+              operation.action !== "PAYOFF"
+            ) {
+              return true;
+            }
+            return (
+              typeof operation.promiseId === "string" &&
+              knownPromiseIds.has(operation.promiseId.trim())
+            );
+          },
+        ),
+      };
+    }),
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function outlineUnitSchema(required: readonly string[]) {

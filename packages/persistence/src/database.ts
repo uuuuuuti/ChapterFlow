@@ -66,6 +66,7 @@ import { migration062 } from "./migrations/062-export-batch-outcomes.js";
 import { migration063 } from "./migrations/063-chapter-intent-reader-promises.js";
 import { migration064 } from "./migrations/064-official-knowledge.js";
 import { migration065 } from "./migrations/065-signing-sprint.js";
+import { migration066 } from "./migrations/066-signing-sprint-story-engine.js";
 
 export interface Migration {
   readonly version: number;
@@ -153,6 +154,7 @@ const MIGRATIONS: readonly Migration[] = [
   migration063,
   migration064,
   migration065,
+  migration066,
 ];
 
 interface MigrationRow {

@@ -27,6 +27,7 @@ import {
   BookDirectionSchema,
   BookPackagingSchema,
   BookPositioningSchema,
+  BookStoryEngineSchema,
   ChapterBriefSnapshotSchema,
   CreateSigningSprintRequestSchema,
   DecideSigningSprintCandidateRequestSchema,
@@ -579,15 +580,25 @@ export function registerSigningSprintRoutes(
           planning,
           workflows,
           story,
+          input.selectedPackagingIndex,
+          now,
+        );
+        syncSigningSprintAuthorData(
+          updated.workflow,
+          updated.changedState,
+          projects,
+          planning,
+          story,
+          canon,
           now,
         );
         workflows.decideCandidate(candidate.id, "accepted", now);
         if (
           candidate.task === "GenerateOpeningBlueprint" &&
-          updated.state.openingBlueprint
+          updated.workflow.state.openingBlueprint
         ) {
           materializeOpeningPlan(
-            updated,
+            updated.workflow,
             database,
             story,
             documents,
@@ -595,7 +606,7 @@ export function registerSigningSprintRoutes(
             now,
           );
         }
-        return updated;
+        return updated.workflow;
       });
       return {
         workflow: SigningSprintWorkflowSchema.parse(next),
@@ -737,6 +748,7 @@ function applyCandidate(
   planning: SqliteWebNovelRepository,
   workflows: SqliteSigningSprintRepository,
   story: SqliteStoryRepository,
+  selectedPackagingIndex: number | undefined,
   now: string,
 ) {
   const state: Partial<SigningSprintState> = {};
@@ -784,12 +796,29 @@ function applyCandidate(
       });
       break;
     }
+    case "GenerateStoryEngine": {
+      state.storyEngine = BookStoryEngineSchema.parse(payload);
+      break;
+    }
     case "GenerateBookPackaging": {
       const parsed = z
         .object({ candidates: z.array(BookPackagingSchema).min(3).max(5) })
         .parse(payload);
+      if (
+        selectedPackagingIndex !== undefined &&
+        selectedPackagingIndex >= parsed.candidates.length
+      ) {
+        throw new SigningSprintRouteError(
+          "signing_sprint.packaging.selection_invalid",
+          "The selected packaging candidate does not exist",
+          422,
+        );
+      }
       state.packaging = parsed.candidates;
-      state.selectedPackagingId = null;
+      state.selectedPackagingId =
+        selectedPackagingIndex === undefined
+          ? null
+          : String(selectedPackagingIndex);
       break;
     }
     case "GenerateOpeningBlueprint": {
@@ -870,23 +899,27 @@ function applyCandidate(
   const nextStep = packagingNeedsSelection
     ? "packaging"
     : nextWorkflowStep(step, completedSteps);
-  return workflows.update(workflow.id, {
-    expectedVersion: workflow.version,
-    state,
-    completedSteps,
-    currentStep: nextStep,
-    status:
-      nextStep === "readiness" && completedSteps.includes("readiness")
-        ? "completed"
-        : "active",
-    now,
-  });
+  return {
+    workflow: workflows.update(workflow.id, {
+      expectedVersion: workflow.version,
+      state,
+      completedSteps,
+      currentStep: nextStep,
+      status:
+        nextStep === "readiness" && completedSteps.includes("readiness")
+          ? "completed"
+          : "active",
+      now,
+    }),
+    changedState: state,
+  };
 }
 
 function stepForTask(task: SigningSprintTask): SigningSprintStep {
   if (task === "BrainstormBookDirection") return "direction";
   if (task === "RefineBookPositioning" || task === "EvaluatePositioning")
     return "positioning";
+  if (task === "GenerateStoryEngine") return "story_engine";
   if (task === "GenerateBookPackaging" || task === "EvaluateBookPackaging")
     return "packaging";
   if (task === "GenerateOpeningBlueprint" || task === "EvaluateOpening")

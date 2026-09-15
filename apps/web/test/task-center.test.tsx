@@ -139,6 +139,11 @@ describe("ChapterFlow 原生任务中心", () => {
     expect(screen.getByRole("button", { name: "重新读取状态" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "复制诊断" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "下载日志" })).toBeInTheDocument();
+    expect(
+      screen
+        .getAllByRole("link", { name: "查看详情 →" })
+        .map((link) => link.getAttribute("href")),
+    ).toContain("/books/p-1/tasks/unknown");
   });
 
   it("展示连续创作批次的进度、停靠原因和返回入口", async () => {

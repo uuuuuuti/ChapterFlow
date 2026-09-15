@@ -290,6 +290,7 @@ function stageForTask(task: SigningSprintTask): string {
   if (task === "BrainstormBookDirection") return "direction";
   if (task === "RefineBookPositioning" || task === "EvaluatePositioning")
     return "positioning";
+  if (task === "GenerateStoryEngine") return "story_engine";
   if (task === "GenerateBookPackaging" || task === "EvaluateBookPackaging")
     return "packaging";
   if (task === "GenerateOpeningBlueprint" || task === "EvaluateOpening")
@@ -320,6 +321,8 @@ function retrieveKnowledgeForTask(
 
 function stagesForTask(task: SigningSprintTask): string[] {
   switch (task) {
+    case "GenerateStoryEngine":
+      return ["story_engine", "positioning", "direction"];
     case "GenerateBookPackaging":
     case "EvaluateBookPackaging":
       return ["packaging", "positioning"];
@@ -338,6 +341,8 @@ function taskGuidance(task: SigningSprintTask): string {
       return "payload 必须严格只使用这些字段且类型完全匹配：premise(string)、genre(string|null)、audience(string|null)、coreEmotion(string|null)、protagonistSeed(string|null)、hook(string|null)、differentiation(string[])。给出一个可比较的开书方向：题材、读者、核心情绪、主角种子、钩子和差异化。";
     case "RefineBookPositioning":
       return "payload 必须严格只使用这些字段且类型完全匹配：oneLineStory(string)、coreIdea(string)、sellingPoints(string[])、emotionalPayoff(string)、readerProfile(string)、protagonistDesire(string)、obstacle(string)、mechanism(string)、coreConflict(string)、longTermExpectation(string)、sustainability({shortTermAppeal:string,midTermExpansion:string,longTermSpace:string})、riskNotes(string[])。不要把 protagonistDesire、obstacle 或 mechanism 拆成对象，不要使用 targetAudience、coreObstacle、midTermScalability、longTermStorySpace 等别名。完善一句话故事、核心创意、卖点、读者、主角目标、阻力、机制、核心冲突和短中长期空间。";
+    case "GenerateStoryEngine":
+      return "payload 必须严格只使用这些字段且类型完全匹配：protagonist(string|null)、relationships(string[])、antagonist(string|null)、mechanism(string|null)、worldRules(string[])、conflict(string|null)。根据当前方向和定位补全可持续推进的人物与冲突：主角要有具体处境和目标，对手或阻力要能主动施压，机制要说明故事如何持续产生新局面，关键关系与世界规则要能制造选择代价。不要输出 character、characters、villain、rules、coreConflict 等别名，不要把字段改成对象。";
     case "EvaluatePositioning":
       return "payload 必须严格只使用 strengths(string[])、concerns(string[])、suggestions(string[])、officialMatches(string[]) 四个字段，不要添加或改名。评价当前定位的优势、风险、可持续性和需要作者决定的事项。";
     case "GenerateBookPackaging":

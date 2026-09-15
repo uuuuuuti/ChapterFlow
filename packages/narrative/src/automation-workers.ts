@@ -45,6 +45,7 @@ import {
   PlanningReviewResultSchema,
   ROLLING_OUTLINE_CONTRACT,
   RollingOutlineProposalSchema,
+  rollingOutlineValidator,
   STEER_CLASSIFICATION_CONTRACT,
   SteerClassificationResultSchema,
 } from "./automation-schemas.js";
@@ -356,14 +357,14 @@ export class AutomationWorkerSuite {
             "计划必须承接已提交章节，兑现指南针，尊重作者锁定意图与 steer。",
             "每章要有目标、阻力、转折、结果、事件、时间、地点、人物、信息揭示、章尾钩子、禁改事实和目标字数；结果必须推动因果链。",
             "请为每章填充 location、informationRevealed、lockedFacts、foreshadowSeeds、characterNames、targetWords；这些字段会保存为正式章纲，不能省略或写成空泛占位。",
-            "同时为每章规划 Chapter Intent：主目的、读者期待、情绪目标/曲线、回报/钩子强度、信息增量、结尾牵引、场景结构，以及需要 OPEN/ADVANCE/PAYOFF 的 Reader Promise。Reader Promise 只能引用已给出的真实 ID；新 OPEN 用 promiseId=null 并填写 title。",
+            "同时为每章规划 Chapter Intent：主目的、读者期待、情绪目标/曲线、回报/钩子强度、信息增量、结尾牵引、场景结构，以及需要 OPEN/ADVANCE/PAYOFF 的 Reader Promise。Reader Promise 只能引用已给出的真实 ID；新 OPEN 用 promiseId=null 并填写 title。若开放 Reader Promise 列表为空，操作只能省略或只写 OPEN（promiseId=null 且 title 非空），绝不能写 ADVANCE/PAYOFF；ADVANCE/PAYOFF 的 promiseId 必须逐字复制开放列表中的 ID，不存在可推进的 Promise 就不要输出该操作。",
           ],
           en: [
             "You are the rolling planner of a long-form novel. Plan only the currently visible window in detail; never freeze an entire long novel at once.",
             "The plan must continue from committed chapters, honor the compass, and respect the author's locked intent and steers.",
             "Each chapter needs a goal, resistance, turn, outcome, event, time, location, characters, information revealed, closing hook, immutable facts, and a target word count; outcomes must advance the causal chain.",
             "Fill location, informationRevealed, lockedFacts, foreshadowSeeds, characterNames, and targetWords for every chapter. These fields are persisted as the formal brief, so do not omit them or use empty placeholders.",
-            "Also plan a Chapter Intent for every chapter: primary purpose, reader expectation, emotion target/curve, payoff/hook strengths, information gain, ending pull, scene structure, and Reader Promise OPEN/ADVANCE/PAYOFF operations. Use only real promise IDs from the supplied state; a new OPEN uses promiseId=null with a title.",
+            "Also plan a Chapter Intent for every chapter: primary purpose, reader expectation, emotion target/curve, payoff/hook strengths, information gain, ending pull, scene structure, and Reader Promise OPEN/ADVANCE/PAYOFF operations. Use only real promise IDs from the supplied state; a new OPEN uses promiseId=null with a title. If the open Reader Promise list is empty, omit operations or use only OPEN with promiseId=null and a non-empty title; never emit ADVANCE/PAYOFF. For ADVANCE/PAYOFF, copy a promiseId exactly from the supplied open list; if no Promise can be advanced, omit that operation.",
           ],
         }),
         messages: [
@@ -398,7 +399,9 @@ export class AutomationWorkerSuite {
         ),
       },
       ROLLING_OUTLINE_CONTRACT,
-      automationValidator(RollingOutlineProposalSchema),
+      rollingOutlineValidator(
+        readerPromiseState.promises.map((promise) => promise.id),
+      ),
       signal,
     );
     const value = {

@@ -342,7 +342,7 @@ export function ChapterFlowShell() {
       {tasks && projectId ? (
           <Drawer title="任务中心" onClose={() => setTasks(false)}>
             <Suspense fallback={<p>正在读取任务…</p>}>
-              <Tasks projectId={projectId} />
+              <Tasks projectId={projectId} onNavigate={() => setTasks(false)} />
             </Suspense>
           </Drawer>
         ) : null}

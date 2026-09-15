@@ -4,6 +4,7 @@ import {
   SIGNING_SPRINT_MODEL_CONTRACT,
   SigningSprintModelResultSchema,
 } from "../src/signing-sprint-schemas.js";
+import { rollingOutlineValidator } from "../src/automation-schemas.js";
 import {
   GroundedSettlementSchema,
   SETTLEMENT_CONTRACT,
@@ -244,6 +245,14 @@ describe("Signing Sprint structured candidate contract", () => {
   it("accepts the complete positioning, packaging, opening, review, and readiness shapes", () => {
     const payloads: Record<string, Record<string, unknown>> = {
       RefineBookPositioning: positioningPayload(),
+      GenerateStoryEngine: {
+        protagonist: "沈砚，落魄刑警",
+        relationships: ["与姐姐旧案相关的证人"],
+        antagonist: "篡改声音记录的人",
+        mechanism: "听见死者最后七秒",
+        worldRules: ["每次使用能力都会丢失一段近期记忆"],
+        conflict: "必须用记忆换取真相",
+      },
       GenerateBookPackaging: {
         candidates: [1, 2, 3].map((index) => packagingPayload(index)),
       },
@@ -317,6 +326,64 @@ describe("Signing Sprint structured candidate contract", () => {
         },
       }),
     ).toThrow();
+  });
+});
+
+describe("Rolling outline Promise validation", () => {
+  it("drops unappliable lifecycle operations without dropping the outline", () => {
+    const validator = rollingOutlineValidator(["promise-1"]);
+    const result = validator({
+      rationale: "承接当前冲突",
+      volume: { title: "第一卷", summary: "卷摘要", goal: "完成阶段目标" },
+      arc: {
+        title: "第一弧",
+        summary: "弧摘要",
+        goal: "推进线索",
+        conflict: "阻力升级",
+        outcome: "获得新线索",
+      },
+      chapters: [
+        {
+          title: "第一章",
+          summary: "主角追查线索",
+          goal: "找到入口",
+          conflict: "线索被抹除",
+          outcome: "确认方向",
+          povName: null,
+          storyTime: null,
+          hook: "录音出现异常",
+          readerPromiseOperations: [
+            {
+              action: "ADVANCE",
+              promiseId: null,
+              title: null,
+              note: "模型误填的推进",
+            },
+            {
+              action: "ADVANCE",
+              promiseId: "promise-1",
+              title: null,
+              note: "推进已有承诺",
+            },
+            {
+              action: "OPEN",
+              promiseId: null,
+              title: "新的录音谜团",
+              note: "留下下一章问题",
+            },
+          ],
+        },
+      ],
+      nextArc: null,
+      continuityRisks: [],
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.chapters[0]?.readerPromiseOperations).toEqual([
+      expect.objectContaining({ action: "ADVANCE", promiseId: "promise-1" }),
+      expect.objectContaining({ action: "OPEN", title: "新的录音谜团" }),
+    ]);
   });
 });
 

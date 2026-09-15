@@ -108,6 +108,7 @@ export type SigningSprintStatus = (typeof SIGNING_SPRINT_STATUSES)[number];
 export const SIGNING_SPRINT_TASKS = [
   "BrainstormBookDirection",
   "RefineBookPositioning",
+  "GenerateStoryEngine",
   "EvaluatePositioning",
   "GenerateBookPackaging",
   "EvaluateBookPackaging",
@@ -249,17 +250,19 @@ export interface SigningReadinessReport {
   generatedAt: IsoDateTime;
 }
 
+export interface BookStoryEngine {
+  protagonist: string | null;
+  relationships: string[];
+  antagonist: string | null;
+  mechanism: string | null;
+  worldRules: string[];
+  conflict: string | null;
+}
+
 export interface SigningSprintState {
   direction: BookDirection | null;
   positioning: BookPositioning | null;
-  storyEngine: {
-    protagonist: string | null;
-    relationships: string[];
-    antagonist: string | null;
-    mechanism: string | null;
-    worldRules: string[];
-    conflict: string | null;
-  } | null;
+  storyEngine: BookStoryEngine | null;
   packaging: BookPackaging[];
   selectedPackagingId: string | null;
   openingBlueprint: OpeningBlueprint | null;

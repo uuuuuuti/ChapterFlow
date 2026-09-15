@@ -228,7 +228,9 @@ export class ProjectOverviewService {
   ) {
     const projection = runProductProjection(snapshot);
     const isChapterTask = snapshot.run.recipe === "chapter-production";
-    const isFoundationTask = snapshot.run.recipe === "book-foundation";
+    const isFoundationTask =
+      snapshot.run.recipe === "book-foundation" ||
+      snapshot.run.recipe === "signing-sprint-ai";
     if (!isChapterTask && !isFoundationTask) {
       throw new Error(
         `Task projection does not support recipe ${snapshot.run.recipe}`,

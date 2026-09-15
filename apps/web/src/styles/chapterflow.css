@@ -753,6 +753,16 @@
 .cf-signing-sprint-preview span { border-radius: 999px; padding: 3px 7px; background: #f1f5fa; }
 .cf-signing-sprint-preview--stack { display: grid; gap: 4px; }
 .cf-signing-sprint-preview--stack span { border-radius: 5px; padding: 4px 6px; }
+.cf-signing-sprint-packaging-options { display: grid; gap: 10px; margin-top: 8px; }
+.cf-signing-sprint-packaging-option { display: grid; gap: 5px; border: 1px solid #dfe8f3; border-radius: 9px; padding: 11px; background: #fbfdff; }
+.cf-signing-sprint-packaging-option-heading { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.cf-signing-sprint-packaging-option-heading small { color: #8292a9; }
+.cf-signing-sprint-packaging-option-heading strong { color: #2d5f9a; font-size: 14px; }
+.cf-signing-sprint-packaging-option > span, .cf-signing-sprint-packaging-option > p, .cf-signing-sprint-packaging-option > small { margin: 0; color: #526982; font-size: 12px; }
+.cf-signing-sprint-packaging-option > small { color: #7d91aa; font-size: 11px; }
+.cf-signing-sprint-packaging-option details { display: grid; gap: 4px; color: #7d91aa; font-size: 11px; }
+.cf-signing-sprint-packaging-option details summary { cursor: pointer; color: #54749c; }
+.cf-signing-sprint-packaging-option button { justify-self: start; margin-top: 3px; }
 .cf-signing-sprint-ai-status { margin-top: 12px; color: #54749c; font-size: 12px; }
 .cf-signing-sprint-footnote { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 18px; color: #8392a5; font-size: 11px; }
 @media (max-width: 900px) { .cf-signing-sprint-steps { grid-template-columns: repeat(3, minmax(0, 1fr)); } .cf-signing-sprint-chapters, .cf-signing-sprint-arc-chapters, .cf-signing-sprint-review-row { grid-template-columns: 1fr; } }
@@ -2285,6 +2295,19 @@
   background: #fff;
   text-align: left;
   white-space: normal;
+}
+.cf-shell .cf-task-row-main {
+  display: grid;
+  grid-column: 1;
+  gap: 4px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  white-space: normal;
+  cursor: pointer;
 }
 .cf-shell .cf-task-row:hover,
 .cf-shell .cf-task-row[data-selected="true"] {

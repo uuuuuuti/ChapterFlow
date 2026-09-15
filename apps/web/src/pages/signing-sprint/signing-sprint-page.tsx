@@ -6,6 +6,7 @@ import type {
   BookDirectionDto,
   BookPackagingDto,
   BookPositioningDto,
+  BookStoryEngineDto,
   OpeningBlueprintDto,
   OpeningChapterBlueprintDto,
   SigningSprintCandidateDto,
@@ -118,10 +119,17 @@ export function SigningSprintPage() {
     onError: (error) => setNotice(apiErrorMessage(error)),
   });
   const decide = useMutation({
-    mutationFn: (input: { candidate: SigningSprintCandidateDto; action: "accept" | "reject" }) =>
+    mutationFn: (input: {
+      candidate: SigningSprintCandidateDto;
+      action: "accept" | "reject";
+      selectedPackagingIndex?: number | undefined;
+    }) =>
       decideSigningSprintCandidate(projectId, input.candidate.id, {
         action: input.action,
         expectedWorkflowVersion: sprint.data?.workflow.version ?? 0,
+        ...(input.selectedPackagingIndex === undefined
+          ? {}
+          : { selectedPackagingIndex: input.selectedPackagingIndex }),
       }),
     onSuccess: (value) => {
       if ("workflow" in value) {
@@ -251,6 +259,7 @@ export function SigningSprintPage() {
           key={workflow.version}
           workflow={workflow}
           busy={save.isPending}
+          onAi={() => ai.mutate("GenerateStoryEngine")}
           onSave={(storyEngine) => save.mutate({
             expectedVersion: workflow.version,
             state: { storyEngine },
@@ -311,7 +320,9 @@ export function SigningSprintPage() {
         <CandidatePanel
           candidates={candidates}
           busy={decide.isPending}
-          onDecision={(candidate, action) => decide.mutate({ candidate, action })}
+          onDecision={(candidate, action, selectedPackagingIndex) =>
+            decide.mutate({ candidate, action, selectedPackagingIndex })
+          }
         />
       ) : lastAiRunId ? <p className="cf-signing-sprint-ai-status">候选还在整理中，页面会自动更新。</p> : null}
       <div className="cf-signing-sprint-footnote">
@@ -398,11 +409,13 @@ function PositioningStep({
 function StoryEngineStep({
   workflow,
   busy,
+  onAi,
   onSave,
 }: {
   workflow: SprintWorkflow;
   busy: boolean;
-  onSave: (storyEngine: NonNullable<typeof workflow.state.storyEngine>) => void;
+  onAi: () => void;
+  onSave: (storyEngine: BookStoryEngineDto) => void;
 }) {
   const saved = workflow.state.storyEngine;
   const [protagonist, setProtagonist] = useState(saved?.protagonist ?? "");
@@ -417,7 +430,7 @@ function StoryEngineStep({
       <form onSubmit={(event) => { event.preventDefault(); onSave({ protagonist: protagonist.trim() || null, relationships: lines(relationships), antagonist: antagonist.trim() || null, mechanism: mechanism.trim() || null, worldRules: lines(worldRules), conflict: conflict.trim() || null }); }}>
         <div className="cf-form-grid"><label>主角<input required value={protagonist} onChange={(event) => setProtagonist(event.target.value)} placeholder="名字、身份和此刻的处境" /></label><label>主要对手或阻力<input value={antagonist} onChange={(event) => setAntagonist(event.target.value)} /></label><label>核心机制<input value={mechanism} onChange={(event) => setMechanism(event.target.value)} placeholder="能力、系统、秘密、关系或限制" /></label><label>第一阶段冲突<input required value={conflict} onChange={(event) => setConflict(event.target.value)} /></label></div>
         <div className="cf-form-grid"><label>关键关系（每行一项）<textarea rows={4} value={relationships} onChange={(event) => setRelationships(event.target.value)} /></label><label>世界规则与边界（每行一项）<textarea rows={4} value={worldRules} onChange={(event) => setWorldRules(event.target.value)} /></label></div>
-        <div className="cf-actions"><button className="cf-primary" disabled={busy || !protagonist.trim() || !conflict.trim()}>{busy ? "正在保存…" : "保存人物与冲突并继续"}</button></div>
+        <div className="cf-actions"><button type="button" className="cf-button" onClick={onAi} disabled={busy}>✦ 让 AI 补全人物与冲突</button><button className="cf-primary" disabled={busy || !protagonist.trim() || !conflict.trim()}>{busy ? "正在保存…" : "保存人物与冲突并继续"}</button></div>
       </form>
     </section>
   );
@@ -527,14 +540,111 @@ function WritingStep({
   );
 }
 
-function CandidatePanel({ candidates, busy, onDecision }: { candidates: SigningSprintCandidateDto[]; busy: boolean; onDecision: (candidate: SigningSprintCandidateDto, action: "accept" | "reject") => void }) {
-  return <section className="cf-card cf-signing-sprint-candidates"><h2>待你选择的候选</h2><p>AI 只提供草案；接受后才会写入对应的作品资料。</p>{candidates.map((candidate) => <article key={candidate.id}><div><strong>{candidateLabel(candidate.task)}</strong><p>{candidate.rationale}</p><CandidatePreview candidate={candidate} /></div><div className="cf-actions"><button className="cf-primary" onClick={() => onDecision(candidate, "accept")} disabled={busy}>采用</button><button className="cf-button" onClick={() => onDecision(candidate, "reject")} disabled={busy}>暂不采用</button></div></article>)}</section>;
+function CandidatePanel({
+  candidates,
+  busy,
+  onDecision,
+}: {
+  candidates: SigningSprintCandidateDto[];
+  busy: boolean;
+  onDecision: (
+    candidate: SigningSprintCandidateDto,
+    action: "accept" | "reject",
+    selectedPackagingIndex?: number,
+  ) => void;
+}) {
+  return (
+    <section className="cf-card cf-signing-sprint-candidates">
+      <h2>待你选择的候选</h2>
+      <p>AI 只提供草案；接受后才会写入对应的作品资料。</p>
+      {candidates.map((candidate) => {
+        const packaging =
+          candidate.task === "GenerateBookPackaging" &&
+          Array.isArray(candidate.payload.candidates)
+            ? candidate.payload.candidates
+            : null;
+        return (
+          <article key={candidate.id}>
+            <div>
+              <strong>{candidateLabel(candidate.task)}</strong>
+              <p>{candidate.rationale}</p>
+              {packaging ? (
+                <div className="cf-signing-sprint-packaging-options">
+                  {packaging.map((item, index) => {
+                    const title = recordText(item, "title");
+                    const tagline = recordText(item, "tagline");
+                    const coverBrief = recordText(item, "coverBrief");
+                    return (
+                      <div
+                        className="cf-signing-sprint-packaging-option"
+                        key={`${title}-${index}`}
+                      >
+                        <div className="cf-signing-sprint-packaging-option-heading">
+                          <small>包装 {index + 1}</small>
+                          <strong>{title || "未命名包装"}</strong>
+                        </div>
+                        <span>{recordText(item, "titleDirection")}</span>
+                        <p>{recordText(item, "description")}</p>
+                        <small>
+                          标签：{recordList(item, "tags").join(" · ") || "未填写"}
+                        </small>
+                        {tagline || coverBrief ? (
+                          <details>
+                            <summary>查看宣传语与封面方向</summary>
+                            {tagline ? <span>宣传语：{tagline}</span> : null}
+                            {coverBrief ? <span>封面：{coverBrief}</span> : null}
+                          </details>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="cf-primary"
+                          onClick={() => onDecision(candidate, "accept", index)}
+                          disabled={busy || !title}
+                        >
+                          采用这项包装
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <CandidatePreview candidate={candidate} />
+              )}
+            </div>
+            <div className="cf-actions">
+              {packaging ? (
+                <span className="cf-inline-hint">请选择一项包装</span>
+              ) : (
+                <button
+                  type="button"
+                  className="cf-primary"
+                  onClick={() => onDecision(candidate, "accept")}
+                  disabled={busy}
+                >
+                  采用
+                </button>
+              )}
+              <button
+                type="button"
+                className="cf-button"
+                onClick={() => onDecision(candidate, "reject")}
+                disabled={busy}
+              >
+                暂不采用
+              </button>
+            </div>
+          </article>
+        );
+      })}
+    </section>
+  );
 }
 
 function CandidatePreview({ candidate }: { candidate: SigningSprintCandidateDto }) {
   const payload = candidate.payload;
   if (candidate.task === "BrainstormBookDirection") return <p className="cf-signing-sprint-preview">{text(payload.premise)}{payload.genre ? ` · ${text(payload.genre)}` : ""}</p>;
   if (candidate.task === "RefineBookPositioning") return <p className="cf-signing-sprint-preview">{text(payload.oneLineStory)}{payload.coreConflict ? ` · 冲突：${text(payload.coreConflict)}` : ""}</p>;
+  if (candidate.task === "GenerateStoryEngine") return <div className="cf-signing-sprint-preview cf-signing-sprint-preview--stack"><strong>主角：{text(payload.protagonist) || "待补全"}</strong><span>对手/阻力：{text(payload.antagonist) || "待补全"}</span><span>机制：{text(payload.mechanism) || "待补全"}</span><span>冲突：{text(payload.conflict) || "待补全"}</span><span>关键关系：{recordList(payload, "relationships").slice(0, 2).join("；") || "待补全"}</span></div>;
   if (candidate.task === "EvaluatePositioning" || candidate.task === "EvaluateBookPackaging") return <div className="cf-signing-sprint-preview cf-signing-sprint-preview--stack"><strong>优势：{recordList(payload, "strengths").slice(0, 2).join("；") || "待审阅"}</strong><span>需要注意：{recordList(payload, "concerns").slice(0, 2).join("；") || "未填写"}</span><span>建议：{recordList(payload, "suggestions").slice(0, 2).join("；") || "未填写"}</span></div>;
   if (candidate.task === "GenerateBookPackaging" && Array.isArray(payload.candidates)) return <div className="cf-signing-sprint-preview">{payload.candidates.slice(0, 5).map((item, index) => <span key={index}>{recordText(item, "title")}</span>)}</div>;
   if (candidate.task === "GenerateOpeningBlueprint") return <p className="cf-signing-sprint-preview">{text(payload.openingHook)}{Array.isArray(payload.firstThreeChapters) ? ` · ${payload.firstThreeChapters.length} 个开篇章节` : ""}</p>;
@@ -557,6 +667,7 @@ function StepTitle({ title, description }: { title: string; description: string 
 function candidateForStep(task: SigningSprintTask, step: SigningSprintStep): boolean {
   if (step === "direction") return task === "BrainstormBookDirection";
   if (step === "positioning") return task === "RefineBookPositioning" || task === "EvaluatePositioning";
+  if (step === "story_engine") return task === "GenerateStoryEngine";
   if (step === "packaging") return task === "GenerateBookPackaging" || task === "EvaluateBookPackaging";
   if (step === "opening") return task === "GenerateOpeningBlueprint" || task === "EvaluateOpening";
   if (step === "writing") return task === "GenerateChapterFromIntent" || task === "SigningReadinessReview" || task === "EvaluateOpening";
@@ -571,6 +682,7 @@ function candidateLabel(task: SigningSprintTask): string {
   const labels: Record<SigningSprintTask, string> = {
     BrainstormBookDirection: "开书方向",
     RefineBookPositioning: "作品定位",
+    GenerateStoryEngine: "人物与冲突",
     EvaluatePositioning: "定位检查",
     GenerateBookPackaging: "包装方向",
     EvaluateBookPackaging: "包装检查",

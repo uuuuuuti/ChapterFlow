@@ -142,7 +142,13 @@ const actionReasonLabels: Record<string, string> = {
   "run.retry.recipe": "该任务类型没有单独重试入口。",
   "run.action.status": "当前任务状态不允许这项操作。",
 };
-export function TaskCenter({ projectId }: { projectId: string }) {
+export function TaskCenter({
+  projectId,
+  onNavigate,
+}: {
+  projectId: string;
+  onNavigate?: () => void;
+}) {
   const query = useInfiniteQuery({
     queryKey: [...queryKeys.runs(projectId), "page"],
     initialPageParam: undefined as string | undefined,
@@ -209,6 +215,7 @@ export function TaskCenter({ projectId }: { projectId: string }) {
           {groups.map((group) => (
             <TaskGroup
               key={group.key}
+              projectId={projectId}
               title={groupTitles[group.key]}
               runs={group.runs.slice(
                 0,
@@ -216,6 +223,7 @@ export function TaskCenter({ projectId }: { projectId: string }) {
               )}
               selectedRunId={selectedRunIdInView}
               onSelect={setSelectedRunId}
+              onNavigate={onNavigate}
             />
           ))}
           {selectedRun ? (
@@ -308,15 +316,19 @@ function BatchOverview({
   );
 }
 function TaskGroup({
+  projectId,
   title,
   runs,
   selectedRunId,
   onSelect,
+  onNavigate,
 }: {
+  projectId: string;
   title: string;
   runs: NarrativeRun[];
   selectedRunId: string | null;
   onSelect: (runId: string) => void;
+  onNavigate: (() => void) | undefined;
 }) {
   if (!runs.length) return null;
   return (
@@ -326,25 +338,35 @@ function TaskGroup({
       </h3>
       <div className="cf-task-list">
         {runs.map((run) => (
-          <button
-            type="button"
+          <div
             className="cf-task-row"
             data-selected={run.id === selectedRunId}
             key={run.id}
-            onClick={() => onSelect(run.id)}
           >
-            <span className="cf-task-row-heading">
-              <strong>{taskRecipeLabel(run)}</strong>
-              <span className="cf-badge">
-                {states[run.status] ?? "未知状态"}
+            <button
+              type="button"
+              className="cf-task-row-main"
+              onClick={() => onSelect(run.id)}
+            >
+              <span className="cf-task-row-heading">
+                <strong>{taskRecipeLabel(run)}</strong>
+                <span className="cf-badge">
+                  {states[run.status] ?? "未知状态"}
+                </span>
               </span>
-            </span>
-            <span className="cf-task-row-meta">
-              {run.targetOutlineNodeId ? "已关联章节" : "项目级任务"} ·{" "}
-              {formatTaskTime(run.updatedAt)}
-            </span>
-            <span className="cf-task-row-action">查看详情 →</span>
-          </button>
+              <span className="cf-task-row-meta">
+                {run.targetOutlineNodeId ? "已关联章节" : "项目级任务"} ·{" "}
+                {formatTaskTime(run.updatedAt)}
+              </span>
+            </button>
+            <Link
+              className="cf-task-row-action"
+              to={`/books/${encodeURIComponent(projectId)}/tasks/${encodeURIComponent(run.id)}`}
+              onClick={onNavigate}
+            >
+              查看详情 →
+            </Link>
+          </div>
         ))}
       </div>
     </section>

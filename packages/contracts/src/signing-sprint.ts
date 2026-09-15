@@ -295,6 +295,7 @@ export const SigningSprintStatusSchema = z.enum([
 export const SigningSprintTaskSchema = z.enum([
   "BrainstormBookDirection",
   "RefineBookPositioning",
+  "GenerateStoryEngine",
   "EvaluatePositioning",
   "GenerateBookPackaging",
   "EvaluateBookPackaging",
@@ -305,21 +306,23 @@ export const SigningSprintTaskSchema = z.enum([
 ]);
 export type SigningSprintTask = z.infer<typeof SigningSprintTaskSchema>;
 
+export const BookStoryEngineSchema = z
+  .object({
+    protagonist: z.string().trim().max(4_000).nullable(),
+    relationships: TextListSchema,
+    antagonist: z.string().trim().max(4_000).nullable(),
+    mechanism: z.string().trim().max(4_000).nullable(),
+    worldRules: TextListSchema,
+    conflict: z.string().trim().max(4_000).nullable(),
+  })
+  .strict();
+export type BookStoryEngineDto = z.infer<typeof BookStoryEngineSchema>;
+
 export const SigningSprintStateSchema = z
   .object({
     direction: BookDirectionSchema.nullable(),
     positioning: BookPositioningSchema.nullable(),
-    storyEngine: z
-      .object({
-        protagonist: z.string().nullable(),
-        relationships: TextListSchema,
-        antagonist: z.string().nullable(),
-        mechanism: z.string().nullable(),
-        worldRules: TextListSchema,
-        conflict: z.string().nullable(),
-      })
-      .strict()
-      .nullable(),
+    storyEngine: BookStoryEngineSchema.nullable(),
     packaging: z.array(BookPackagingSchema),
     selectedPackagingId: IdSchema.nullable(),
     openingBlueprint: OpeningBlueprintSchema.nullable(),
@@ -416,6 +419,8 @@ export const DecideSigningSprintCandidateRequestSchema = z
   .object({
     action: z.enum(["accept", "reject"]),
     expectedWorkflowVersion: z.number().int().nonnegative(),
+    /** GenerateBookPackaging can be accepted with one chosen option in the same transaction. */
+    selectedPackagingIndex: z.number().int().nonnegative().optional(),
   })
   .strict();
 export type DecideSigningSprintCandidateRequest = z.infer<

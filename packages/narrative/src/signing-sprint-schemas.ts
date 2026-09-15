@@ -5,6 +5,7 @@ import {
   BookDirectionSchema,
   BookPackagingSchema,
   BookPositioningSchema,
+  BookStoryEngineSchema,
   OpeningBlueprintSchema,
   OpeningReviewSchema,
   SigningReadinessReportSchema,
@@ -51,17 +52,19 @@ export const SigningSprintModelResultSchema = z
         ? BookDirectionSchema
         : value.task === "RefineBookPositioning"
           ? BookPositioningSchema
-          : value.task === "GenerateBookPackaging"
-            ? PackagingPayloadSchema
-            : value.task === "GenerateOpeningBlueprint"
-              ? OpeningBlueprintCandidateSchema
-              : value.task === "EvaluateOpening"
-                ? OpeningReviewPayloadSchema
-                : value.task === "SigningReadinessReview"
-                  ? SigningReadinessReportSchema
-                  : value.task === "GenerateChapterFromIntent"
-                    ? ChapterIntentPlanSchema
-                    : EvaluationSchema;
+          : value.task === "GenerateStoryEngine"
+            ? BookStoryEngineSchema
+            : value.task === "GenerateBookPackaging"
+              ? PackagingPayloadSchema
+              : value.task === "GenerateOpeningBlueprint"
+                ? OpeningBlueprintCandidateSchema
+                : value.task === "EvaluateOpening"
+                  ? OpeningReviewPayloadSchema
+                  : value.task === "SigningReadinessReview"
+                    ? SigningReadinessReportSchema
+                    : value.task === "GenerateChapterFromIntent"
+                      ? ChapterIntentPlanSchema
+                      : EvaluationSchema;
     const parsed = schema.safeParse(value.payload);
     if (!parsed.success) {
       context.addIssue({
@@ -93,6 +96,7 @@ export const SIGNING_SPRINT_MODEL_CONTRACT: JsonSchemaContract = {
         enum: [
           "BrainstormBookDirection",
           "RefineBookPositioning",
+          "GenerateStoryEngine",
           "EvaluatePositioning",
           "GenerateBookPackaging",
           "EvaluateBookPackaging",

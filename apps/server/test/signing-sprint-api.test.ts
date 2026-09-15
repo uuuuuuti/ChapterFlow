@@ -424,7 +424,10 @@ describe("Signing Sprint API", () => {
       return candidate!;
     };
 
-    const accept = async (candidate: SigningSprintCandidate) => {
+    const accept = async (
+      candidate: SigningSprintCandidate,
+      selectedPackagingIndex?: number,
+    ) => {
       const current = await app.inject({
         method: "GET",
         url: `/api/projects/${projectId}/signing-sprint`,
@@ -436,6 +439,9 @@ describe("Signing Sprint API", () => {
         payload: {
           action: "accept",
           expectedWorkflowVersion: current.json().workflow.version,
+          ...(selectedPackagingIndex === undefined
+            ? {}
+            : { selectedPackagingIndex }),
         },
       });
       expect(response.statusCode, response.body).toBe(200);
@@ -446,6 +452,13 @@ describe("Signing Sprint API", () => {
     await accept(await start("BrainstormBookDirection"));
     await accept(await start("RefineBookPositioning"));
     await accept(await start("EvaluatePositioning"));
+
+    const generatedEngine = await start("GenerateStoryEngine");
+    const engineWorkflow = await accept(generatedEngine);
+    expect(engineWorkflow.state.storyEngine).toMatchObject({
+      protagonist: "沈砚，落魄刑警",
+      conflict: "必须用记忆换取真相",
+    });
 
     const beforeEngine = await app.inject({
       method: "GET",
@@ -472,28 +485,15 @@ describe("Signing Sprint API", () => {
     });
     expect(engine.statusCode, engine.body).toBe(200);
 
-    await accept(await start("GenerateBookPackaging"));
+    const generatedPackaging = await start("GenerateBookPackaging");
+    const selectedPackaging = await accept(generatedPackaging, 1);
+    expect(selectedPackaging.state.selectedPackagingId).toBe("1");
     const afterPackaging = await app.inject({
       method: "GET",
       url: `/api/projects/${projectId}/signing-sprint`,
     });
-    const selected = await app.inject({
-      method: "PATCH",
-      url: `/api/projects/${projectId}/signing-sprint`,
-      payload: {
-        expectedVersion: afterPackaging.json().workflow.version,
-        completedSteps: [
-          "direction",
-          "positioning",
-          "story_engine",
-          "packaging",
-        ],
-        currentStep: "opening",
-        state: { selectedPackagingId: "0" },
-      },
-    });
-    expect(selected.statusCode, selected.body).toBe(200);
-    expect(selected.json().workflow.state.selectedPackagingId).toBe("0");
+    expect(afterPackaging.statusCode, afterPackaging.body).toBe(200);
+    expect(afterPackaging.json().workflow.state.selectedPackagingId).toBe("1");
 
     await accept(await start("EvaluateBookPackaging"));
     await accept(await start("GenerateOpeningBlueprint"));
@@ -614,6 +614,16 @@ function signingSprintPayload(
         longTermSpace: "主角的记忆缺口与旧案形成终局",
       },
       riskNotes: [],
+    };
+  }
+  if (task === "GenerateStoryEngine") {
+    return {
+      protagonist: "沈砚，落魄刑警",
+      relationships: ["与姐姐旧案相关的证人"],
+      antagonist: "篡改声音记录的人",
+      mechanism: "听见死者最后七秒",
+      worldRules: ["每次使用能力都会丢失一段近期记忆"],
+      conflict: "必须用记忆换取真相",
     };
   }
   if (task === "GenerateBookPackaging") {
