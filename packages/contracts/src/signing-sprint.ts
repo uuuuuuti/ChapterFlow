@@ -261,6 +261,10 @@ export const SigningReadinessReportSchema = z
       .object({
         metadata: z.enum(["ready", "needs_attention"]),
         content: z.enum(["ready", "needs_attention"]),
+        /** Opening quality remains a review surface, not a platform score. */
+        openingQuality: z
+          .enum(["ready", "needs_attention"])
+          .default("needs_attention"),
         consistency: z.enum(["ready", "needs_attention"]),
         officialMatching: z.enum(["ready", "needs_attention", "unconfirmed"]),
         technicalSafety: z.enum(["ready", "needs_attention"]),

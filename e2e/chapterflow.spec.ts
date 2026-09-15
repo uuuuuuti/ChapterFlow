@@ -125,6 +125,134 @@ test("快速开书从想法入口进入签约准备工作流", async ({ page }, 
   await expect(page.getByText(/需要回看|暂未发现需要处理/)).toBeVisible();
 });
 
+test("快速开书完整走到三章正文、开篇体检和签约预检", async ({ page }, info) => {
+  test.skip(
+    process.env.CHAPTERFLOW_E2E_SUCCESS_MODEL !== "1",
+    "使用独立成功模型运行完整快速开书链路",
+  );
+  test.setTimeout(120000);
+
+  await page.goto("/books/new?mode=signing-sprint");
+  await page
+    .getByLabel("作品名（可先留空）", { exact: true })
+    .fill(`完整开书-${info.project.name}-${Date.now()}`);
+  await page.getByLabel("大致题材", { exact: true }).fill("都市悬疑");
+  await page.getByLabel("目标读者", { exact: true }).fill("喜欢反转的追更读者");
+  await page.getByLabel("核心阅读体验", { exact: true }).fill("紧张与成长");
+  await page
+    .getByLabel("一句话想法（可选）", { exact: true })
+    .fill("落魄刑警能听见死者最后七秒的声音，必须查清姐姐旧案。");
+  await page.getByRole("button", { name: "进入快速开书", exact: true }).click();
+  await expect(page).toHaveURL(/\/books\/[^/]+\/signing-sprint$/);
+  const sprintUrl = page.url();
+
+  await page
+    .getByRole("textbox", { name: "故事想法", exact: true })
+    .fill("落魄刑警能听见死者最后七秒的声音，必须查清姐姐旧案。");
+  await page.getByLabel("大致题材", { exact: true }).fill("都市悬疑");
+  await page.getByLabel("想写给谁", { exact: true }).fill("喜欢反转的追更读者");
+  await page.getByLabel("核心阅读体验", { exact: true }).fill("紧张与成长");
+  await page
+    .getByRole("button", { name: "保存并继续定位", exact: true })
+    .click();
+
+  const positioning = [
+    ["一句话故事", "落魄刑警用死者最后七秒的声音追查姐姐旧案。"],
+    ["核心创意", "每个声音线索都会带走主角一段记忆。"],
+    ["主角想要什么", "查清姐姐死亡真相。"],
+    ["谁或什么在阻拦", "篡改声音记录的人和逐渐消失的记忆。"],
+    ["故事靠什么持续推进", "每个案件都会给出一条新的声音线索。"],
+    ["核心冲突", "主角必须用记忆换取真相。"],
+    ["读者最后想得到什么体验", "在反转和成长中获得持续紧张感。"],
+    ["目标读者", "喜欢都市脑洞与悬疑反转的追更读者。"],
+    ["长期期待", "姐姐旧案最终指向主角隐瞒的选择。"],
+    ["短期吸引力", "七秒声音机制制造即时谜面。"],
+    ["中期扩展空间", "多个案件逐步连接成声音网络。"],
+    ["长期主线空间", "记忆缺口与姐姐旧案汇合成终局。"],
+  ] as const;
+  for (const [label, value] of positioning) {
+    await page.getByLabel(label, { exact: true }).fill(value);
+  }
+  await page
+    .getByRole("button", { name: "保存定位并继续", exact: true })
+    .click();
+
+  await page.getByLabel("主角", { exact: true }).fill("沈砚，落魄刑警");
+  await page
+    .getByLabel("主要对手或阻力", { exact: true })
+    .fill("篡改声音记录的人");
+  await page.getByLabel("核心机制", { exact: true }).fill("听见死者最后七秒");
+  await page
+    .getByLabel("第一阶段冲突", { exact: true })
+    .fill("在记忆消失前查清姐姐旧案。");
+  await page
+    .getByRole("button", { name: "保存人物与冲突并继续", exact: true })
+    .click();
+
+  await page.getByLabel("书名", { exact: true }).fill("七秒回声");
+  await page
+    .getByLabel("标签（用逗号或换行分隔）", { exact: true })
+    .fill("都市,悬疑,脑洞");
+  await page
+    .getByLabel("简介", { exact: true })
+    .fill(
+      "落魄刑警用死者最后七秒的声音追查姐姐旧案，每次靠近真相都会失去一段记忆。",
+    );
+  await page.getByRole("button", { name: "加入我的候选", exact: true }).click();
+
+  await page
+    .getByRole("button", { name: "保存开篇并进入写作", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "现在开始写，再回看开篇", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: /开始写《/ }).click();
+  await expect(page).toHaveURL(/\/tasks\/[^/]+$/);
+  await expect(
+    page.getByRole("button", { name: "接受正文", exact: true }),
+  ).toBeVisible({
+    timeout: 60000,
+  });
+  await page.getByRole("button", { name: "接受正文", exact: true }).click();
+
+  await page.goto(sprintUrl);
+  await expect(
+    page.getByRole("heading", { name: "现在开始写，再回看开篇", exact: true }),
+  ).toBeVisible();
+  const chapterLinks = page.locator(".cf-signing-sprint-chapter-links a");
+  await expect(chapterLinks).toHaveCount(3);
+  for (const [index, content] of [
+    [1, "沈砚追到第二条声音线索，发现有人先一步改写了现场。"],
+    [2, "沈砚在姐姐旧案的录音里听见自己的名字，决定付出记忆代价。"],
+  ] as const) {
+    await chapterLinks.nth(index).click();
+    const editor = page.getByRole("textbox", { name: "章节正文" });
+    await expect(editor).toBeVisible();
+    await editor.fill(content);
+    await expect(page.locator(".cf-paper footer")).toContainText("已保存");
+    await page.goto(sprintUrl);
+    await expect(
+      page.getByRole("heading", {
+        name: "现在开始写，再回看开篇",
+        exact: true,
+      }),
+    ).toBeVisible();
+  }
+
+  await page.getByRole("button", { name: "更新开篇检查", exact: true }).click();
+  await expect(page.getByText("3 个章节已检查", { exact: true })).toBeVisible();
+  await page
+    .getByRole("button", { name: "更新签约准备预检", exact: true })
+    .click();
+  await expect(
+    page.getByText(/开篇质量 needs_attention|开篇质量 ready/),
+  ).toBeVisible();
+  await expect(page.locator("body")).toHaveJSProperty(
+    "scrollWidth",
+    info.project.use.viewport!.width,
+  );
+});
+
 test("ChapterFlow 作品入口与创作首页", async ({ page }, info) => {
   await page.goto("/");
   await expect(page).toHaveURL(/\/books$/);

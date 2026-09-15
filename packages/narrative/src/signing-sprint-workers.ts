@@ -103,8 +103,12 @@ export class SigningSprintWorkerSuite {
     );
     const profile = this.webNovel.getBookProfile(project.id);
     const intent = this.story.getAuthorIntent(project.id);
-    const stage = stageForTask(task);
-    const cards = this.knowledge.retrieve(stage, profile?.genre ?? null, 12);
+    const cards = retrieveKnowledgeForTask(
+      this.knowledge,
+      task,
+      profile?.genre ?? null,
+      12,
+    );
     const sourceRefs = uniqueSourceRefs(
       cards.flatMap((card) => card.sourceRefs),
     );
@@ -242,8 +246,16 @@ export class SigningSprintWorkerSuite {
     const context = contextArtifact(
       requiredArtifact(snapshot, "sprint.context"),
     );
+    const generatedArtifact = requiredArtifact(snapshot, "sprint.generate");
+    // Generation metadata is kept on the run artifact for observability, but
+    // it is not part of the model contract that must be persisted as a
+    // candidate.  Strip it before applying the strict payload validator.
     const generated = SigningSprintModelResultSchema.parse(
-      requiredArtifact(snapshot, "sprint.generate"),
+      Object.fromEntries(
+        Object.entries(generatedArtifact).filter(
+          ([key]) => key !== "generation",
+        ),
+      ),
     );
     const candidate = this.workflows.insertCandidate({
       id: `${snapshot.run.id}:candidate`,
@@ -284,6 +296,40 @@ function stageForTask(task: SigningSprintTask): string {
     return "opening";
   if (task === "SigningReadinessReview") return "readiness";
   return "writing";
+}
+
+function retrieveKnowledgeForTask(
+  repository: SqliteOfficialKnowledgeRepository,
+  task: SigningSprintTask,
+  genre: string | null,
+  limit: number,
+) {
+  const stages = stagesForTask(task);
+  const cards = new Map<
+    string,
+    ReturnType<typeof repository.retrieve>[number]
+  >();
+  for (const stage of stages) {
+    for (const card of repository.retrieve(stage, genre, limit)) {
+      if (!cards.has(card.id)) cards.set(card.id, card);
+      if (cards.size >= limit) return [...cards.values()];
+    }
+  }
+  return [...cards.values()];
+}
+
+function stagesForTask(task: SigningSprintTask): string[] {
+  switch (task) {
+    case "GenerateBookPackaging":
+    case "EvaluateBookPackaging":
+      return ["packaging", "positioning"];
+    case "GenerateOpeningBlueprint":
+      return ["opening", "positioning"];
+    case "EvaluateOpening":
+      return ["opening", "positioning"];
+    default:
+      return [stageForTask(task)];
+  }
 }
 
 function taskGuidance(task: SigningSprintTask): string {

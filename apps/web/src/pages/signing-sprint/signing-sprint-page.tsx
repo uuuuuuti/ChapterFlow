@@ -297,6 +297,7 @@ export function SigningSprintPage() {
           projectId={projectId}
           firstChapter={firstChapter}
           chapters={openingChapters}
+          onChapterIntent={() => ai.mutate("GenerateChapterFromIntent")}
           onOpeningCheck={() => openingCheck.mutate()}
           onOpeningAi={() => ai.mutate("EvaluateOpening")}
           openingCheckPending={openingCheck.isPending}
@@ -469,16 +470,19 @@ function OpeningStep({
   onSave: (blueprint: OpeningBlueprintDto) => void;
 }) {
   const [blueprint, setBlueprint] = useState<OpeningBlueprintDto>(() => openingDefaults(workflow));
-  const updateChapter = (index: number, key: keyof OpeningChapterBlueprintDto, value: string) => setBlueprint((current) => ({ ...current, firstThreeChapters: current.firstThreeChapters.map((chapter) => chapter.index === index ? { ...chapter, [key]: value } : chapter), firstArcChapters: current.firstArcChapters.map((chapter) => chapter.index === index ? { ...chapter, [key]: value } : chapter) }));
+  const updateChapter = (index: number, key: keyof OpeningChapterBlueprintDto, value: string | number | null) => setBlueprint((current) => ({ ...current, firstThreeChapters: current.firstThreeChapters.map((chapter) => chapter.index === index ? { ...chapter, [key]: value } as OpeningChapterBlueprintDto : chapter), firstArcChapters: current.firstArcChapters.map((chapter) => chapter.index === index ? { ...chapter, [key]: value } as OpeningChapterBlueprintDto : chapter) }));
+  const renderChapter = (chapter: OpeningChapterBlueprintDto, compact = false) => <article key={chapter.index}><h3>第 {chapter.index} 章</h3><label>章节标题<input value={chapter.title} onChange={(event) => updateChapter(chapter.index, "title", event.target.value)} placeholder="章节标题" /></label><div className="cf-form-grid"><label>主角行动<textarea rows={2} value={chapter.protagonistAction} onChange={(event) => updateChapter(chapter.index, "protagonistAction", event.target.value)} placeholder="主角要做什么？" /></label><label>核心冲突<textarea rows={2} value={chapter.conflict} onChange={(event) => updateChapter(chapter.index, "conflict", event.target.value)} placeholder="什么在阻拦？" /></label></div>{compact ? null : <><div className="cf-form-grid"><label>章节目的<input value={chapter.purpose} onChange={(event) => updateChapter(chapter.index, "purpose", event.target.value)} placeholder="setup / progress / reveal…" /></label><label>目标情绪<input value={chapter.emotionTarget} onChange={(event) => updateChapter(chapter.index, "emotionTarget", event.target.value)} placeholder="紧张、期待、爽感…" /></label></div><label>本章建立的读者期待<textarea rows={2} value={chapter.readerExpectation} onChange={(event) => updateChapter(chapter.index, "readerExpectation", event.target.value)} /></label></>}<label>章尾 Hook<textarea rows={2} value={chapter.hook} onChange={(event) => updateChapter(chapter.index, "hook", event.target.value)} placeholder="章尾留下什么变化或问题？" /></label>{compact ? null : <><label>本章回收<textarea rows={2} value={chapter.payoff} onChange={(event) => updateChapter(chapter.index, "payoff", event.target.value)} placeholder="本章兑现或推进了什么？" /></label><label>目标字数<input type="number" min="1" value={chapter.targetWords ?? ""} onChange={(event) => updateChapter(chapter.index, "targetWords", event.target.value ? Number(event.target.value) : null)} /></label></>}</article>;
   return (
     <section className="cf-card cf-signing-sprint-card">
       <StepTitle title="安排一个能马上动笔的开篇" description="前三章是工作流里的检查方法：每章都要有行动、阻力、期待和变化。" />
       <label>开篇读者承诺<input value={blueprint.readerPromise} onChange={(event) => setBlueprint({ ...blueprint, readerPromise: event.target.value })} placeholder="读者翻开第一章后，最想知道或看到什么？" /></label>
       <label>开篇钩子<textarea rows={2} value={blueprint.openingHook} onChange={(event) => setBlueprint({ ...blueprint, openingHook: event.target.value })} /></label>
+      <div className="cf-form-grid"><label>开篇总期待<textarea rows={2} value={blueprint.expectation} onChange={(event) => setBlueprint({ ...blueprint, expectation: event.target.value })} placeholder="读者会一路追问什么？" /></label><label>信息揭示顺序（每行一项）<textarea rows={2} value={blueprint.informationRevealPlan.join("\n")} onChange={(event) => setBlueprint({ ...blueprint, informationRevealPlan: lines(event.target.value) })} placeholder="先揭示异常，再揭示代价…" /></label></div>
       <p className="cf-inline-hint">第一阶段默认按 12 章起草；前三章用于开篇检查，后续章节可以继续调整。</p>
-      <div className="cf-signing-sprint-chapters">{blueprint.firstThreeChapters.map((chapter) => <article key={chapter.index}><h3>第 {chapter.index} 章</h3><input value={chapter.title} onChange={(event) => updateChapter(chapter.index, "title", event.target.value)} placeholder="章节标题" /><textarea rows={2} value={chapter.protagonistAction} onChange={(event) => updateChapter(chapter.index, "protagonistAction", event.target.value)} placeholder="主角要做什么？" /><textarea rows={2} value={chapter.conflict} onChange={(event) => updateChapter(chapter.index, "conflict", event.target.value)} placeholder="什么在阻拦？" /><textarea rows={2} value={chapter.hook} onChange={(event) => updateChapter(chapter.index, "hook", event.target.value)} placeholder="章尾留下什么变化或问题？" /></article>)}</div>
+      <div className="cf-signing-sprint-chapters">{blueprint.firstThreeChapters.map((chapter) => renderChapter(chapter))}</div>
       <div className="cf-form-grid"><label>第一阶段标题<input value={blueprint.firstArcTitle} onChange={(event) => setBlueprint({ ...blueprint, firstArcTitle: event.target.value })} /></label><label>第一阶段目标<input value={blueprint.firstArcGoal} onChange={(event) => setBlueprint({ ...blueprint, firstArcGoal: event.target.value })} /></label><label>第一阶段冲突<input value={blueprint.firstArcConflict} onChange={(event) => setBlueprint({ ...blueprint, firstArcConflict: event.target.value })} /></label><label>阶段性回收<input value={blueprint.firstArcPayoff} onChange={(event) => setBlueprint({ ...blueprint, firstArcPayoff: event.target.value })} /></label></div>
-      <div className="cf-actions"><button type="button" className="cf-button" onClick={onAi} disabled={busy}>✦ 让 AI 补全开篇计划</button><button type="button" className="cf-primary" onClick={() => onSave(blueprint)} disabled={busy || !blueprint.readerPromise.trim() || blueprint.firstThreeChapters.some((chapter) => !chapter.title.trim() || !chapter.protagonistAction.trim() || !chapter.conflict.trim())}>保存开篇并进入写作</button></div>
+      {blueprint.firstArcChapters.length > 3 ? <details className="cf-signing-sprint-arc-details" open><summary>调整第一阶段后续章节（{blueprint.firstArcChapters.length - 3} 章）</summary><div className="cf-signing-sprint-arc-chapters">{blueprint.firstArcChapters.filter((chapter) => chapter.index > 3).map((chapter) => renderChapter(chapter, true))}</div></details> : null}
+      <div className="cf-actions"><button type="button" className="cf-button" onClick={onAi} disabled={busy}>✦ 让 AI 补全开篇计划</button><button type="button" className="cf-primary" onClick={() => onSave(blueprint)} disabled={busy || blueprint.firstThreeChapters.length < 3 || !blueprint.readerPromise.trim() || blueprint.firstThreeChapters.some((chapter) => !chapter.title.trim() || !chapter.protagonistAction.trim() || !chapter.conflict.trim() || !chapter.readerExpectation.trim() || !chapter.hook.trim())}>保存开篇并进入写作</button></div>
     </section>
   );
 }
@@ -488,6 +492,7 @@ function WritingStep({
   projectId,
   firstChapter,
   chapters,
+  onChapterIntent,
   onOpeningCheck,
   onOpeningAi,
   openingCheckPending,
@@ -500,6 +505,7 @@ function WritingStep({
   projectId: string;
   firstChapter: { id: string; title: string } | null;
   chapters: readonly { id: string; title: string }[];
+  onChapterIntent: () => void;
   onOpeningCheck: () => void;
   onOpeningAi: () => void;
   openingCheckPending: boolean;
@@ -513,8 +519,8 @@ function WritingStep({
   return (
     <section className="cf-card cf-signing-sprint-card">
       <StepTitle title="现在开始写，再回看开篇" description="快速开书到这里就已经完成主线；正文、检查和签约准备可以循环进行。" />
-      <div className="cf-signing-sprint-actions-large"><button className="cf-primary" onClick={onWrite} disabled={!firstChapter || writingPending}>{writingPending ? "正在准备写作任务…" : firstChapter ? `开始写《${firstChapter.title}》` : "先完成开篇计划"}</button>{firstChapter ? <Link className="cf-button" to={`/books/${projectId}/write`}>打开章节列表</Link> : null}</div>
-      {chapters.length > 0 ? <div className="cf-signing-sprint-chapter-links"><strong>开篇章节</strong>{chapters.map((chapter, index) => <Link key={chapter.id} className="cf-text-link" to={`/books/${projectId}/write/${chapter.id}`}>第 {index + 1} 章 · {chapter.title}</Link>)}</div> : null}
+      <div className="cf-signing-sprint-actions-large"><button className="cf-primary" onClick={onWrite} disabled={!firstChapter || writingPending}>{writingPending ? "正在准备写作任务…" : firstChapter ? `开始写《${firstChapter.title}》` : "先完成开篇计划"}</button>{firstChapter ? <Link className="cf-button" to={`/books/${projectId}/write`}>打开章节列表</Link> : null}<button className="cf-button" onClick={onChapterIntent} disabled={!firstChapter}>让 AI 先整理本章写作意图</button></div>
+      {chapters.length > 0 ? <div className="cf-signing-sprint-chapter-links"><strong>开篇章节</strong>{chapters.map((chapter, index) => <Link key={chapter.id} className="cf-text-link" to={`/books/${projectId}/write?outline=${encodeURIComponent(chapter.id)}`}>第 {index + 1} 章 · {chapter.title}</Link>)}</div> : null}
       <div className="cf-signing-sprint-review-row"><div><h3>开篇检查</h3><p>查看段落、对话、人物密度等信号，回到原文做作者判断。</p><div className="cf-actions"><button className="cf-button" onClick={onOpeningCheck} disabled={openingCheckPending}>{openingCheckPending ? "正在检查…" : "更新开篇检查"}</button><button className="cf-button" onClick={onOpeningAi} disabled={openingCheckPending}>让 AI 做开篇编辑复核</button></div>{report ? <SignalSummary report={report} /> : null}</div><div><h3>签约准备预检</h3><p>检查作品资料、开篇内容、一致性和当前官方来源状态。</p><button className="cf-button" onClick={onReadiness} disabled={readinessPending}>{readinessPending ? "正在预检…" : "更新签约准备预检"}</button>{readiness ? <ReadinessSummary report={readiness} /> : null}</div></div>
       <p className="cf-muted">作品是否提交、何时提交和提交后的结果，仍由作者根据当前官方规则自行决定。</p>
     </section>
@@ -529,9 +535,12 @@ function CandidatePreview({ candidate }: { candidate: SigningSprintCandidateDto 
   const payload = candidate.payload;
   if (candidate.task === "BrainstormBookDirection") return <p className="cf-signing-sprint-preview">{text(payload.premise)}{payload.genre ? ` · ${text(payload.genre)}` : ""}</p>;
   if (candidate.task === "RefineBookPositioning") return <p className="cf-signing-sprint-preview">{text(payload.oneLineStory)}{payload.coreConflict ? ` · 冲突：${text(payload.coreConflict)}` : ""}</p>;
+  if (candidate.task === "EvaluatePositioning" || candidate.task === "EvaluateBookPackaging") return <div className="cf-signing-sprint-preview cf-signing-sprint-preview--stack"><strong>优势：{recordList(payload, "strengths").slice(0, 2).join("；") || "待审阅"}</strong><span>需要注意：{recordList(payload, "concerns").slice(0, 2).join("；") || "未填写"}</span><span>建议：{recordList(payload, "suggestions").slice(0, 2).join("；") || "未填写"}</span></div>;
   if (candidate.task === "GenerateBookPackaging" && Array.isArray(payload.candidates)) return <div className="cf-signing-sprint-preview">{payload.candidates.slice(0, 5).map((item, index) => <span key={index}>{recordText(item, "title")}</span>)}</div>;
   if (candidate.task === "GenerateOpeningBlueprint") return <p className="cf-signing-sprint-preview">{text(payload.openingHook)}{Array.isArray(payload.firstThreeChapters) ? ` · ${payload.firstThreeChapters.length} 个开篇章节` : ""}</p>;
   if (candidate.task === "EvaluateOpening" && Array.isArray(payload.issues)) return <div className="cf-signing-sprint-preview">{payload.issues.slice(0, 3).map((issue, index) => <span key={index}>{recordText(issue, "title")}{recordList(issue, "locations").length ? ` · ${recordList(issue, "locations").join("、")}` : ""}</span>)}</div>;
+  if (candidate.task === "GenerateChapterFromIntent") return <div className="cf-signing-sprint-preview cf-signing-sprint-preview--stack"><strong>{text(payload.goal) || "章节目标待审阅"}</strong><span>{text(payload.conflict) || "尚未填写章节冲突"}</span><span>{text(payload.hook) || "尚未填写章尾 Hook"}</span></div>;
+  if (candidate.task === "SigningReadinessReview") return <div className="cf-signing-sprint-preview cf-signing-sprint-preview--stack"><strong>{text(payload.headline) || "签约准备预检"}</strong><span>{text(payload.status) === "ready_to_prepare_submission" ? "可以准备提交" : "建议先处理问题"}</span>{Array.isArray(payload.issues) ? payload.issues.slice(0, 3).map((issue, index) => <span key={index}>{recordText(issue, "title")}{recordText(issue, "source") ? ` · ${recordText(issue, "source")}` : ""}</span>) : null}</div>;
   return <p className="cf-signing-sprint-preview">这是一个可继续审阅的编辑建议，请结合你的作品资料判断。</p>;
 }
 
@@ -540,7 +549,7 @@ function SignalSummary({ report }: { report: NonNullable<SprintWorkflow["state"]
 }
 
 function ReadinessSummary({ report }: { report: NonNullable<SprintWorkflow["state"]["readiness"]> }) {
-  return <div className="cf-signing-sprint-mini-report"><strong>{report.headline}</strong><span>{report.issues.length ? `有 ${report.issues.length} 项需要回看` : "暂未发现需要处理的项目"}</span>{report.issues.slice(0, 3).map((issue) => <span key={issue.code}>· {issue.title}</span>)}</div>;
+  return <div className="cf-signing-sprint-mini-report"><strong>{report.headline}</strong><span>{report.issues.length ? `有 ${report.issues.length} 项需要回看` : "暂未发现需要处理的项目"}</span><span>资料 {report.checks.metadata} · 内容 {report.checks.content} · 开篇质量 {report.checks.openingQuality} · 一致性 {report.checks.consistency}</span><span>官方匹配 {report.checks.officialMatching} · 技术安全 {report.checks.technicalSafety}</span>{report.issues.slice(0, 3).map((issue) => <span key={issue.code}>· {issue.title}</span>)}</div>;
 }
 
 function StepTitle({ title, description }: { title: string; description: string }) { return <div className="cf-section-title"><div><h2>{title}</h2><p>{description}</p></div></div>; }

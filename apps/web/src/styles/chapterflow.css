@@ -726,6 +726,10 @@
 .cf-signing-sprint-chapters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .cf-signing-sprint-chapters article { display: grid; gap: 8px; border: 1px solid #e1eaf5; border-radius: 9px; padding: 12px; background: #fbfdff; }
 .cf-signing-sprint-chapters h3 { margin: 0; color: #35577e; font-size: 14px; }
+.cf-signing-sprint-arc-details { display: grid; gap: 10px; border-top: 1px solid #edf1f6; padding-top: 12px; }
+.cf-signing-sprint-arc-details summary { cursor: pointer; color: #35577e; font-size: 12px; }
+.cf-signing-sprint-arc-chapters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.cf-signing-sprint-arc-chapters article { display: grid; gap: 8px; border: 1px solid #e1eaf5; border-radius: 9px; padding: 10px; background: #fbfdff; }
 .cf-signing-sprint-actions-large { display: flex; flex-wrap: wrap; gap: 9px; }
 .cf-signing-sprint-review-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; border-top: 1px solid #edf1f6; padding-top: 16px; }
 .cf-signing-sprint-review-row > div { display: grid; align-content: start; gap: 8px; border: 1px solid #e1eaf5; border-radius: 9px; padding: 13px; background: #fbfdff; }
@@ -747,9 +751,11 @@
 .cf-signing-sprint-candidates article p { margin: 4px 0; font-size: 12px; }
 .cf-signing-sprint-preview { display: flex; flex-wrap: wrap; gap: 5px; margin: 5px 0 0; }
 .cf-signing-sprint-preview span { border-radius: 999px; padding: 3px 7px; background: #f1f5fa; }
+.cf-signing-sprint-preview--stack { display: grid; gap: 4px; }
+.cf-signing-sprint-preview--stack span { border-radius: 5px; padding: 4px 6px; }
 .cf-signing-sprint-ai-status { margin-top: 12px; color: #54749c; font-size: 12px; }
 .cf-signing-sprint-footnote { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 18px; color: #8392a5; font-size: 11px; }
-@media (max-width: 900px) { .cf-signing-sprint-steps { grid-template-columns: repeat(3, minmax(0, 1fr)); } .cf-signing-sprint-chapters, .cf-signing-sprint-review-row { grid-template-columns: 1fr; } }
+@media (max-width: 900px) { .cf-signing-sprint-steps { grid-template-columns: repeat(3, minmax(0, 1fr)); } .cf-signing-sprint-chapters, .cf-signing-sprint-arc-chapters, .cf-signing-sprint-review-row { grid-template-columns: 1fr; } }
 @media (max-width: 620px) { .cf-signing-sprint-heading { display: grid; } .cf-signing-sprint-subgrid, .cf-signing-sprint-candidate-grid { grid-template-columns: 1fr; } .cf-signing-sprint-steps { gap: 5px; } .cf-signing-sprint-steps button { padding: 8px; } }
 .cf-dashboard-hero {
   display: grid;

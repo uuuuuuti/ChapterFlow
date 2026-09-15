@@ -117,4 +117,135 @@ describe("Signing Sprint persistence", () => {
       "v1",
     );
   });
+
+  it("supersedes old source versions and filters knowledge by genre before limiting", () => {
+    setup();
+    const repository = new SqliteOfficialKnowledgeRepository(database);
+    const v1 = source({
+      id: "source-version-1",
+      sourceKey: "fanqienovel.versioned",
+      sourceVersion: "v1",
+      status: "ACTIVE",
+      retrievedAt: now,
+    });
+    const v2 = source({
+      id: "source-version-2",
+      sourceKey: "fanqienovel.versioned",
+      sourceVersion: "v2",
+      status: "CANDIDATE",
+      retrievedAt: "2026-09-15T00:00:01.000Z",
+    });
+    repository.insertSource(v1);
+    repository.insertSource(v2);
+    repository.insertCard(card("card-version-1", v1, []));
+    expect(repository.retrieve("readiness", null)).toHaveLength(1);
+
+    repository.activateSource(v2.id, "2026-09-15T00:00:02.000Z");
+    expect(repository.getSource(v1.id)?.status).toBe("SUPERSEDED");
+    expect(repository.getSource(v2.id)?.status).toBe("ACTIVE");
+    expect(repository.retrieve("readiness", null)).toHaveLength(0);
+
+    repository.insertCard(card("card-version-2", v2, []));
+    expect(repository.retrieve("readiness", null)).toEqual([
+      expect.objectContaining({ id: "card-version-2" }),
+    ]);
+    repository.disableSource(v2.id, "2026-09-15T00:00:03.000Z");
+    expect(repository.retrieve("readiness", null)).toHaveLength(0);
+    expect(() => repository.requireCard("missing-card")).toThrow();
+  });
+
+  it("returns only source-backed cards and applies genre filters before the limit", () => {
+    setup();
+    const repository = new SqliteOfficialKnowledgeRepository(database);
+    const official = source({
+      id: "source-genre",
+      sourceKey: "fanqienovel.genre-filter",
+      sourceVersion: "v1",
+      status: "ACTIVE",
+    });
+    repository.insertSource(official);
+    repository.insertCard(
+      card("card-female", official, ["女频"], "2026-09-15T00:00:03.000Z"),
+    );
+    repository.insertCard(
+      card("card-male", official, ["男频"], "2026-09-15T00:00:02.000Z"),
+    );
+    repository.insertCard({
+      ...card("card-missing-source", official, [], "2026-09-15T00:00:01.000Z"),
+      sourceRefs: [
+        {
+          ...card("card-missing-source", official, []).sourceRefs[0]!,
+          sourceId: "source-does-not-exist",
+        },
+      ],
+    });
+
+    expect(
+      repository.listCards({
+        stage: "readiness",
+        genre: "男频",
+        status: "ACTIVE",
+        limit: 1,
+      }),
+    ).toEqual([expect.objectContaining({ id: "card-male" })]);
+    expect(repository.retrieve("readiness", "男频", 10)).toEqual([
+      expect.objectContaining({ id: "card-male" }),
+    ]);
+  });
 });
+
+function source(overrides: Partial<OfficialSource> = {}): OfficialSource {
+  return {
+    id: "source-default",
+    sourceKey: "fanqienovel.test",
+    platform: "fanqienovel",
+    url: "https://fanqienovel.com/writer/zone/notice",
+    title: "官方公告索引",
+    sourceType: "governance",
+    publishedAt: null,
+    retrievedAt: now,
+    contentHash: "hash-v1",
+    status: "ACTIVE",
+    applicableStages: ["readiness"],
+    applicableGenres: [],
+    authorityType: "OFFICIAL_RULE",
+    summary: "用于测试的官方来源。",
+    sourceVersion: "v1",
+    createdAt: now,
+    updatedAt: now,
+    ...overrides,
+  };
+}
+
+function card(
+  id: string,
+  official: OfficialSource,
+  applicableGenres: string[],
+  updatedAt = now,
+): KnowledgeCard {
+  return {
+    id,
+    title: id,
+    principle: "以当前官方来源为准。",
+    why: "避免使用失效来源。",
+    applicableStage: "readiness",
+    applicableGenres,
+    signals: ["来源版本"],
+    antiPatterns: ["伪造平台规则"],
+    suggestions: ["打开官方页面核对"],
+    severity: "warning",
+    sourceRefs: [
+      {
+        sourceId: official.id,
+        sourceKey: official.sourceKey,
+        sourceVersion: official.sourceVersion,
+        title: official.title,
+        url: official.url,
+      },
+    ],
+    confidence: 0.9,
+    status: "ACTIVE",
+    createdAt: now,
+    updatedAt,
+  };
+}

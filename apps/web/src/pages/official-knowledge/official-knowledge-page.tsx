@@ -7,6 +7,7 @@ import {
   listOfficialKnowledgeCards,
   listOfficialSources,
   requestOfficialSourceRefresh,
+  updateOfficialKnowledgeCardStatus,
   updateOfficialSourceStatus,
 } from "../../shared/api/signing-sprint";
 import { apiErrorMessage } from "../../shared/api/client";
@@ -34,6 +35,17 @@ export function OfficialKnowledgePage() {
   });
   const refresh = useMutation({
     mutationFn: (sourceId: string) => requestOfficialSourceRefresh(sourceId),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: queryKeys.officialKnowledge("sources") });
+      void client.invalidateQueries({ queryKey: queryKeys.officialKnowledge("cards") });
+    },
+  });
+  const cardStatus = useMutation({
+    mutationFn: (input: { id: string; action: "activate" | "disable" }) =>
+      updateOfficialKnowledgeCardStatus(input.id, input.action),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: queryKeys.officialKnowledge("cards") });
+    },
   });
   if (sources.isPending || cards.isPending) {
     return <div className="cf-page">正在读取官方知识…</div>;
@@ -79,7 +91,7 @@ export function OfficialKnowledgePage() {
         </div>
         <span className="cf-signing-sprint-badge"><Shield size={14} /> V0.1 来源库</span>
       </div>
-      {status.isError || refresh.isError ? <p className="cf-error-text">{apiErrorMessage(status.error ?? refresh.error)}</p> : null}
+      {status.isError || refresh.isError || cardStatus.isError ? <p className="cf-error-text">{apiErrorMessage(status.error ?? refresh.error ?? cardStatus.error)}</p> : null}
       {refresh.data ? <p className="cf-notice" role="status">{refresh.data.message}</p> : null}
       <section className="cf-card cf-official-knowledge-filters">
         <label>搜索来源或知识卡<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="例如：开篇、简介、更新" /></label>
@@ -99,7 +111,7 @@ export function OfficialKnowledgePage() {
       </section>
       <section className="cf-card cf-official-knowledge-section">
         <div className="cf-section-title"><div><h2>知识卡</h2><p>{cards.data.length} 张结构化卡片；每张卡片都可以回溯到来源。</p></div></div>
-        <div className="cf-official-card-grid">{visibleCards.map((card) => <article className="cf-official-card" key={card.id}><div className="cf-official-source-heading"><strong>{card.title}</strong><span data-status={card.status}>{card.severity}</span></div><p>{card.principle}</p><small>适用阶段：{card.applicableStage} · 来源：{card.sourceRefs.map((source) => <a key={source.sourceId} href={source.url} target="_blank" rel="noreferrer">{source.title}</a>)}</small><div className="cf-official-card-suggestions">{card.suggestions.slice(0, 3).map((suggestion) => <span key={suggestion}>{suggestion}</span>)}</div></article>)}</div>
+        <div className="cf-official-card-grid">{visibleCards.map((card) => <article className="cf-official-card" key={card.id}><div className="cf-official-source-heading"><strong>{card.title}</strong><span data-status={card.status}>{card.status} · {card.severity}</span></div><p>{card.principle}</p><small>适用阶段：{card.applicableStage} · 来源：{card.sourceRefs.map((source) => <a key={source.sourceId} href={source.url} target="_blank" rel="noreferrer">{source.title}</a>)}</small><div className="cf-official-card-suggestions">{card.suggestions.slice(0, 3).map((suggestion) => <span key={suggestion}>{suggestion}</span>)}</div><div className="cf-actions">{card.status === "ACTIVE" ? <button className="cf-button" onClick={() => cardStatus.mutate({ id: card.id, action: "disable" })} disabled={cardStatus.isPending}>停用卡片</button> : <button className="cf-primary" onClick={() => cardStatus.mutate({ id: card.id, action: "activate" })} disabled={cardStatus.isPending}>启用卡片</button>}</div></article>)}</div>
       </section>
       <p className="cf-inline-hint">知识卡只提供创作建议和规则提醒，不生成官方评分、签约概率，也不会代替作者向平台提交作品。</p>
     </div>

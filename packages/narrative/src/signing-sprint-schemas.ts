@@ -23,6 +23,15 @@ const EvaluationSchema = z
 
 const OpeningReviewPayloadSchema = OpeningReviewSchema;
 
+// Persisted workflows may contain an older, partial opening plan, so the
+// shared contract remains backward-compatible.  A newly generated candidate
+// must nevertheless always provide the complete three-chapter method.
+const OpeningBlueprintCandidateSchema = OpeningBlueprintSchema.extend({
+  firstThreeChapters: OpeningBlueprintSchema.shape.firstThreeChapters
+    .min(3)
+    .max(3),
+});
+
 const PackagingPayloadSchema = z
   .object({ candidates: z.array(BookPackagingSchema).min(3).max(5) })
   .strict();
@@ -44,7 +53,7 @@ export const SigningSprintModelResultSchema = z
           : value.task === "GenerateBookPackaging"
             ? PackagingPayloadSchema
             : value.task === "GenerateOpeningBlueprint"
-              ? OpeningBlueprintSchema
+              ? OpeningBlueprintCandidateSchema
               : value.task === "EvaluateOpening"
                 ? OpeningReviewPayloadSchema
                 : value.task === "SigningReadinessReview"

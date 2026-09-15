@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  SIGNING_SPRINT_MODEL_CONTRACT,
+  SigningSprintModelResultSchema,
+} from "../src/signing-sprint-schemas.js";
+import {
   GroundedSettlementSchema,
   SETTLEMENT_CONTRACT,
   SettlementSchema,
@@ -235,6 +239,143 @@ describe("Chapter Intent candidate contract", () => {
     expect(result.issues.join("\n")).toContain("promiseId");
   });
 });
+
+describe("Signing Sprint structured candidate contract", () => {
+  it("accepts the complete positioning, packaging, opening, review, and readiness shapes", () => {
+    const payloads: Record<string, Record<string, unknown>> = {
+      RefineBookPositioning: positioningPayload(),
+      GenerateBookPackaging: {
+        candidates: [1, 2, 3].map((index) => packagingPayload(index)),
+      },
+      GenerateOpeningBlueprint: openingPayload(),
+      EvaluateOpening: {
+        summary: "开篇已形成可追踪的异常和冲突。",
+        strengths: ["核心机制出现得早"],
+        issues: [],
+        officialMatches: ["官方开篇课程来源"],
+      },
+      SigningReadinessReview: {
+        status: "needs_attention",
+        headline: "建议先处理若干问题",
+        issues: [],
+        checks: {
+          metadata: "ready",
+          content: "needs_attention",
+          openingQuality: "needs_attention",
+          consistency: "ready",
+          officialMatching: "unconfirmed",
+          technicalSafety: "ready",
+        },
+        generatedAt: "2026-09-15T00:00:00.000Z",
+      },
+    };
+
+    for (const [task, payload] of Object.entries(payloads)) {
+      const result = SigningSprintModelResultSchema.parse({
+        task,
+        summary: "结构化候选摘要",
+        rationale: "结构化候选理由",
+        payload,
+      });
+      expect(result.task).toBe(task);
+      expect(result.payload).toEqual(payload);
+    }
+    expect(SIGNING_SPRINT_MODEL_CONTRACT.schema).toMatchObject({
+      additionalProperties: false,
+      required: ["task", "summary", "rationale", "payload"],
+    });
+  });
+
+  it("requires three packaging candidates and a three-chapter opening plan", () => {
+    expect(() =>
+      SigningSprintModelResultSchema.parse({
+        task: "GenerateBookPackaging",
+        summary: "包装",
+        rationale: "理由",
+        payload: { candidates: [packagingPayload(1)] },
+      }),
+    ).toThrow();
+    expect(() =>
+      SigningSprintModelResultSchema.parse({
+        task: "GenerateOpeningBlueprint",
+        summary: "开篇",
+        rationale: "理由",
+        payload: {
+          ...openingPayload(),
+          firstThreeChapters: [openingChapter(1)],
+        },
+      }),
+    ).toThrow();
+  });
+});
+
+function positioningPayload(): Record<string, unknown> {
+  return {
+    oneLineStory: "落魄刑警用死者最后七秒的声音追查姐姐旧案。",
+    coreIdea: "每个声音线索都能逼近真相，也会带走主角一段记忆。",
+    sellingPoints: ["声音机制", "案件反转"],
+    emotionalPayoff: "紧张、成长和阶段性爽感",
+    readerProfile: "喜欢都市脑洞和悬疑反转的读者",
+    protagonistDesire: "查清姐姐死亡真相",
+    obstacle: "篡改声音记录的人和逐渐消失的记忆",
+    mechanism: "听见死者最后七秒",
+    coreConflict: "主角必须用记忆换取真相",
+    longTermExpectation: "姐姐旧案指向主角隐瞒的选择",
+    sustainability: {
+      shortTermAppeal: "每案都有即时声音谜面",
+      midTermExpansion: "不同案件连接成声音网络",
+      longTermSpace: "记忆缺口与旧案形成终局",
+    },
+    riskNotes: [],
+  };
+}
+
+function packagingPayload(index: number): Record<string, unknown> {
+  return {
+    title:
+      [`七秒回声${index}`, `死者留声${index}`, `记忆盲区${index}`][index - 1] ??
+      `声音谜案${index}`,
+    titleDirection: `声音悬疑方向 ${index}`,
+    description: "落魄刑警用死者最后七秒的声音追查姐姐旧案。",
+    genre: "都市脑洞",
+    tags: ["都市", "悬疑"],
+    tagline: "真相只比记忆多活七秒",
+    coverBrief: "城市夜色、声波和旧案档案",
+    rationale: "让书名和简介承接声音机制。",
+  };
+}
+
+function openingChapter(index: number) {
+  return {
+    index,
+    title: `回声现场 ${index}`,
+    purpose: index === 1 ? "setup" : "progress",
+    protagonistAction: "主角追查新的声音线索",
+    conflict: "线索正在被人为抹除",
+    readerExpectation: "主角能否听清真相？",
+    emotionTarget: "紧张",
+    hook: "录音里出现了明天的声音",
+    payoff: "确认一条新线索",
+    targetWords: 2500,
+  };
+}
+
+function openingPayload(): Record<string, unknown> {
+  const firstThreeChapters = [1, 2, 3].map(openingChapter);
+  return {
+    readerPromise: "每一章都揭开一段声音谜团。",
+    openingHook: "死亡录音里出现了明天的脚步声。",
+    expectation: "主角能否在记忆消失前追到声音来源？",
+    informationRevealPlan: ["先听见异常", "再确认代价"],
+    firstThreeChapters,
+    firstArcTitle: "追查七秒回声",
+    firstArcGoal: "找到改写声音记录的人",
+    firstArcConflict: "每次使用能力都会失去记忆",
+    firstArcPayoff: "确认旧案与声音网络有关",
+    firstArcChapters: firstThreeChapters,
+    riskNotes: [],
+  };
+}
 
 function settlement(factCandidates: unknown[]) {
   return {

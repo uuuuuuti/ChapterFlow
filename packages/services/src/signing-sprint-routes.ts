@@ -9,7 +9,9 @@ import {
   type ChapterEmotionTarget,
   type ChapterHookType,
   type ChapterPurpose,
+  type KnowledgeCard,
   type KnowledgeCardSourceRef,
+  type OfficialSource,
   type OpeningChapterBlueprint,
   type OpeningSignalReport,
   type ReaderPromiseOperation,
@@ -25,6 +27,7 @@ import {
   BookDirectionSchema,
   BookPackagingSchema,
   BookPositioningSchema,
+  ChapterBriefSnapshotSchema,
   CreateSigningSprintRequestSchema,
   DecideSigningSprintCandidateRequestSchema,
   KnowledgeCardSchema,
@@ -68,6 +71,13 @@ const CandidateParamsSchema = ProjectParamsSchema.extend({
   candidateId: z.string().trim().min(1),
 });
 const SourceParamsSchema = z.object({ sourceId: z.string().trim().min(1) });
+const ChapterIntentPlanPayloadSchema =
+  ChapterBriefSnapshotSchema.partial().strict();
+const OpeningBlueprintCandidatePayloadSchema = OpeningBlueprintSchema.extend({
+  firstThreeChapters: OpeningBlueprintSchema.shape.firstThreeChapters
+    .min(3)
+    .max(3),
+});
 
 export interface RegisterSigningSprintRouteOptions {
   runCoordinator: RunCoordinator;
@@ -122,6 +132,43 @@ export function registerSigningSprintRoutes(
 
   app.route(
     "POST",
+    "/api/official-knowledge/cards/:cardId/disable",
+    async (request) => {
+      const cardId = z
+        .object({ cardId: z.string().trim().min(1) })
+        .parse(request.params).cardId;
+      return KnowledgeCardSchema.parse(
+        knowledge.setCardStatus(cardId, "DISABLED", new Date().toISOString()),
+      );
+    },
+  );
+
+  app.route(
+    "POST",
+    "/api/official-knowledge/cards/:cardId/activate",
+    async (request) => {
+      const cardId = z
+        .object({ cardId: z.string().trim().min(1) })
+        .parse(request.params).cardId;
+      const card = knowledge.requireCard(cardId);
+      const inactiveRefs = card.sourceRefs.filter(
+        (ref) => knowledge.getSource(ref.sourceId)?.status !== "ACTIVE",
+      );
+      if (inactiveRefs.length > 0) {
+        throw new SigningSprintRouteError(
+          "official_knowledge.card_source_inactive",
+          "A knowledge card can only be activated when every cited official source version is active",
+          422,
+        );
+      }
+      return KnowledgeCardSchema.parse(
+        knowledge.setCardStatus(cardId, "ACTIVE", new Date().toISOString()),
+      );
+    },
+  );
+
+  app.route(
+    "POST",
     "/api/official-knowledge/sources/:sourceId/disable",
     async (request) => {
       const { sourceId } = SourceParamsSchema.parse(request.params);
@@ -163,9 +210,10 @@ export function registerSigningSprintRoutes(
         const content = await response.text();
         if (!content.trim()) throw new Error("response is empty");
         const contentHash = sha256Hex(content);
+        const requestedCandidateId = randomUuid();
         const candidate = knowledge.insertSource({
           ...source,
-          id: randomUuid(),
+          id: requestedCandidateId,
           retrievedAt: now,
           contentHash,
           sourceVersion: `candidate-${now.slice(0, 10)}-${contentHash.slice(0, 8)}`,
@@ -173,11 +221,23 @@ export function registerSigningSprintRoutes(
           createdAt: now,
           updatedAt: now,
         });
+        const candidateCards =
+          candidate.id === requestedCandidateId
+            ? cloneKnowledgeCardsForSourceVersion(
+                knowledge,
+                source,
+                candidate,
+                now,
+              )
+            : [];
         return {
           status: "review_required",
           source: OfficialSourceSchema.parse(candidate),
+          knowledgeCards: candidateCards.map((card) =>
+            KnowledgeCardSchema.parse(card),
+          ),
           message:
-            "已抓取新版本候选；请打开官方来源核对内容，再决定是否启用。ChapterFlow 不会静默改变已激活知识。",
+            "已抓取新版本候选，并为现有相关知识生成待核对卡片；请先核对来源与卡片，再分别决定是否启用。ChapterFlow 不会静默改变已激活知识。",
         };
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
@@ -371,7 +431,10 @@ export function registerSigningSprintRoutes(
           canon,
           now,
         );
-        if (updated.state.openingBlueprint) {
+        if (
+          state?.openingBlueprint !== undefined &&
+          updated.state.openingBlueprint
+        ) {
           materializeOpeningPlan(
             updated,
             database,
@@ -518,7 +581,10 @@ export function registerSigningSprintRoutes(
           now,
         );
         workflows.decideCandidate(candidate.id, "accepted", now);
-        if (updated.state.openingBlueprint) {
+        if (
+          candidate.task === "GenerateOpeningBlueprint" &&
+          updated.state.openingBlueprint
+        ) {
           materializeOpeningPlan(
             updated,
             database,
@@ -575,11 +641,13 @@ export function registerSigningSprintRoutes(
       const workflow = workflows.ensure(projectId, new Date().toISOString());
       const report = buildReadinessReport(
         projectId,
+        workflow,
         projects,
         story,
         documents,
         planning,
         knowledge,
+        runs,
       );
       const next = workflows.update(workflow.id, {
         expectedVersion: workflow.version,
@@ -602,11 +670,13 @@ export function registerSigningSprintRoutes(
       const workflow = workflows.ensure(projectId, new Date().toISOString());
       const report = buildReadinessReport(
         projectId,
+        workflow,
         projects,
         story,
         documents,
         planning,
         knowledge,
+        runs,
       );
       const next = workflows.update(workflow.id, {
         expectedVersion: workflow.version,
@@ -715,18 +785,68 @@ function applyCandidate(
     }
     case "GenerateBookPackaging": {
       const parsed = z
-        .object({ candidates: z.array(BookPackagingSchema).min(1) })
+        .object({ candidates: z.array(BookPackagingSchema).min(3).max(5) })
         .parse(payload);
       state.packaging = parsed.candidates;
       state.selectedPackagingId = null;
       break;
     }
     case "GenerateOpeningBlueprint": {
-      state.openingBlueprint = OpeningBlueprintSchema.parse(payload);
+      state.openingBlueprint =
+        OpeningBlueprintCandidatePayloadSchema.parse(payload);
       break;
     }
     case "SigningReadinessReview": {
       state.readiness = SigningReadinessReportSchema.parse(payload);
+      break;
+    }
+    case "GenerateChapterFromIntent": {
+      const plan = ChapterIntentPlanPayloadSchema.parse(payload);
+      const target = story
+        .listOutline(workflow.projectId)
+        .find(
+          (node) =>
+            node.kind === "chapter" &&
+            node.metadata.createdWith === "signing-sprint",
+        );
+      if (!target) {
+        throw new SigningSprintRouteError(
+          "signing_sprint.chapter_intent.target_missing",
+          "Create the opening plan before accepting a chapter intent candidate",
+          422,
+        );
+      }
+      const current = planning.getChapterBrief(workflow.projectId, target.id);
+      planning.upsertChapterBrief(workflow.projectId, target.id, {
+        purpose: plan.purpose ?? current?.purpose ?? "progress",
+        secondaryPurposes:
+          plan.secondaryPurposes ?? current?.secondaryPurposes ?? [],
+        readerExpectation:
+          plan.readerExpectation ?? current?.readerExpectation ?? null,
+        emotionTarget: plan.emotionTarget ?? current?.emotionTarget ?? null,
+        emotionCurve: plan.emotionCurve ?? current?.emotionCurve ?? [],
+        readerPromiseOperations:
+          plan.readerPromiseOperations ??
+          current?.readerPromiseOperations ??
+          [],
+        goal: plan.goal ?? current?.goal ?? target.goal ?? null,
+        conflict: plan.conflict ?? current?.conflict ?? target.conflict ?? null,
+        payoff: plan.payoff ?? current?.payoff ?? target.outcome ?? null,
+        hook: plan.hook ?? current?.hook ?? null,
+        characterIds: plan.characterIds ?? current?.characterIds ?? [],
+        foreshadowIds: plan.foreshadowIds ?? current?.foreshadowIds ?? [],
+        timelineIds: plan.timelineIds ?? current?.timelineIds ?? [],
+        targetWords: plan.targetWords ?? current?.targetWords ?? null,
+        pacing: plan.pacing ?? current?.pacing ?? "fast",
+        payoffStrength: plan.payoffStrength ?? current?.payoffStrength ?? 0,
+        hookType: plan.hookType ?? current?.hookType ?? null,
+        hookStrength: plan.hookStrength ?? current?.hookStrength ?? 0,
+        informationGain: plan.informationGain ?? current?.informationGain ?? 0,
+        endingPull: plan.endingPull ?? current?.endingPull ?? 0,
+        sceneStructure: plan.sceneStructure ?? current?.sceneStructure ?? [],
+        expectedVersion: current?.version ?? null,
+        now,
+      });
       break;
     }
     case "EvaluateOpening": {
@@ -735,7 +855,6 @@ function applyCandidate(
     }
     case "EvaluatePositioning":
     case "EvaluateBookPackaging":
-    case "GenerateChapterFromIntent":
       break;
   }
   const step = stepForTask(candidate.task);
@@ -1341,36 +1460,52 @@ function buildOpeningReport(
     .slice(0, 3);
   const contents = chapters.flatMap((chapter) => {
     const document = documents.getByOutlineNodeId(projectId, chapter.id);
-    if (!document?.currentVersionId) return [];
-    const version = documents.getVersion(
-      projectId,
-      document.id,
-      document.currentVersionId,
-    );
-    return version ? [version.content] : [];
+    if (!document) return [];
+    // The writing desk autosaves author text as a draft. Opening Check must
+    // inspect that latest readable text even before the author creates a
+    // formal version; otherwise returning from chapter two or three would
+    // silently make the report cover only the AI-accepted first chapter.
+    const draft = documents.getDraft(projectId, document.id);
+    const version = document.currentVersionId
+      ? documents.getVersion(projectId, document.id, document.currentVersionId)
+      : null;
+    const content = draft ? draft.content : (version?.content ?? null);
+    return content?.trim() ? [content] : [];
   });
   const report = analyzeOpeningText(
     contents.join("\n\n"),
     new Date().toISOString(),
   );
-  return { ...report, analyzedChapterCount: chapters.length };
+  return { ...report, analyzedChapterCount: contents.length };
 }
 
 function buildReadinessReport(
   projectId: string,
+  workflow: ReturnType<SqliteSigningSprintRepository["ensure"]>,
   projects: SqliteProjectRepository,
   story: SqliteStoryRepository,
   documents: SqliteDocumentRepository,
   planning: SqliteWebNovelRepository,
   knowledge: SqliteOfficialKnowledgeRepository,
+  runs: SqliteRunRepository,
 ): SigningReadinessReport {
   const project = requireProject(projects, projectId);
   const profile = planning.getBookProfile(projectId);
   const intent = story.getAuthorIntent(projectId);
-  const chapters = story
+  const allChapters = story
     .listOutline(projectId)
     .filter((node) => node.kind === "chapter")
-    .slice(0, 3);
+    .sort((left, right) => left.ordinal - right.ordinal);
+  const sprintChapters = allChapters.filter(
+    (chapter) => chapter.metadata.createdWith === "signing-sprint",
+  );
+  const chapters = (
+    workflow.state.openingBlueprint
+      ? sprintChapters.length > 0
+        ? sprintChapters
+        : allChapters
+      : allChapters
+  ).slice(0, 3);
   const issues: ReadinessIssue[] = [];
   const refs = knowledge
     .retrieve("readiness", profile?.genre ?? null, 12)
@@ -1391,6 +1526,47 @@ function buildReadinessReport(
       sourceRefs: [],
     });
   }
+  const positioning = workflow.state.positioning;
+  if (!positioning) {
+    issues.push({
+      code: "metadata.positioning_missing",
+      title: "作品定位还没有确认",
+      severity: "warning",
+      source: "chapterflow",
+      detail: "签约准备需要能回看主角目标、阻力、机制和长期空间。",
+      evidence: ["快速开书 · 定位"],
+      locations: ["快速开书 · 定位"],
+      suggestions: ["完成定位候选的确认，或手动补齐定位字段。"],
+      sourceRefs: [],
+    });
+  } else if (
+    [
+      positioning.oneLineStory,
+      positioning.coreIdea,
+      positioning.emotionalPayoff,
+      positioning.readerProfile,
+      positioning.protagonistDesire,
+      positioning.obstacle,
+      positioning.mechanism,
+      positioning.coreConflict,
+      positioning.longTermExpectation,
+      positioning.sustainability.shortTermAppeal,
+      positioning.sustainability.midTermExpansion,
+      positioning.sustainability.longTermSpace,
+    ].some((value) => !value.trim())
+  ) {
+    issues.push({
+      code: "metadata.positioning_incomplete",
+      title: "作品定位还有空白字段",
+      severity: "warning",
+      source: "chapterflow",
+      detail: "短期吸引力、中期扩展和长期空间也需要留下作者判断。",
+      evidence: ["快速开书 · 定位"],
+      locations: ["快速开书 · 定位"],
+      suggestions: ["补齐目标、阻力、推进机制和短中长期空间。"],
+      sourceRefs: [],
+    });
+  }
   if (!project.premise || !intent?.promise) {
     issues.push({
       code: "metadata.promise_missing",
@@ -1404,32 +1580,79 @@ function buildReadinessReport(
       sourceRefs: [],
     });
   }
-  const missingContent = chapters.filter((chapter) => {
+  const chapterSnapshots = chapters.map((chapter) => {
     const document = documents.getByOutlineNodeId(projectId, chapter.id);
-    return !document?.currentVersionId;
+    const version = document?.currentVersionId
+      ? documents.getVersion(projectId, document.id, document.currentVersionId)
+      : null;
+    const draft = document ? documents.getDraft(projectId, document.id) : null;
+    const content = draft ? draft.content : (version?.content ?? null);
+    return { chapter, document, version, draft, content };
   });
+  const missingContent = chapterSnapshots.filter(
+    ({ document, content }) => !document || !content?.trim(),
+  );
+  const invalidDocumentVersions = chapterSnapshots.filter(
+    ({ document, version }) => Boolean(document?.currentVersionId && !version),
+  );
   if (chapters.length < 3 || missingContent.length > 0) {
     issues.push({
-      code: "opening.content_missing",
+      code: "content.missing",
       title: "开篇正文还需要继续准备",
       severity: "warning",
       source: "chapterflow",
-      detail: `当前已规划 ${chapters.length} 个开篇章节，其中 ${missingContent.length} 个还没有正文版本。`,
+      detail: `当前纳入预检的开篇有 ${chapters.length} 个章节，其中 ${missingContent.length} 个没有可读取的正文内容。`,
       evidence: chapters.length
         ? chapters.map((chapter) => chapter.title)
         : ["还没有章节"],
-      locations: ["快速开书 · 开篇与写作"],
-      suggestions: ["先完成计划中的开篇章节，再用开篇检查回看具体文本。"],
+      locations: missingContent.length
+        ? missingContent.map(({ chapter }) => chapter.title)
+        : ["快速开书 · 开篇与写作"],
+      suggestions: ["先完成开篇三章的正文，再用开篇检查回看具体文本。"],
       sourceRefs: [],
     });
   }
-  const invalidDocumentVersions = chapters.filter((chapter) => {
-    const document = documents.getByOutlineNodeId(projectId, chapter.id);
-    return Boolean(
-      document?.currentVersionId &&
-      !documents.getVersion(projectId, document.id, document.currentVersionId),
+  const duplicateGroups = new Map<string, string[]>();
+  for (const { chapter, content } of chapterSnapshots) {
+    if (!content?.trim()) continue;
+    const fingerprint = sha256Hex(
+      content.replace(/\s+/gu, "").trim().toLocaleLowerCase(),
     );
-  });
+    duplicateGroups.set(fingerprint, [
+      ...(duplicateGroups.get(fingerprint) ?? []),
+      chapter.title,
+    ]);
+  }
+  for (const titles of duplicateGroups.values()) {
+    if (titles.length < 2) continue;
+    issues.push({
+      code: "content.duplicate",
+      title: "开篇存在完全重复的正文",
+      severity: "warning",
+      source: "chapterflow",
+      detail: "这是重复文本信号，不等同于平台结论；请作者回到原文确认。",
+      evidence: titles,
+      locations: titles,
+      suggestions: ["检查是否误复制章节，或是否需要让章节产生新的推进。"],
+      sourceRefs: [],
+    });
+  }
+  const abandonedChapters = chapters.filter(
+    (chapter) => chapter.status === "abandoned",
+  );
+  if (abandonedChapters.length > 0) {
+    issues.push({
+      code: "content.chapter_status_abandoned",
+      title: "开篇包含已放弃章节",
+      severity: "warning",
+      source: "chapterflow",
+      detail: "已放弃的章节不会被视为安全的开篇提交内容。",
+      evidence: abandonedChapters.map((chapter) => chapter.title),
+      locations: abandonedChapters.map((chapter) => chapter.title),
+      suggestions: ["恢复章节或从开篇计划中移除它，再重新检查。"],
+      sourceRefs: [],
+    });
+  }
   if (invalidDocumentVersions.length > 0) {
     issues.push({
       code: "technical.document_version_unreadable",
@@ -1438,9 +1661,135 @@ function buildReadinessReport(
       source: "chapterflow",
       detail:
         "至少一个开篇章节的当前版本引用不存在，预检不会把它当作已完成正文。",
-      evidence: invalidDocumentVersions.map((chapter) => chapter.title),
+      evidence: invalidDocumentVersions.map(({ chapter }) => chapter.title),
       locations: ["作品写作 · 章节版本"],
       suggestions: ["打开对应章节，重新保存或恢复一个有效版本后再检查。"],
+      sourceRefs: [],
+    });
+  }
+  const selected = selectedPackaging(workflow.state);
+  if (!selected) {
+    issues.push({
+      code: "metadata.packaging_missing",
+      title: "还没有选择正式作品包装",
+      severity: "warning",
+      source: "chapterflow",
+      detail: "AI 或作者填写的包装仍是候选，尚未选择书名、简介和标签方向。",
+      evidence: ["快速开书 · 作品包装"],
+      locations: ["快速开书 · 作品包装"],
+      suggestions: ["选择一个包装候选后，再检查它与正文的承诺是否一致。"],
+      sourceRefs: [],
+    });
+  } else {
+    if (selected.tags.length === 0) {
+      issues.push({
+        code: "metadata.tags_missing",
+        title: "作品标签还没有填写",
+        severity: "warning",
+        source: "chapterflow",
+        detail: "标签是作品包装的一部分，当前候选没有可供回看的标签。",
+        evidence: [selected.title],
+        locations: ["快速开书 · 作品包装"],
+        suggestions: ["只保留正文能够兑现的题材和体验标签。"],
+        sourceRefs: [],
+      });
+    }
+    if (
+      selected.title !== project.title ||
+      selected.description !== (project.premise ?? "") ||
+      (selected.tagline ?? null) !== project.subtitle
+    ) {
+      issues.push({
+        code: "consistency.packaging_mismatch",
+        title: "正式作品资料和已选包装不一致",
+        severity: "warning",
+        source: "chapterflow",
+        detail: "作品标题、简介或宣传语已在其他入口发生变化。",
+        evidence: [
+          `包装：${selected.title} / ${selected.description}`,
+          `作品资料：${project.title} / ${project.premise ?? ""}`,
+        ],
+        locations: ["快速开书 · 作品包装", "作品资料"],
+        suggestions: ["选择一个主版本后重新保存，避免读者承诺互相打架。"],
+        sourceRefs: [],
+      });
+    }
+  }
+  const blueprint = workflow.state.openingBlueprint;
+  const firstThree = blueprint?.firstThreeChapters ?? [];
+  if (
+    !blueprint ||
+    firstThree.length < 3 ||
+    firstThree.some(
+      (chapter) =>
+        !chapter.title.trim() ||
+        !chapter.protagonistAction.trim() ||
+        !chapter.conflict.trim() ||
+        !chapter.readerExpectation.trim() ||
+        !chapter.hook.trim(),
+    )
+  ) {
+    issues.push({
+      code: "opening.blueprint_missing",
+      title: "开篇三章计划还不完整",
+      severity: "warning",
+      source: "chapterflow",
+      detail: "每章至少需要行动、阻力、读者期待和章尾变化，才能回到正文验证。",
+      evidence: ["Opening Blueprint"],
+      locations: ["快速开书 · 开篇"],
+      suggestions: ["补齐前三章的行动、阻力、期待和 Hook。"],
+      sourceRefs: [],
+    });
+  }
+  const currentOpening = analyzeOpeningText(
+    chapterSnapshots
+      .flatMap(({ content }) => (content?.trim() ? [content] : []))
+      .join("\n\n"),
+    new Date().toISOString(),
+  );
+  if (!workflow.state.openingCheck) {
+    issues.push({
+      code: "opening.check_missing",
+      title: "开篇信号检查还没有更新",
+      severity: "warning",
+      source: "chapterflow",
+      detail: "签约准备不会把未检查的正文当作已经回看过。",
+      evidence: ["Opening Check"],
+      locations: ["快速开书 · 写作与预检"],
+      suggestions: ["先运行开篇检查，再结合段落位置做作者判断。"],
+      sourceRefs: [],
+    });
+  }
+  for (const signal of currentOpening.signals) {
+    const risky =
+      signal.direction === "higher_is_risk" &&
+      signal.threshold !== null &&
+      signal.value > signal.threshold;
+    if (!risky) continue;
+    issues.push({
+      code: `opening.signal.${signal.code}`,
+      title: `${signal.label}需要回看`,
+      severity: "warning",
+      source: "chapterflow",
+      detail: signal.explanation,
+      evidence: [`${signal.label}：${signal.value}`],
+      locations: signal.locations,
+      suggestions: ["回到标出的段落判断是否能改为行动、冲突或更具体的表达。"],
+      sourceRefs: [],
+    });
+  }
+  const activeRuns = runs.listActiveRuns(projectId);
+  if (activeRuns.length > 0) {
+    issues.push({
+      code: "technical.ai_task_active",
+      title: "仍有 AI 任务没有落盘",
+      severity: "warning",
+      source: "chapterflow",
+      detail:
+        "运行中的任务可能仍在生成候选或正文，预检不会把未完成结果视为正式内容。",
+      evidence: activeRuns.map((run) => `${run.recipe} · ${run.status}`),
+      locations: ["任务中心"],
+      suggestions: ["等待任务完成并明确接受或放弃结果后，再运行签约准备预检。"],
       sourceRefs: [],
     });
   }
@@ -1489,7 +1838,10 @@ function buildReadinessReport(
       metadata: issues.some((issue) => issue.code.startsWith("metadata."))
         ? "needs_attention"
         : "ready",
-      content: issues.some((issue) => issue.code.startsWith("opening."))
+      content: issues.some((issue) => issue.code.startsWith("content."))
+        ? "needs_attention"
+        : "ready",
+      openingQuality: issues.some((issue) => issue.code.startsWith("opening."))
         ? "needs_attention"
         : "ready",
       consistency: issues.some((issue) => issue.code.startsWith("consistency."))
@@ -1510,6 +1862,46 @@ function uniqueRefs(
   refs: readonly KnowledgeCardSourceRef[],
 ): KnowledgeCardSourceRef[] {
   return [...new Map(refs.map((ref) => [ref.sourceId, ref])).values()];
+}
+
+/**
+ * Refreshing a source must not silently rewrite active cards.  Instead, copy
+ * only the cards that cited the old version into reviewable candidates whose
+ * provenance points at the fetched source version.  A reviewer can activate
+ * the source and each card independently after checking the page.
+ */
+function cloneKnowledgeCardsForSourceVersion(
+  knowledge: SqliteOfficialKnowledgeRepository,
+  previous: OfficialSource,
+  candidate: OfficialSource,
+  now: string,
+): KnowledgeCard[] {
+  return knowledge
+    .listCards({ status: "ACTIVE", limit: 500 })
+    .filter((card) =>
+      card.sourceRefs.some((ref) => ref.sourceId === previous.id),
+    )
+    .map((card) =>
+      knowledge.insertCard({
+        ...card,
+        id: randomUuid(),
+        status: "CANDIDATE",
+        sourceRefs: card.sourceRefs.map((ref) =>
+          ref.sourceId === previous.id
+            ? {
+                ...ref,
+                sourceId: candidate.id,
+                sourceVersion: candidate.sourceVersion,
+                sourceKey: candidate.sourceKey,
+                title: candidate.title,
+                url: candidate.url,
+              }
+            : ref,
+        ),
+        createdAt: now,
+        updatedAt: now,
+      }),
+    );
 }
 
 function assertOfficialSourceUrl(url: string): void {

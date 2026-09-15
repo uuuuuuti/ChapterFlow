@@ -141,11 +141,22 @@ export async function updateOfficialSourceStatus(
   );
 }
 
+export async function updateOfficialKnowledgeCardStatus(
+  cardId: string,
+  action: "activate" | "disable",
+): Promise<KnowledgeCardDto> {
+  return requestJson(
+    `/api/official-knowledge/cards/${encodeURIComponent(cardId)}/${action}`,
+    jsonRequest("POST", {}),
+  );
+}
+
 export async function requestOfficialSourceRefresh(
   sourceId: string,
 ): Promise<{
   status: "review_required" | "fetch_failed";
   source: OfficialSourceDto;
+  knowledgeCards?: KnowledgeCardDto[];
   message: string;
 }> {
   return requestJson(

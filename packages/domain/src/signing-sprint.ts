@@ -241,6 +241,7 @@ export interface SigningReadinessReport {
   checks: {
     metadata: "ready" | "needs_attention";
     content: "ready" | "needs_attention";
+    openingQuality: "ready" | "needs_attention";
     consistency: "ready" | "needs_attention";
     officialMatching: "ready" | "needs_attention" | "unconfirmed";
     technicalSafety: "ready" | "needs_attention";

@@ -136,6 +136,14 @@ export class SqliteOfficialKnowledgeRepository {
         `SELECT * FROM knowledge_cards
          WHERE (? IS NULL OR status = ?)
            AND (? IS NULL OR applicable_stage = ?)
+           AND (
+             ? IS NULL OR
+             json_array_length(applicable_genres_json) = 0 OR
+             EXISTS (
+               SELECT 1 FROM json_each(applicable_genres_json)
+               WHERE json_each.value = ?
+             )
+           )
          ORDER BY updated_at DESC, id
          LIMIT ?`,
       )
@@ -144,16 +152,11 @@ export class SqliteOfficialKnowledgeRepository {
         options.status ?? null,
         options.stage ?? null,
         options.stage ?? null,
+        options.genre ?? null,
+        options.genre ?? null,
         limit,
       ) as unknown as KnowledgeCardRow[];
-    return rows
-      .map(mapCard)
-      .filter(
-        (card) =>
-          !options.genre ||
-          card.applicableGenres.length === 0 ||
-          card.applicableGenres.includes(options.genre!),
-      );
+    return rows.map(mapCard);
   }
 
   getCard(id: string): KnowledgeCard | null {
