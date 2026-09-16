@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
-import { bumpProjectVersion, getProjectVersion, openState, row, rows } from "./state.mjs";
-import { readConfig, statePath, writeChapter, writeConfig } from "./project.mjs";
+import { getProjectVersion, openState, row, rows } from "./state.mjs";
+import { statePath, writeChapter, writeConfig } from "./project.mjs";
 
 export const CANDIDATE_KINDS = [
   "book_positioning",
@@ -9,7 +9,7 @@ export const CANDIDATE_KINDS = [
   "packaging",
   "opening_blueprint",
   "chapter_draft",
-] as const;
+];
 
 export function stageCandidate(root, input) {
   const kind = String(input.kind ?? "").trim();
@@ -50,7 +50,7 @@ export function listCandidates(root, status = null) {
 }
 
 export function decideCandidate(root, candidateId, action) {
-  if (!['accept', 'reject'].includes(action)) throw new Error("Candidate action must be accept or reject");
+  if (!["accept", "reject"].includes(action)) throw new Error("Candidate action must be accept or reject");
   const db = openState(statePath(root));
   const stored = row(db, "SELECT * FROM candidates WHERE id = ?", candidateId);
   if (!stored) {
