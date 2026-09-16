@@ -20,6 +20,8 @@ jobs:
           node-version: "24"
       - name: Verify runtime syntax and tests
         run: node --test skill-kit/test/*.test.mjs
+      - name: Verify standalone smoke flow
+        run: node skill-kit/examples/smoke.mjs > /tmp/chapterflow-smoke.json
       - name: Verify CLI loads
         run: node skill-kit/bin/chapterflow.mjs tools > /tmp/chapterflow-tools.json
       - name: Verify MCP initializes
