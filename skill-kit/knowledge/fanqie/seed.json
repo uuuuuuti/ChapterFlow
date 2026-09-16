@@ -1,0 +1,133 @@
+{
+  "version": "0.1.0",
+  "platform": "fanqie",
+  "sources": [
+    {
+      "id": "fanqie.signing-standard",
+      "title": "番茄小说作品签约标准说明",
+      "url": "https://fanqienovel.com/writer/zone/article/7682623843273277464",
+      "authority": "OFFICIAL_RULE",
+      "publishedAt": "2026-09-07",
+      "stages": ["readiness", "packaging", "opening"]
+    },
+    {
+      "id": "fanqie.opening-expectation",
+      "title": "开篇五步走，轻松拿捏读者期待感（下）",
+      "url": "https://fanqienovel.com/writer/zone/article/7480089164512247832",
+      "authority": "OFFICIAL_TUTORIAL",
+      "publishedAt": "2026-09-11",
+      "stages": ["opening", "writing"]
+    },
+    {
+      "id": "fanqie.story-basics",
+      "title": "零基础写作速览：新手如何写一个好故事（上）",
+      "url": "https://fanqienovel.com/writer/zone/article/7407742604059623448",
+      "authority": "OFFICIAL_TUTORIAL",
+      "publishedAt": "2026-08-14",
+      "stages": ["direction", "positioning", "story_engine"]
+    },
+    {
+      "id": "fanqie.outline-guide",
+      "title": "开书不卡壳？大纲这样写才不崩",
+      "url": "https://fanqienovel.com/writer/zone/article/7528322925343014936",
+      "authority": "OFFICIAL_TUTORIAL",
+      "publishedAt": "2025-07-18",
+      "stages": ["story_engine", "opening", "writing"]
+    },
+    {
+      "id": "fanqie.tag-guide",
+      "title": "速进！作品标签最全讲解来啦！",
+      "url": "https://fanqienovel.com/writer/zone/article/7617805652965982232",
+      "authority": "OFFICIAL_GUIDANCE",
+      "publishedAt": "2026-03-16",
+      "stages": ["packaging"]
+    },
+    {
+      "id": "fanqie.low-quality",
+      "title": "番茄小说关于整治大规模量产低质内容的公告",
+      "url": "https://fanqienovel.com/writer/zone/article/7602950185735438398",
+      "authority": "OFFICIAL_RULE",
+      "publishedAt": "2026-02-04",
+      "stages": ["writing", "readiness"]
+    }
+  ],
+  "cards": [
+    {
+      "id": "positioning.goal-conflict",
+      "title": "定位要能说清主角目标和阻力",
+      "stage": "positioning",
+      "principle": "把主角想要什么、谁或什么在阻拦，以及故事靠什么持续推进说清楚。",
+      "signals": ["主角目标只能用题材标签描述", "没有会持续升级的具体阻力"],
+      "antiPatterns": ["用世界观介绍代替主线", "只有设定没有选择和代价"],
+      "suggestions": ["把目标改写成可观察行动", "给阻力补充代价、限制或升级路径"],
+      "severity": "suggestion",
+      "sourceIds": ["fanqie.story-basics", "fanqie.outline-guide"]
+    },
+    {
+      "id": "story-engine.sustainable-conflict",
+      "title": "故事发动机要能持续制造选择",
+      "stage": "story_engine",
+      "principle": "核心机制应同时带来机会、限制和代价，让主角持续面对新的选择。",
+      "signals": ["机制只负责提供便利", "同一种冲突只能重复升级数值"],
+      "antiPatterns": ["关键时刻临时添加无代价能力", "第一章之后没有新的冲突来源"],
+      "suggestions": ["写出机制的边界和代价", "至少设计一个会随着主线升级的外部阻力"],
+      "severity": "suggestion",
+      "sourceIds": ["fanqie.story-basics", "fanqie.outline-guide"]
+    },
+    {
+      "id": "packaging.promise-alignment",
+      "title": "书名、简介和标签要指向同一个阅读承诺",
+      "stage": "packaging",
+      "principle": "包装元素应让读者对题材、主角处境和核心阅读体验形成一致预期。",
+      "signals": ["标签与简介主线不一致", "书名暗示的卖点没有进入开篇"],
+      "antiPatterns": ["堆热词代替作品定位", "包装承诺正文无法兑现的体验"],
+      "suggestions": ["从核心读者期待反推书名和简介", "只保留正文能够兑现的标签"],
+      "severity": "warning",
+      "sourceIds": ["fanqie.tag-guide", "fanqie.signing-standard"]
+    },
+    {
+      "id": "opening.expectation-hook",
+      "title": "开篇尽早建立可感知的读者期待",
+      "stage": "opening",
+      "principle": "用具体行动、冲突、异常或信息差建立读者接下来真正想知道的事情。",
+      "signals": ["前三章没有清晰追问", "长期停留在背景说明"],
+      "antiPatterns": ["把悬念理解成什么都不说", "连续堆设定后才进入行动"],
+      "suggestions": ["尽早让主角面对一个需要立刻处理的变化", "让章尾产生新的问题、危险或选择"],
+      "severity": "warning",
+      "sourceIds": ["fanqie.opening-expectation"]
+    },
+    {
+      "id": "opening.character-load",
+      "title": "开篇控制人物和信息负载",
+      "stage": "opening",
+      "principle": "人物、背景和世界信息集中出现时，需要检查读者是否仍有清晰抓手。",
+      "signals": ["具名人物集中出现", "连续解释段集中", "专有名词快速堆叠"],
+      "antiPatterns": ["角色名单式出场", "百科说明替代行动和冲突"],
+      "suggestions": ["延后不影响当前行动的人物", "让设定通过主角正在做的事情出现"],
+      "severity": "warning",
+      "sourceIds": ["fanqie.opening-expectation"]
+    },
+    {
+      "id": "writing.low-quality-repetition",
+      "title": "避免机械重复和量产化表达",
+      "stage": "writing",
+      "principle": "正文需要持续产生新的剧情推进、具体细节和人物选择，避免机械重复模板。",
+      "signals": ["段落完全重复", "连续章节结构高度同构", "同类句式密集复用"],
+      "antiPatterns": ["用改写同一句话凑字数", "连续章节只替换人名地点"],
+      "suggestions": ["检查每章新增了什么信息、关系变化或结果", "删除不产生推进的重复表达"],
+      "severity": "warning",
+      "sourceIds": ["fanqie.low-quality"]
+    },
+    {
+      "id": "readiness.official-check",
+      "title": "提交前重新核对当前官方要求",
+      "stage": "readiness",
+      "principle": "签约和治理规则可能更新，提交前应打开当前官方页面核对，而不是依赖历史固定数字。",
+      "signals": ["知识来源长期未更新", "本地规则与当前官方页面无法确认一致"],
+      "antiPatterns": ["把 ChapterFlow 判断称为官方评分", "给出签约概率或保证"],
+      "suggestions": ["提交前查看最新签约标准", "把未确认的平台条件标记为未确认"],
+      "severity": "warning",
+      "sourceIds": ["fanqie.signing-standard"]
+    }
+  ]
+}
