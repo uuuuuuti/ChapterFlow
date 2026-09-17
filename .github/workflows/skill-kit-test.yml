@@ -1,0 +1,30 @@
+name: Skill Kit Test
+
+on:
+  push:
+    branches:
+      - chapterflow/skill-kit-v0.1
+    paths:
+      - "skill-kit/**"
+      - ".github/workflows/skill-kit-test.yml"
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Verify runtime syntax and tests
+        run: node --test skill-kit/test/*.test.mjs
+      - name: Verify standalone smoke flow
+        run: node skill-kit/examples/smoke.mjs > /tmp/chapterflow-smoke.json
+      - name: Verify CLI loads
+        run: node skill-kit/bin/chapterflow.mjs tools > /tmp/chapterflow-tools.json
+      - name: Verify MCP initializes
+        run: |
+          printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' | node skill-kit/bin/chapterflow-mcp.mjs > /tmp/chapterflow-mcp.json
+          grep -q 'chapterflow-skill-kit' /tmp/chapterflow-mcp.json
