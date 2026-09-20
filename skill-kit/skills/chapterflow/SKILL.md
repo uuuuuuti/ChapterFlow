@@ -1,6 +1,6 @@
 ---
 name: chapterflow
-description: Route web-fiction creation work to ChapterFlow's specialized skills and durable story tools.
+description: Coordinate web-fiction creation from book concept and long-form planning through drafting, revision, serial review, ending checks and manuscript export, using ChapterFlow story state and visual views.
 ---
 
 # ChapterFlow
@@ -30,3 +30,16 @@ ChapterFlow is a headless professional capability layer for long-form web fictio
 ## Project convention
 
 A ChapterFlow project is a normal folder containing `chapterflow.json`, Markdown manuscript files and `.chapterflow/state.sqlite`. The runtime must remain usable without any Web application.
+
+## 全流程与恢复工作
+
+先确定作者正在开书、规划、写作、修订、连载复盘还是收尾交付；已有作品直接从当前阶段继续。读取项目摘要、对应任务上下文和待确认候选，复述当前进度与下一项具体产出。不要为了走流程重复创建已有作品或重做已确认定位。
+
+- 人物成长、世界规则与故事机制：start-book；用实体 attrs 记录目标、秘密、知识边界，用关系章节区间记录变化。
+- 全书→分卷/故事弧→章节→场景：plan-story；正式计划用 story_plan 候选保存。
+- 正文→自检→审稿→修订→确认→更新事实：write-chapter 与 novel-editor。
+- 连载中每个故事弧结束：核对主线进展、人物变化、未回收承诺、已发生事件与下一弧入口。
+- 完结：核对核心冲突、人物选择、读者承诺与伏笔的最终状态，区分刻意留白与遗漏。
+- 投稿/交付：signing-sprint；通过 chapterflow_manuscript_export 导出已确认正文和版本清单。没有外部发布集成，不声称已经投稿。
+
+需要可执行参数、断点续写或交付规范时读取 [全流程操作契约](references/workflow.md)。缺少 MCP 时可用 Node.js 24 运行仓库的 skill-kit/bin/chapterflow.mjs call <tool> --json '<参数>'；找不到 Runtime 时说明当前只能提供草案，不虚构工具调用成功。

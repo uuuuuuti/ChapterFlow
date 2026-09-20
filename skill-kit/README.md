@@ -42,6 +42,32 @@ Markdown is the human/Agent-readable manuscript source. SQLite stores IDs, versi
 
 # Install
 
+## Full workflow and visual workspace
+
+The skills now cover planning beyond the opening, scene drafting, revision,
+serial-arc review, ending checks and manuscript handoff. Stage `story_plan`
+candidates with `arcs` and `chapters`; accepted plans merge by arc ID and chapter
+index and feed both writing context and the story map. Updates replace each
+submitted chapter plan completely; other chapters remain intact.
+
+```bash
+node skill-kit/bin/chapterflow.mjs view workspace --root ./novels/demo
+node skill-kit/bin/chapterflow.mjs call chapterflow_manuscript_export --json '{"root":"./novels/demo"}'
+```
+
+The offline workspace includes six switchable views, shared search/chapter
+filters, status filtering, relationship focus and zoom, complete relation tables,
+timeline ordering, promise/foreshadow due reminders, chapter comparisons,
+all-chapter text signals, JSON export and print. Regenerate snapshots after edits.
+Story-time sorting is natural text sorting, not a semantic chronology resolver.
+Graph arrows show source-to-target direction, not inferred relationship strength.
+The export tool writes accepted Markdown plus a version/hash manifest; it does
+not include unaccepted candidates or publish to a platform.
+
+Runtime limitations: file/SQLite updates are not a cross-process transaction;
+coordinate writes to one project serially. Existing chapter-title renames need
+explicit file handling. Local platform knowledge remains a seed, not live rules.
+
 ## Requirements
 
 - **Node.js 24+**
@@ -238,12 +264,12 @@ After story data exists, `story-visualizer` can call the ChapterFlow view tools 
 
 ## 6. Minimal installation choices
 
-| Mode | Install | Suitable for |
-| --- | --- | --- |
-| Skill instructions only | `skill-kit/skills/*` | Trying the workflow/prompt methodology |
-| **Recommended** | Skills + MCP Runtime | Real writing projects with persistent state |
-| Runtime only | MCP / CLI | Custom Agent orchestration or development |
-| CLI only | `chapterflow.mjs` | Automation, debugging and manual inspection |
+| Mode                    | Install              | Suitable for                                |
+| ----------------------- | -------------------- | ------------------------------------------- |
+| Skill instructions only | `skill-kit/skills/*` | Trying the workflow/prompt methodology      |
+| **Recommended**         | Skills + MCP Runtime | Real writing projects with persistent state |
+| Runtime only            | MCP / CLI            | Custom Agent orchestration or development   |
+| CLI only                | `chapterflow.mjs`    | Automation, debugging and manual inspection |
 
 For normal AI-assisted novel writing, use **Skills + MCP Runtime**.
 

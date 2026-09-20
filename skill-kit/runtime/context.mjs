@@ -15,15 +15,23 @@ export function buildContext(root, options = {}) {
   const latestIndex = chapters.at(-1)?.chapter_index ?? 0;
   const currentChapter = Number(options.chapterIndex ?? latestIndex + 1);
   const recentCount = clamp(Number(options.recentChapters ?? 3), 0, 8);
-  const recent = chapters.slice(Math.max(0, chapters.length - recentCount)).map((chapter) => {
-    const full = readChapter(root, chapter.chapter_index);
-    return {
-      index: Number(chapter.chapter_index),
-      title: chapter.title,
-      version: Number(chapter.version),
-      excerpt: excerpt(full?.content ?? "", Number(options.maxChapterChars ?? 12000)),
-    };
-  });
+  const preceding = chapters.filter(
+    (chapter) => Number(chapter.chapter_index) < currentChapter,
+  );
+  const recent = preceding
+    .slice(Math.max(0, preceding.length - recentCount))
+    .map((chapter) => {
+      const full = readChapter(root, chapter.chapter_index);
+      return {
+        index: Number(chapter.chapter_index),
+        title: chapter.title,
+        version: Number(chapter.version),
+        excerpt: excerpt(
+          full?.content ?? "",
+          Number(options.maxChapterChars ?? 12000),
+        ),
+      };
+    });
   const stage = options.stage ?? inferStage(config, currentChapter);
   const knowledge = retrieveKnowledge({
     stage,
@@ -47,6 +55,19 @@ export function buildContext(root, options = {}) {
     storyEngine: config.storyEngine,
     packaging: config.packaging,
     openingBlueprint: config.openingBlueprint,
+    storyPlan: config.storyPlan ?? { arcs: [], chapters: [] },
+    targetChapterPlan:
+      config.storyPlan?.chapters?.find(
+        (chapter) => chapter.index === currentChapter,
+      ) ??
+      config.openingBlueprint?.firstArcChapters?.find(
+        (chapter) => Number(chapter.index) === currentChapter,
+      ) ??
+      config.openingBlueprint?.firstThreeChapters?.find(
+        (chapter) => Number(chapter.index) === currentChapter,
+      ) ??
+      null,
+    targetManuscript: readChapter(root, currentChapter),
     currentChapter,
     storyState: {
       entities: listEntities(root),
@@ -54,7 +75,10 @@ export function buildContext(root, options = {}) {
       timeline: listTimeline(root),
       foreshadows: listForeshadows(root),
       readerPromises: listReaderPromises(root),
-      readerPromiseHealth: readerPromiseHealth(root, Math.max(0, currentChapter - 1)),
+      readerPromiseHealth: readerPromiseHealth(
+        root,
+        Math.max(0, currentChapter - 1),
+      ),
     },
     recentManuscript: recent,
     officialKnowledge: knowledge.map((card) => ({
@@ -88,12 +112,32 @@ function contractFor(task) {
   switch (task) {
     case "start-book":
       return {
-        candidateKinds: ["book_positioning", "story_engine", "packaging", "opening_blueprint"],
+        candidateKinds: [
+          "book_positioning",
+          "story_engine",
+          "packaging",
+          "opening_blueprint",
+        ],
         rule: "Return concrete, editable candidates. Never claim signing success or probability.",
       };
     case "plan-story":
       return {
-        expected: ["chapterPurpose", "goal", "conflict", "readerExpectation", "emotion", "payoff", "hook", "promiseOperations"],
+        candidateKind: "story_plan",
+        payload: {
+          arcs: "Optional arc objects with id/title/goal/conflict/payoff",
+          chapters:
+            "Objects with unique positive index, title, goal, conflict, outcome; optional arcId, purpose, readerExpectation, emotionTarget, hook, payoff, characterIds, promiseOperations",
+        },
+        expected: [
+          "chapterPurpose",
+          "goal",
+          "conflict",
+          "readerExpectation",
+          "emotion",
+          "payoff",
+          "hook",
+          "promiseOperations",
+        ],
         rule: "Advance existing promises deliberately; do not open new promises without a reason.",
       };
     case "write-chapter":
@@ -104,16 +148,32 @@ function contractFor(task) {
       };
     case "novel-editor":
       return {
-        expected: ["strengths", "issues", "locations", "impact", "suggestions", "sourceType", "sourceRefs"],
+        expected: [
+          "strengths",
+          "issues",
+          "locations",
+          "impact",
+          "suggestions",
+          "sourceType",
+          "sourceRefs",
+        ],
         rule: "Separate deterministic signals, official guidance, and editorial inference.",
       };
     case "signing-sprint":
       return {
-        expected: ["blockers", "highRisk", "improvements", "observations", "officialStatus"],
+        expected: [
+          "blockers",
+          "highRisk",
+          "improvements",
+          "observations",
+          "officialStatus",
+        ],
         rule: "Assess preparation only. Never predict or guarantee platform approval.",
       };
     default:
-      return { rule: "Use ChapterFlow state as authoritative story context and preserve author agency." };
+      return {
+        rule: "Use ChapterFlow state as authoritative story context and preserve author agency.",
+      };
   }
 }
 

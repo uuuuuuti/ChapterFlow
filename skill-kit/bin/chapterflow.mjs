@@ -102,7 +102,7 @@ Usage:
   chapterflow summary <dir>
   chapterflow sync <dir>
   chapterflow context <dir> --task write-chapter --chapterIndex 4
-  chapterflow view <character_graph|timeline|promise_board|foreshadow_map|story_map|chapter_health> --root <dir>
+  chapterflow view <workspace|character_graph|timeline|promise_board|foreshadow_map|story_map|chapter_health> --root <dir>
   chapterflow review <opening|signing> --root <dir>
   chapterflow knowledge --stage opening --query 期待
   chapterflow tools

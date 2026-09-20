@@ -31,3 +31,9 @@ Move from a rough premise to an author-approved foundation that is ready for cha
 - The first three chapters are a ChapterFlow working method, not an invented platform rule.
 - Use `chapterflow_knowledge_search` for official Fanqie guidance. Never rely on model memory for current platform rules.
 - Never invent signing probabilities or “hit potential” scores.
+
+## 人物、世界与开篇落地
+
+保留作者指定题材、风格、受众和篇幅；未决定项以明确假设或可选方案呈现。设定需要说明限制、代价与冲突来源。主角写清欲望、弱点、主动选择和成长方向；配角写清独立目标与关系张力，避免只作功能道具。
+
+包装比较展示完整书名、简介、标签、目标读者及兑现依据；确认一个版本后再保存。开篇中每章给出目标→阻力→选择→结果→新问题，三章之外规划第一弧关键转折。确认故事发动机不会自动建立实体图：按作者确认结果创建实体、关系和世界规则记录，再生成 workspace 检查是否一致。
