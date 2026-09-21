@@ -7,7 +7,7 @@ import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 type HeaderActionProps = PropsRuntime<'conversation.session.header.actions'>
 
 function ChapterFlowSpikeBadge({ useSession }: HeaderActionProps) {
-  const running = useSession((snapshot) => snapshot.running)
+  const running = useSession((snapshot: { readonly running: boolean }) => snapshot.running)
   return (
     <div
       title="ChapterFlow DeepSeek Harness Adapter Spike"
