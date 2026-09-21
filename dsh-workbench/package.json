@@ -23,6 +23,7 @@
   },
   "devDependencies": {
     "pnpm": "11.7.0",
-    "typescript": "6.0.3"
+    "typescript": "6.0.3",
+    "@types/node": "24.10.0"
   }
 }
