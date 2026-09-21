@@ -16,6 +16,10 @@ const ARTIFACT_STAGE: Record<BookArtifactType, BookLifecycleStage> = {
   opening_blueprint: 'opening_blueprint',
 }
 
+export function artifactStageFor(type: BookArtifactType): BookLifecycleStage {
+  return ARTIFACT_STAGE[type]
+}
+
 const NEXT_ACTION: Record<BookLifecycleStage, string> = {
   idea: 'Capture the core story idea as a reviewable candidate.',
   direction: 'Define the book direction and sustainable commercial premise.',
