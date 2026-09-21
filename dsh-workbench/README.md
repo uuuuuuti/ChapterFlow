@@ -35,9 +35,9 @@ ChapterFlow 只实现 Harness 不知道的“小说专业能力”：
 
 ## 当前进度
 
-**Architecture V0.1 + DeepSeek Harness Adapter Spike V0.1**
+**Architecture V0.1 + Harness Adapter Spike V0.1 + Domain Core V0.1**
 
-Adapter Spike 已经落地并通过 CI，当前已验证：
+当前已经通过 CI 验证：
 
 - 独立 `chapterflow` Harness Profile
 - ChapterFlow Agent Preset
@@ -45,12 +45,18 @@ Adapter Spike 已经落地并通过 CI，当前已验证：
 - `workflowEngine` 有界 Workflow façade
 - Subagent delegation 边界
 - Harness Web Client Slot
-- 本地 ChapterFlow package 安装到隔离 Profile
 - Harness Web Host 真实启动与认证访问
+- `BookProject` 与 deterministic Lifecycle
+- Candidate-first 正式变更
+- Project revision 乐观锁
+- stale Candidate 拒绝落盘
+- 生命周期阶段顺序约束
+- 本地持久化 Project Store
+- Session-independent 项目重开
 
-Spike 不包含小说 Domain Store，也不代表 StartBook / 写章 / 责编已经实现。
+当前仍未实现 StartBook / 写章 / Story Memory / Reader Memory / AI 责编。
 
-## 快速运行 Adapter Spike
+## 快速运行
 
 要求 Node.js 24+。
 
@@ -71,7 +77,16 @@ npm run dev
 
 终端会打印带认证 token 的本地访问地址。
 
-配置模型后，可以在 `ChapterFlow Spike` Session 中测试：
+配置模型后，可以在 `ChapterFlow Spike` Session 中测试 Harness Workflow；同时已经可以直接使用以下领域 Tool：
+
+- `chapterflow_book_create`
+- `chapterflow_book_get_state`
+- `chapterflow_book_get_next_action`
+- `chapterflow_candidate_stage`
+- `chapterflow_candidate_accept`
+- `chapterflow_candidate_reject`
+
+例如先验证 Adapter：
 
 ~~~text
 调用 chapterflow_adapter_status，告诉我返回结果。
@@ -103,14 +118,16 @@ topic 设置为 "ChapterFlow Harness integration"。
 
 ## 下一阶段
 
-Adapter Spike 结束后不继续扩 Harness 基础设施。
+Harness Adapter 与 Domain Core 的基础边界已经验证完成。
 
-下一步进入 **Domain Core V0.1**：
+下一步进入第一个真实业务 Slice：
 
-`BookProject + Lifecycle + Candidate + Project Revision + local Project Store`
+**StartBook Workflow V0.1**
 
-并暴露第一组真实领域 Tool：
+目标是把：
 
-`book.get_state / book.get_next_action / candidate.stage / candidate.accept / candidate.reject`
+`idea → direction → positioning → story_engine → packaging → opening_blueprint`
 
-随后再实现第一个真实业务 Workflow：`start-book`。
+串成一个真正由 Harness Workflow / Subagent 驱动、但所有正式结果仍通过 Candidate 接受的开书流程。
+
+Domain Core V0.1 当前只允许按生命周期顺序接受 Artifact；已完成阶段的“回改 + 下游失效”将在后续 Revision Domain 中显式建模，不在这里偷偷覆盖。
