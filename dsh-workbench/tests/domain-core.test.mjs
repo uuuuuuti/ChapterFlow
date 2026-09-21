@@ -130,3 +130,46 @@ test('rejecting a candidate changes candidate state only', () => {
   assert.equal(snapshot.project.revision, 0)
   assert.equal(snapshot.project.lifecycle.currentStage, 'idea')
 })
+
+
+test('book artifacts cannot skip lifecycle stages', () => {
+  const factory = deterministicFactory()
+  const snapshot = createBookProject({ title: '阶段顺序测试' }, factory)
+  const future = stageCandidate(
+    snapshot.project,
+    {
+      kind: 'book_artifact',
+      payload: {
+        artifactType: 'positioning',
+        value: { targetReader: '都市男频读者' },
+      },
+      summary: '试图跳过脑洞和方向',
+    },
+    factory,
+  )
+
+  assert.throws(
+    () => acceptCandidate(snapshot.project, future, factory),
+    /current lifecycle stage is idea/,
+  )
+  assert.equal(snapshot.project.revision, 0)
+})
+
+test('Domain Core V0.1 rejects targetId until target-aware candidates exist', () => {
+  const factory = deterministicFactory()
+  const snapshot = createBookProject({ title: 'Target Test' }, factory)
+
+  assert.throws(
+    () => stageCandidate(
+      snapshot.project,
+      {
+        kind: 'project_metadata',
+        targetId: 'future-target',
+        payload: { title: 'New title' },
+        summary: 'unsupported target',
+      },
+      factory,
+    ),
+    /targetId is reserved/,
+  )
+})
