@@ -1,0 +1,113 @@
+import assert from 'node:assert/strict'
+import test from 'node:test'
+
+import {
+  SPIKE_WORKFLOW_META,
+  SPIKE_WORKFLOW_SCRIPT,
+  apply,
+  getAdapterStatus,
+  runSpikeWorkflow,
+} from '../packages/harness-adapter/dist/index.js'
+
+test('adapter status exposes the intended spike capabilities', () => {
+  const status = getAdapterStatus()
+  assert.equal(status.ready, true)
+  assert.equal(status.boundary, 'harness-adapter')
+  assert.deepEqual(status.capabilities, [
+    'tool-registration',
+    'workflow-engine',
+    'subagent-delegation',
+    'client-slot',
+  ])
+})
+
+test('adapter registers exactly the two bounded spike tools', () => {
+  const tools = []
+  apply({
+    tools: {
+      register(tool) {
+        tools.push(tool)
+      },
+    },
+    workflowEngine: {},
+  })
+  assert.deepEqual(
+    tools.map((tool) => tool.name),
+    ['chapterflow_adapter_status', 'chapterflow_workflow_spike'],
+  )
+})
+
+test('workflow bridge owns start/result/dispose and keeps the parent identity', async () => {
+  let request
+  let disposed = false
+  const parent = { id: 'parent-agent' }
+  const controller = new AbortController()
+
+  const engine = {
+    start(input) {
+      request = input
+      return {
+        id: 'workflow-spike-1',
+        meta: SPIKE_WORKFLOW_META,
+        result: Promise.resolve({
+          value: { ok: true, child: 'CHAPTERFLOW_SPIKE_OK: test' },
+          stopReason: 'completed',
+          agentsStarted: 1,
+        }),
+        cancel() {},
+        async dispose() {
+          disposed = true
+        },
+      }
+    },
+  }
+
+  const value = await runSpikeWorkflow(
+    engine,
+    parent,
+    controller.signal,
+    'adapter integration',
+  )
+
+  assert.equal(value.runId, 'workflow-spike-1')
+  assert.equal(value.agentsStarted, 1)
+  assert.equal(disposed, true)
+  assert.equal(request.parent, parent)
+  assert.equal(request.args.topic, 'adapter integration')
+  assert.equal(request.meta.name, 'chapterflow-adapter-spike')
+  assert.match(request.script, /await agent\(/)
+  assert.match(SPIKE_WORKFLOW_SCRIPT, /specialist-check/)
+})
+
+test('workflow bridge disposes failed runs and never reports partial output as success', async () => {
+  let disposed = false
+  const engine = {
+    start() {
+      return {
+        id: 'workflow-spike-failed',
+        meta: SPIKE_WORKFLOW_META,
+        result: Promise.resolve({
+          value: { partial: true },
+          stopReason: 'error',
+          error: 'synthetic failure',
+          agentsStarted: 1,
+        }),
+        cancel() {},
+        async dispose() {
+          disposed = true
+        },
+      }
+    },
+  }
+
+  await assert.rejects(
+    runSpikeWorkflow(
+      engine,
+      { id: 'parent-agent' },
+      new AbortController().signal,
+      'failure path',
+    ),
+    /synthetic failure/,
+  )
+  assert.equal(disposed, true)
+})
