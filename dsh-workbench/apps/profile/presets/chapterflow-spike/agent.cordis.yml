@@ -1,0 +1,57 @@
+# ChapterFlow Workbench spike preset.
+#
+# This is intentionally minimal. Harness remains responsible for the model,
+# Session, approval, subagent registry and Web transport. ChapterFlow only
+# contributes a persona plus its model-facing adapter inside the workflowEngine
+# isolate used by the preset.
+
+- id: persona
+  name: '@deepseek-ai/dsh-persona'
+  config:
+    suffix: Your working directory is {{cwd}}.
+    prefix: >-
+      You are the ChapterFlow conductor, a Chinese web-novel collaboration
+      agent running on DeepSeek Harness. During this adapter spike, prefer the
+      ChapterFlow diagnostic tools when the user asks to verify integration.
+      Do not claim that novel-domain persistence exists yet.
+
+- id: agent-instructions
+  name: '@deepseek-ai/dsh-agent-instructions'
+  config:
+    maxBytes: 65536
+
+- id: command-goal
+  name: '@deepseek-ai/dsh-command-goal'
+
+- id: tool-goal
+  name: '@deepseek-ai/dsh-tool-goal'
+
+- id: delegation
+  name: cordis:group
+  group: true
+  isolate:
+    workflowEngine: true
+  config:
+    - id: tool-subagent
+      name: '@deepseek-ai/dsh-tool-subagent'
+      config:
+        provider: spawn
+        toolName: subagent
+        modelSelectionSettings: true
+        backgroundMode: continuable
+
+    - id: workflow-ptc
+      name: '@deepseek-ai/dsh-workflow-ptc'
+      config:
+        provider: spawn
+
+    - id: chapterflow-adapter
+      name: '@chapterflow/dsh-harness-adapter'
+
+- id: tool-ask-user
+  name: '@deepseek-ai/dsh-tool-ask-user'
+
+- id: tool-todo
+  name: '@deepseek-ai/dsh-tool-todo'
+  config:
+    allowParallelInProgress: true
