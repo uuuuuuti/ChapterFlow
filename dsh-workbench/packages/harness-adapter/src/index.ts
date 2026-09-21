@@ -2,15 +2,17 @@ import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type {
   WorkflowEngine,
+  WorkflowMeta,
   WorkflowResult,
   WorkflowStartRequest,
 } from '@deepseek-ai/dsh-workflow'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 
 export const name = 'chapterflow-harness-adapter'
 export const inject = ['tools', 'workflowEngine']
 
 export const SPIKE_VERSION = '0.1.0'
-export const SPIKE_WORKFLOW_META = {
+export const SPIKE_WORKFLOW_META: WorkflowMeta = {
   name: 'chapterflow-adapter-spike',
   description: 'Validate ChapterFlow workflow orchestration through DeepSeek Harness.',
   whenToUse: 'Only for the ChapterFlow Harness integration smoke test.',
@@ -20,7 +22,7 @@ export const SPIKE_WORKFLOW_META = {
       detail: 'Run one bounded specialist child and return its handoff.',
     },
   ],
-} as const
+}
 
 export const SPIKE_WORKFLOW_SCRIPT = `
 phase('specialist-check')
@@ -37,16 +39,16 @@ return {
 `.trim()
 
 export interface ChapterFlowAdapterStatus {
-  readonly ready: true
-  readonly spikeVersion: string
-  readonly boundary: 'harness-adapter'
-  readonly capabilities: readonly string[]
+  ready: boolean
+  spikeVersion: string
+  boundary: string
+  capabilities: string[]
 }
 
 export interface ChapterFlowSpikeRunResult {
-  readonly runId: string
-  readonly agentsStarted: number
-  readonly result: unknown
+  runId: string
+  agentsStarted: number
+  result: JsonValue
 }
 
 export function getAdapterStatus(): ChapterFlowAdapterStatus {
@@ -101,7 +103,10 @@ export async function runSpikeWorkflow(
     return {
       runId: run.id,
       agentsStarted: result.agentsStarted,
-      result: result.value,
+      // WorkflowEngine guarantees a materialized host-realm JSON value after
+      // a completed run. The public seam intentionally types the raw value as
+      // unknown, so the adapter narrows it at this one boundary.
+      result: result.value as JsonValue,
     }
   } finally {
     signal.removeEventListener('abort', onAbort)
@@ -124,7 +129,7 @@ const STATUS_OUTPUT = {
       },
     },
   },
-  render: (_args: unknown, value: ChapterFlowAdapterStatus) => [
+  render: (_args: {}, value: ChapterFlowAdapterStatus) => [
     { type: 'text' as const, text: JSON.stringify(value, null, 2) },
   ],
 } as const
@@ -139,7 +144,7 @@ const WORKFLOW_OUTPUT = {
       result: { type: 'json', required: true },
     },
   },
-  render: (_args: unknown, value: ChapterFlowSpikeRunResult) => [
+  render: (_args: { topic: string }, value: ChapterFlowSpikeRunResult) => [
     { type: 'text' as const, text: JSON.stringify(value, null, 2) },
   ],
 } as const
