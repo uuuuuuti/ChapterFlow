@@ -34,3 +34,41 @@ jobs:
 
       - name: Run adapter contract tests
         run: npm test
+
+      - name: Validate Harness profile composition
+        run: |
+          ./node_modules/.bin/dsh web \
+            --patch ./apps/profile/web.cordis.patch.yml \
+            --dump-config > /tmp/chapterflow-dsh-config.yml
+          grep -q "chapterflow-client-ui" /tmp/chapterflow-dsh-config.yml
+          grep -q "chapterflow-spike" /tmp/chapterflow-dsh-config.yml
+
+      - name: Smoke boot Harness Web with ChapterFlow overlay
+        run: |
+          set -euo pipefail
+          LOG=/tmp/chapterflow-dsh-web.log
+          ./node_modules/.bin/dsh web \
+            --patch ./apps/profile/web.cordis.patch.yml \
+            --no-open \
+            --host 127.0.0.1 \
+            --port 3099 >"$LOG" 2>&1 &
+          PID=$!
+          trap 'kill "$PID" 2>/dev/null || true' EXIT
+
+          READY=0
+          for _ in $(seq 1 25); do
+            if grep -q "dsh web: http" "$LOG"; then
+              READY=1
+              break
+            fi
+            if ! kill -0 "$PID" 2>/dev/null; then
+              cat "$LOG"
+              exit 1
+            fi
+            sleep 1
+          done
+
+          cat "$LOG"
+          test "$READY" -eq 1
+          curl --fail --silent --show-error http://127.0.0.1:3099/ > /tmp/chapterflow-dsh-index.html
+          grep -qi "<html" /tmp/chapterflow-dsh-index.html
