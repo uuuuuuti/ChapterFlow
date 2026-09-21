@@ -353,10 +353,6 @@ export function apply(ctx: Context): void {
           required: true,
           description: 'Human-readable description of the proposed change.',
         },
-        targetId: {
-          type: 'string',
-          description: 'Optional semantic target id for later domain slices.',
-        },
         sourceRun: {
           type: 'string',
           description: 'Optional workflow or model run reference.',
@@ -373,7 +369,6 @@ export function apply(ctx: Context): void {
           kind: parseCandidateKind(args.kind),
           payload: args.payload as DomainJsonValue,
           summary: args.summary,
-          ...(args.targetId ? { targetId: args.targetId } : {}),
           ...(args.sourceRun ? { sourceRun: args.sourceRun } : {}),
           ...(args.sourceRefs ? { sourceRefs: args.sourceRefs } : {}),
         })
