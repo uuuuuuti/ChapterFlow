@@ -1,5 +1,41 @@
 # ChapterFlow Domain Model V0.1
 
+> Implementation status: **Domain Core V0.1 implemented**  
+> Implemented now: BookProject, Lifecycle, Candidate, Project Revision, accepted Project Artifact, Local Project Store.  
+> Deferred: Chapter, Settlement, Story Memory, Reader Memory, Review Finding, Context Packet, ViewSpec.
+
+## 0. Domain Core V0.1 Runtime Contract
+
+当前实现采用以下最小正式状态边界：
+
+~~~
+ProjectSnapshot
+- schemaVersion
+- project
+- candidates[]
+~~~
+
+一个项目保存为一个原子快照文件：
+
+~~~
+.chapterflow/projects/<projectId>/project.snapshot.json
+~~~
+
+V0.1 选择单文件原子 rename，是为了先验证 **Session-independent Domain State + Candidate transaction boundary**。这不是对长期 SQLite / workspace mirror 方案的否定；当 Chapter / Memory / Projection 数据量进入下一阶段后再评估拆分存储。
+
+当前规则：
+
+1. Candidate `stage` 不修改 `project.revision`。
+2. Candidate `accept` 才是正式作品变更，并将 revision +1。
+3. Candidate 的 `baseProjectRevision` 与当前 revision 不一致时，Candidate 标记为 `stale`，正式状态不变。
+4. `book_artifact` 只能按当前 Lifecycle Stage 顺序接受，禁止直接跳阶段。
+5. V0.1 已支持 Artifact：`idea / direction / positioning / story_engine / packaging / opening_blueprint`。
+6. 已完成阶段暂不允许通过普通 `book_artifact` 静默覆盖；未来由显式 Revision / downstream invalidation 机制处理。
+7. Store 在同一 Harness Host 进程内对同项目写入串行化；跨进程写锁尚未实现。
+8. Harness Session 生命周期不拥有 Project Store；删除或切换 Session 不删除作品事实。
+
+---
+
 本文件定义 ChapterFlow Workbench 的核心领域对象。Domain 层不得依赖 DeepSeek Harness 类型。
 
 ---
@@ -30,11 +66,27 @@ BookProject
 - revision
 - lifecycle
 - acceptedArtifactRefs
+- activeArtifactRefs
+- artifacts[]
 ~~~
 
 `revision` 是全项目乐观锁版本。
 
 任何影响创作上下文的正式变更必须递增 revision。
+
+V0.1 中已接受 Artifact 还保存：
+
+~~~
+ProjectArtifact
+- id
+- type
+- value
+- acceptedCandidateId
+- acceptedAt
+- projectRevision
+~~~
+
+`acceptedArtifactRefs` 保留接受历史，`activeArtifactRefs` 指向当前正式 Artifact。
 
 ---
 
