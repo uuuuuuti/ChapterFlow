@@ -1,0 +1,21 @@
+# ChapterFlow Workbench Adapter Spike overlay.
+#
+# Run from dsh-workbench/:
+#   npm run dev
+#
+# The patch keeps Harness Web intact, selects our isolated agent preset for new
+# sessions, and adds only the ChapterFlow browser UI contribution.
+
+- id: agent-presets
+  name: '@deepseek-ai/dsh-agent-presets'
+  config:
+    default: chapterflow-spike
+    roots:
+      - path: !!js process.cwd() + '/apps/profile/presets'
+        trust: system
+    includeShippedRoot: true
+    includeUserRoot: true
+
+- insert:
+    - id: chapterflow-client-ui
+      name: '@chapterflow/dsh-client-ui'
