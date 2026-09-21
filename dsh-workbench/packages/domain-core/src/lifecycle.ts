@@ -30,6 +30,19 @@ const NEXT_ACTION: Record<BookLifecycleStage, string> = {
   serialization: 'Continue serialization with chapter intent, writing, settlement, and review.',
 }
 
+function activeArtifactForStage(
+  project: BookProject,
+  stage: BookLifecycleStage,
+) {
+  for (const artifactType of Object.keys(project.activeArtifactRefs) as BookArtifactType[]) {
+    if (ARTIFACT_STAGE[artifactType] !== stage) continue
+    const artifactId = project.activeArtifactRefs[artifactType]
+    if (!artifactId) continue
+    return project.artifacts.find((artifact) => artifact.id === artifactId)
+  }
+  return undefined
+}
+
 function completedStages(project: BookProject): Set<BookLifecycleStage> {
   const completed = new Set<BookLifecycleStage>()
   for (const artifactType of Object.keys(project.activeArtifactRefs) as BookArtifactType[]) {
@@ -40,26 +53,41 @@ function completedStages(project: BookProject): Set<BookLifecycleStage> {
   return completed
 }
 
-export function deriveLifecycle(project: BookProject, now = project.updatedAt): BookLifecycle {
+export function deriveLifecycle(project: BookProject): BookLifecycle {
   const complete = completedStages(project)
   const currentStage =
     BOOK_LIFECYCLE_STAGES.find((stage) => !complete.has(stage))
     ?? 'serialization'
 
-  const stages: LifecycleStageState[] = BOOK_LIFECYCLE_STAGES.map((stage) => {
+  const completionTimes = new Map<BookLifecycleStage, string>()
+  for (const stage of BOOK_LIFECYCLE_STAGES) {
+    const activeArtifact = activeArtifactForStage(project, stage)
+    if (activeArtifact) completionTimes.set(stage, activeArtifact.acceptedAt)
+  }
+
+  const stages: LifecycleStageState[] = BOOK_LIFECYCLE_STAGES.map((stage, index) => {
     const isComplete = complete.has(stage)
     const isCurrent = stage === currentStage && !isComplete
+    const previousStage = index > 0 ? BOOK_LIFECYCLE_STAGES[index - 1] : undefined
+    const startedAt = index === 0
+      ? project.createdAt
+      : previousStage
+        ? completionTimes.get(previousStage)
+        : undefined
     const artifactRefs = project.artifacts
       .filter((artifact) => ARTIFACT_STAGE[artifact.type] === stage)
       .map((artifact) => artifact.id)
+
     return {
       stage,
       status: isComplete ? 'complete' : isCurrent ? 'active' : 'not_started',
       artifactRefs,
       candidateRefs: [],
       findingRefs: [],
-      ...(isComplete ? { completedAt: project.updatedAt } : {}),
-      ...(isCurrent ? { startedAt: now } : {}),
+      ...(startedAt && (isComplete || isCurrent) ? { startedAt } : {}),
+      ...(isComplete && completionTimes.get(stage)
+        ? { completedAt: completionTimes.get(stage) }
+        : {}),
     }
   })
 
