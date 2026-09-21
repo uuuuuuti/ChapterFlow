@@ -73,5 +73,5 @@ jobs:
           test "$READY" -eq 1
           AUTH_URL="$(sed -n 's/^dsh web: \(http[^ ]*\).*$/\1/p' "$LOG" | tail -n 1)"
           test -n "$AUTH_URL"
-          curl --fail --location --silent --show-error "$AUTH_URL" > /tmp/chapterflow-dsh-index.html
+          curl --fail --location --cookie-jar /tmp/chapterflow-dsh.cookies --cookie /tmp/chapterflow-dsh.cookies --silent --show-error "$AUTH_URL" > /tmp/chapterflow-dsh-index.html
           grep -qi "<html" /tmp/chapterflow-dsh-index.html
