@@ -1,0 +1,36 @@
+name: DSH Workbench Spike
+
+on:
+  push:
+    branches:
+      - chapterflow/dsh-workbench-architecture
+    paths:
+      - "dsh-workbench/**"
+      - ".github/workflows/dsh-workbench-spike.yml"
+  pull_request:
+    paths:
+      - "dsh-workbench/**"
+      - ".github/workflows/dsh-workbench-spike.yml"
+
+jobs:
+  adapter-spike:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dsh-workbench
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install pinned Harness alpha dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Typecheck Harness contracts
+        run: npm run typecheck
+
+      - name: Run adapter contract tests
+        run: npm test
