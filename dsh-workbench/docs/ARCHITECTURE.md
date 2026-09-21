@@ -820,12 +820,19 @@ DeepSeek Harness Adapter Spike V0.1 已完成。详细证据见 [ADAPTER-SPIKE.m
 4. **Model-facing 与 browser-facing 插件分 plane。** model Tool 位于 Agent Preset 的 `workflowEngine` isolate；浏览器 UI 位于 Host/Client composition。
 5. **Harness API 版本必须显式 pin。** 当前 Spike 面向 `0.1.6-alpha.2`，后续升级通过独立 CI 契约验证。
 
-仍待 Domain Core / UI Slice 决定：
+Domain Core V0.1 已进一步确认：
+
+1. **Project Store 独立于 Harness Session。** 当前以单项目原子 JSON Snapshot 验证持久化边界；同一 Host 内同项目写入串行化，revision 负责 stale write 防护。
+2. **Lifecycle 是确定性 Domain Projection。** 阶段完成时间来自正式接受 Artifact 的时间，不受无关 metadata 保存影响。
+3. **Candidate-first 已成为真实写入路径。** Stage 不修改正式 revision；Accept 才提交，stale Candidate 不落正式状态。
+4. **V0.1 禁止生命周期跳级。** 已完成阶段的回改与下游失效留给显式 Revision Domain，不通过覆盖旧 Artifact 偷做。
+
+仍待后续 Slice 决定：
 
 1. Candidate Approval 与 Harness 原生 Approval UI 的最终结合方式。
-2. SQLite 生命周期与多 Session 并发访问策略。
-3. Harness Session fork 时默认复用同一 Project Store 的规则，以及“AI 分支”和“作品分支”的交互提示。
+2. 当 Chapter / Memory 数据规模扩大后，Project Store 是否迁移 SQLite + workspace mirror。
+3. Harness Session fork 时“AI 分支”和“作品分支”的明确交互语义。
 4. Visual ViewSpec 最终通过 Remote service、Session projection，还是两者组合暴露给客户端。
 5. 右侧 Artifact Canvas 是使用 Sidebar keyed tab，还是 Conversation View + Sidebar 的组合。
 
-这些未决项不阻塞 Domain Core V0.1。
+这些未决项不阻塞 StartBook Workflow V0.1。
