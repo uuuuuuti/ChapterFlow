@@ -173,7 +173,7 @@ export function acceptCandidate(
     )
   }
 
-  nextProject.lifecycle = deriveLifecycle(nextProject, now)
+  nextProject.lifecycle = deriveLifecycle(nextProject)
   const accepted: Candidate = {
     ...candidate,
     status: 'accepted',
