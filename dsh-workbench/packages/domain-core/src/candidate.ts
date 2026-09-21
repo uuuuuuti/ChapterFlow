@@ -1,6 +1,6 @@
 import { DomainError } from './errors.js'
 import { assertJsonValue, isRecord } from './json.js'
-import { deriveLifecycle } from './lifecycle.js'
+import { artifactStageFor, deriveLifecycle } from './lifecycle.js'
 import { systemDomainFactory } from './project.js'
 import {
   BOOK_ARTIFACT_TYPES,
@@ -87,6 +87,12 @@ export function stageCandidate(
   if (!input.summary.trim()) {
     throw new DomainError('INVALID_CANDIDATE', 'candidate summary must not be empty')
   }
+  if (input.targetId) {
+    throw new DomainError(
+      'INVALID_CANDIDATE',
+      'targetId is reserved for later candidate kinds and is not supported in Domain Core V0.1',
+    )
+  }
   validateCandidatePayload(input.kind, input.payload)
 
   return {
@@ -144,6 +150,14 @@ export function acceptCandidate(
 
   if (candidate.kind === 'book_artifact') {
     const payload = parseArtifactPayload(candidate.payload)
+    const currentStage = deriveLifecycle(project).currentStage
+    const artifactStage = artifactStageFor(payload.artifactType)
+    if (artifactStage !== currentStage) {
+      throw new DomainError(
+        'INVALID_CANDIDATE',
+        `cannot accept ${payload.artifactType} while current lifecycle stage is ${currentStage}`,
+      )
+    }
     artifact = {
       id: factory.id('artifact'),
       type: payload.artifactType,
