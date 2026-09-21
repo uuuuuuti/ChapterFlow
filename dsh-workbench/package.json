@@ -1,0 +1,25 @@
+{
+  "name": "chapterflow-dsh-workbench",
+  "version": "0.0.1-spike",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "build": "npm run build -w @chapterflow/dsh-harness-adapter && npm run build -w @chapterflow/dsh-client-ui",
+    "typecheck": "npm run typecheck -w @chapterflow/dsh-harness-adapter && npm run typecheck -w @chapterflow/dsh-client-ui",
+    "test": "npm run build && node --test tests/*.test.mjs",
+    "dev": "npm run build && dsh web --patch ./apps/profile/web.cordis.patch.yml",
+    "start": "npm run dev"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh": "0.1.6-alpha.2"
+  },
+  "devDependencies": {
+    "typescript": "6.0.3"
+  }
+}
