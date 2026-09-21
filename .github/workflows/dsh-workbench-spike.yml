@@ -35,11 +35,12 @@ jobs:
       - name: Run adapter contract tests
         run: npm test
 
+      - name: Install ChapterFlow plugins into isolated Harness profile
+        run: npm run profile:init
+
       - name: Validate Harness profile composition
         run: |
-          ./node_modules/.bin/dsh web \
-            --patch ./apps/profile/web.cordis.patch.yml \
-            --dump-config > /tmp/chapterflow-dsh-config.yml
+          npm run profile:dump > /tmp/chapterflow-dsh-config.yml
           grep -q "chapterflow-client-ui" /tmp/chapterflow-dsh-config.yml
           grep -q "chapterflow-spike" /tmp/chapterflow-dsh-config.yml
 
@@ -47,7 +48,7 @@ jobs:
         run: |
           set -euo pipefail
           LOG=/tmp/chapterflow-dsh-web.log
-          ./node_modules/.bin/dsh web \
+          ./node_modules/.bin/dsh chapterflow \
             --patch ./apps/profile/web.cordis.patch.yml \
             --no-open \
             --host 127.0.0.1 \
