@@ -808,16 +808,24 @@ V1 不追求功能数量，先证明完整开书闭环。
 
 ---
 
-## 19. Open Questions for Implementation
+## 19. Adapter Spike Resolution
 
-这些问题在进入代码阶段前应通过 Spike 确认：
+DeepSeek Harness Adapter Spike V0.1 已完成。详细证据见 [ADAPTER-SPIKE.md](./ADAPTER-SPIKE.md)。
 
-1. Harness 当前 UI Slot 对右侧 Artifact Canvas 的最合适挂载点。
-2. Workflow 是否直接使用动态 Workflow Script，还是注册 ChapterFlow 固定 Workflow façade。
-3. Candidate Approval 与 Harness 原生 Approval UI 的结合方式。
-4. Cordis Profile 的最小启动集合。
-5. SQLite 生命周期与多 Session 并发访问策略。
-6. Harness Session fork 时是否默认复用同一 Project Store，如何提示“AI 分支”和“作品分支”的区别。
-7. Visual ViewSpec 是通过 Remote service 还是客户端 projection stream 暴露。
+已确认：
 
-这些问题属于 Adapter Spike，不改变上面的 Domain 原则。
+1. **UI 扩展路线成立。** Harness Client Slot 可以在不复制 Chat Shell 的情况下加入 ChapterFlow UI。Spike 先使用 `conversation.session.header.actions` 验证生命周期；真正 Artifact Canvas 的右侧挂载点留到 Visual Domain Slice 再定。
+2. **采用固定 ChapterFlow Workflow façade。** 用户/模型调用稳定的小说领域 Tool，Adapter 内部再通过 `ctx.workflowEngine` 启动 Harness Workflow；不把通用动态脚本直接作为产品 API。
+3. **使用独立 `chapterflow` Harness Profile。** 从 shipped `web` Profile 初始化，并把 ChapterFlow 本地插件安装到该 Profile，避免修改默认 Web Profile。
+4. **Model-facing 与 browser-facing 插件分 plane。** model Tool 位于 Agent Preset 的 `workflowEngine` isolate；浏览器 UI 位于 Host/Client composition。
+5. **Harness API 版本必须显式 pin。** 当前 Spike 面向 `0.1.6-alpha.2`，后续升级通过独立 CI 契约验证。
+
+仍待 Domain Core / UI Slice 决定：
+
+1. Candidate Approval 与 Harness 原生 Approval UI 的最终结合方式。
+2. SQLite 生命周期与多 Session 并发访问策略。
+3. Harness Session fork 时默认复用同一 Project Store 的规则，以及“AI 分支”和“作品分支”的交互提示。
+4. Visual ViewSpec 最终通过 Remote service、Session projection，还是两者组合暴露给客户端。
+5. 右侧 Artifact Canvas 是使用 Sidebar keyed tab，还是 Conversation View + Sidebar 的组合。
+
+这些未决项不阻塞 Domain Core V0.1。
