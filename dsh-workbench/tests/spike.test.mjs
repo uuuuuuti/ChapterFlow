@@ -9,19 +9,24 @@ import {
   runSpikeWorkflow,
 } from '../packages/harness-adapter/dist/index.js'
 
-test('adapter status exposes the intended spike capabilities', () => {
+test('adapter status exposes spike and domain-core capabilities', () => {
   const status = getAdapterStatus()
   assert.equal(status.ready, true)
   assert.equal(status.boundary, 'harness-adapter')
+  assert.equal(status.domainCoreVersion, '0.1.0')
   assert.deepEqual(status.capabilities, [
     'tool-registration',
     'workflow-engine',
     'subagent-delegation',
     'client-slot',
+    'domain-core',
+    'project-store',
+    'candidate-first',
+    'project-revision',
   ])
 })
 
-test('adapter registers exactly the two bounded spike tools', () => {
+test('adapter registers spike plus bounded ChapterFlow domain tools', () => {
   const tools = []
   apply({
     tools: {
@@ -33,7 +38,16 @@ test('adapter registers exactly the two bounded spike tools', () => {
   })
   assert.deepEqual(
     tools.map((tool) => tool.name),
-    ['chapterflow_adapter_status', 'chapterflow_workflow_spike'],
+    [
+      'chapterflow_adapter_status',
+      'chapterflow_workflow_spike',
+      'chapterflow_book_create',
+      'chapterflow_book_get_state',
+      'chapterflow_book_get_next_action',
+      'chapterflow_candidate_stage',
+      'chapterflow_candidate_accept',
+      'chapterflow_candidate_reject',
+    ],
   )
 })
 
