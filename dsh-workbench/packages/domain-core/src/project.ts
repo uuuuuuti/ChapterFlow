@@ -54,7 +54,7 @@ export function createBookProject(
     acceptedArtifactRefs: [],
     activeArtifactRefs: {},
   }
-  project.lifecycle = deriveLifecycle(project, now)
+  project.lifecycle = deriveLifecycle(project)
 
   return {
     schemaVersion: 1,
