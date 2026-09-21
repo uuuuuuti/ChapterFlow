@@ -1,6 +1,6 @@
 {
   "name": "@chapterflow/dsh-harness-adapter",
-  "version": "0.0.1-spike",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -10,6 +10,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@chapterflow/domain-core": "file:../domain-core",
+    "@chapterflow/project-store": "file:../project-store",
     "@deepseek-ai/cordis": "4.0.2",
     "@deepseek-ai/dsh-tools": "0.1.6-alpha.2",
     "@deepseek-ai/dsh-util-values": "0.1.6-alpha.2",
