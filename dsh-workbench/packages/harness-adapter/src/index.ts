@@ -1,5 +1,5 @@
 import type { Context } from '@deepseek-ai/cordis'
-import { defineTool } from '@deepseek-ai/dsh-tools'
+import { defineTool, type ToolRuntime } from '@deepseek-ai/dsh-tools'
 import type {
   WorkflowEngine,
   WorkflowMeta,
@@ -244,7 +244,12 @@ function parseCandidateKind(value: string): CandidateKind {
   )
 }
 
-export function apply(ctx: Context): void {
+type ChapterFlowHarnessContext = Context & {
+  tools: ToolRuntime
+  workflowEngine: WorkflowEngine
+}
+
+export function apply(ctx: ChapterFlowHarnessContext): void {
   const store = new LocalProjectStore()
 
   ctx.tools.register(
