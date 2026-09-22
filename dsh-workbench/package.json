@@ -10,8 +10,8 @@
     "node": ">=24.0.0"
   },
   "scripts": {
-    "build": "npm run build -w @chapterflow/domain-core && npm run build -w @chapterflow/project-store && npm run build -w @chapterflow/start-book && npm run build -w @chapterflow/dsh-harness-adapter && npm run build -w @chapterflow/dsh-client-ui",
-    "typecheck": "npm run build -w @chapterflow/domain-core && npm run build -w @chapterflow/project-store && npm run build -w @chapterflow/start-book && npm run typecheck -w @chapterflow/dsh-harness-adapter && npm run typecheck -w @chapterflow/dsh-client-ui",
+    "build": "npm run build -w @chapterflow/domain-core && npm run build -w @chapterflow/project-store && npm run build -w @chapterflow/start-book && npm run build -w @chapterflow/context-compiler && npm run build -w @chapterflow/chapter-writing && npm run build -w @chapterflow/dsh-harness-adapter && npm run build -w @chapterflow/dsh-client-ui",
+    "typecheck": "npm run build -w @chapterflow/domain-core && npm run build -w @chapterflow/project-store && npm run build -w @chapterflow/start-book && npm run build -w @chapterflow/context-compiler && npm run build -w @chapterflow/chapter-writing && npm run typecheck -w @chapterflow/dsh-harness-adapter && npm run typecheck -w @chapterflow/dsh-client-ui",
     "test": "npm run build && node --test tests/*.test.mjs",
     "profile:init": "dsh chapterflow --from-default-profile web --dump-config > /dev/null && dsh plugin --profile chapterflow add ./packages/harness-adapter ./packages/client-ui",
     "profile:dump": "dsh chapterflow --patch ./apps/profile/web.cordis.patch.yml --dump-config",
