@@ -143,9 +143,24 @@ async function prepareContext(
     )
   }
 
-  const previousChapterContent = chapterIndex > 1
-    ? await store.getAcceptedChapterContent(projectId, chapterIndex - 1)
-    : undefined
+  let previousChapterContent: string | undefined
+  if (chapterIndex > 1) {
+    const previous = snapshot.project.chapters.find(
+      (item) => item.index === chapterIndex - 1,
+    )
+    const handoff = snapshot.project.storyMemory.latestHandoff
+    const canUseHandoff = !!previous?.acceptedDraftVersion
+      && previous.settledDraftVersion === previous.acceptedDraftVersion
+      && handoff?.chapterIndex === previous.index
+      && handoff.chapterVersionId === previous.acceptedDraftVersion
+
+    if (!canUseHandoff) {
+      previousChapterContent = await store.getAcceptedChapterContent(
+        projectId,
+        chapterIndex - 1,
+      )
+    }
+  }
 
   return {
     chapterIndex,
