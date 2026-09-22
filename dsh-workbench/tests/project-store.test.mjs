@@ -99,3 +99,38 @@ test('next action is derived from committed lifecycle state', async () => {
     await rm(root, { recursive: true, force: true })
   }
 })
+
+
+test('store rejects staging against an outdated expected revision', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'chapterflow-store-'))
+  try {
+    const store = new LocalProjectStore({ rootDir: root })
+    const created = await store.createProject({ title: 'Expected Revision Test' })
+
+    const metadata = await store.stageCandidate(created.project.id, {
+      kind: 'project_metadata',
+      payload: { genre: '都市' },
+      summary: 'set genre',
+    })
+    await store.acceptCandidate(created.project.id, metadata.id)
+
+    await assert.rejects(
+      store.stageCandidate(
+        created.project.id,
+        {
+          kind: 'book_artifact',
+          payload: { artifactType: 'idea', value: { premise: 'stale context' } },
+          summary: 'stale workflow result',
+        },
+        { expectedProjectRevision: 0 },
+      ),
+      /changed from revision 0 to 1/,
+    )
+
+    const snapshot = await store.getSnapshot(created.project.id)
+    assert.equal(snapshot.project.revision, 1)
+    assert.equal(snapshot.candidates.length, 1)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
