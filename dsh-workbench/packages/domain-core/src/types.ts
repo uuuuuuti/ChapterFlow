@@ -55,6 +55,39 @@ export interface ProjectArtifact {
   projectRevision: number
 }
 
+export interface ChapterIntent {
+  chapter: number
+  purpose: string
+  readerExpectation: string
+  emotionTarget: string
+  goal: string
+  conflict: string
+  payoff: string
+  hook: string
+}
+
+export type ChapterStatus = 'planned' | 'accepted'
+
+export interface Chapter {
+  id: string
+  index: number
+  title?: string
+  intent: ChapterIntent
+  status: ChapterStatus
+  acceptedDraftVersion?: string
+}
+
+export interface ChapterVersion {
+  id: string
+  chapterId: string
+  contentHash: string
+  wordCount: number
+  createdAt: string
+  candidateId: string
+  acceptedAt: string
+  projectRevision: number
+}
+
 export interface BookProject {
   id: string
   schemaVersion: 1
@@ -68,9 +101,11 @@ export interface BookProject {
   artifacts: ProjectArtifact[]
   acceptedArtifactRefs: string[]
   activeArtifactRefs: Partial<Record<BookArtifactType, string>>
+  chapters: Chapter[]
+  chapterVersions: ChapterVersion[]
 }
 
-export type CandidateKind = 'book_artifact' | 'project_metadata'
+export type CandidateKind = 'book_artifact' | 'project_metadata' | 'chapter_draft'
 export type CandidateStatus = 'staged' | 'accepted' | 'rejected' | 'stale'
 
 export interface Candidate {
@@ -97,6 +132,12 @@ export interface ProjectMetadataCandidatePayload {
   title?: string
   genre?: string | null
   platformTarget?: string | null
+}
+
+export interface ChapterDraftCandidatePayload {
+  chapterIndex: number
+  title?: string
+  content: string
 }
 
 export interface ProjectSnapshot {
@@ -131,6 +172,8 @@ export type AcceptCandidateResult =
       project: BookProject
       candidate: Candidate
       artifact?: ProjectArtifact
+      chapterVersion?: ChapterVersion
+      chapterContent?: string
     }
   | {
       status: 'stale'
