@@ -57,6 +57,15 @@ function normalizeSnapshot(value: ProjectSnapshot): ProjectSnapshot {
       chapterVersions: Array.isArray(value.project.chapterVersions)
         ? value.project.chapterVersions
         : [],
+      storyMemory: value.project.storyMemory ?? {
+        characterStates: [],
+        relationshipEvents: [],
+        timelineEvents: [],
+        settlements: [],
+      },
+      readerMemory: value.project.readerMemory ?? {
+        promises: [],
+      },
     },
   }
 }
