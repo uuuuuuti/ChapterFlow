@@ -47,6 +47,13 @@ function activeArtifactForStage(
   return undefined
 }
 
+function firstThreeChaptersComplete(project: BookProject): boolean {
+  return [1, 2, 3].every((index) => {
+    const chapter = project.chapters.find((item) => item.index === index)
+    return !!chapter?.acceptedDraftVersion
+  })
+}
+
 function completedStages(project: BookProject): Set<BookLifecycleStage> {
   const completed = new Set<BookLifecycleStage>()
   for (const artifactType of Object.keys(project.activeArtifactRefs) as BookArtifactType[]) {
@@ -54,7 +61,43 @@ function completedStages(project: BookProject): Set<BookLifecycleStage> {
       completed.add(ARTIFACT_STAGE[artifactType])
     }
   }
+  if (firstThreeChaptersComplete(project)) completed.add('first_3_chapters')
   return completed
+}
+
+function completionTimeForStage(
+  project: BookProject,
+  stage: BookLifecycleStage,
+): string | undefined {
+  const activeArtifact = activeArtifactForStage(project, stage)
+  if (activeArtifact) return activeArtifact.acceptedAt
+
+  if (stage === 'first_3_chapters' && firstThreeChaptersComplete(project)) {
+    const acceptedVersionIds = project.chapters
+      .filter((chapter) => chapter.index >= 1 && chapter.index <= 3)
+      .map((chapter) => chapter.acceptedDraftVersion)
+      .filter((value): value is string => typeof value === 'string')
+    const acceptedTimes = acceptedVersionIds
+      .map((versionId) => project.chapterVersions.find((version) => version.id === versionId)?.acceptedAt)
+      .filter((value): value is string => typeof value === 'string')
+      .sort()
+    return acceptedTimes.at(-1)
+  }
+
+  return undefined
+}
+
+function refsForStage(project: BookProject, stage: BookLifecycleStage): string[] {
+  if (stage === 'first_3_chapters') {
+    return project.chapters
+      .filter((chapter) => chapter.index >= 1 && chapter.index <= 3)
+      .map((chapter) => chapter.acceptedDraftVersion)
+      .filter((value): value is string => typeof value === 'string')
+  }
+
+  return project.artifacts
+    .filter((artifact) => ARTIFACT_STAGE[artifact.type] === stage)
+    .map((artifact) => artifact.id)
 }
 
 export function deriveLifecycle(project: BookProject): BookLifecycle {
@@ -65,8 +108,8 @@ export function deriveLifecycle(project: BookProject): BookLifecycle {
 
   const completionTimes = new Map<BookLifecycleStage, string>()
   for (const stage of BOOK_LIFECYCLE_STAGES) {
-    const activeArtifact = activeArtifactForStage(project, stage)
-    if (activeArtifact) completionTimes.set(stage, activeArtifact.acceptedAt)
+    const completedAt = completionTimeForStage(project, stage)
+    if (completedAt) completionTimes.set(stage, completedAt)
   }
 
   const stages: LifecycleStageState[] = BOOK_LIFECYCLE_STAGES.map((stage, index) => {
@@ -78,14 +121,11 @@ export function deriveLifecycle(project: BookProject): BookLifecycle {
       : previousStage
         ? completionTimes.get(previousStage)
         : undefined
-    const artifactRefs = project.artifacts
-      .filter((artifact) => ARTIFACT_STAGE[artifact.type] === stage)
-      .map((artifact) => artifact.id)
 
     return {
       stage,
       status: isComplete ? 'complete' : isCurrent ? 'active' : 'not_started',
-      artifactRefs,
+      artifactRefs: refsForStage(project, stage),
       candidateRefs: [],
       findingRefs: [],
       ...(startedAt && (isComplete || isCurrent) ? { startedAt } : {}),
