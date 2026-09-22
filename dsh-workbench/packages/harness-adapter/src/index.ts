@@ -9,6 +9,13 @@ import type {
 import type { JsonValue as HarnessJsonValue } from '@deepseek-ai/dsh-util-values'
 import type { CandidateKind, JsonValue as DomainJsonValue } from '@chapterflow/domain-core'
 import { LocalProjectStore } from '@chapterflow/project-store'
+import { runStartBookWorkflow, toStartBookHarnessJson } from './start-book.js'
+
+export {
+  START_BOOK_WORKFLOW_META,
+  START_BOOK_WORKFLOW_SCRIPT,
+  runStartBookWorkflow,
+} from './start-book.js'
 
 export const name = 'chapterflow-harness-adapter'
 export const inject = ['tools', 'workflowEngine']
@@ -71,6 +78,7 @@ export function getAdapterStatus(): ChapterFlowAdapterStatus {
       'project-store',
       'candidate-first',
       'project-revision',
+      'start-book-workflow',
     ],
   }
 }
@@ -322,6 +330,43 @@ export function apply(ctx: Context): void {
       output: NEXT_ACTION_OUTPUT,
       async execute(args) {
         return store.getNextAction(args.projectId)
+      },
+    }),
+  )
+
+  ctx.tools.register(
+    defineTool({
+      name: 'chapterflow_start_book',
+      description:
+        'Advance exactly one StartBook lifecycle stage through a bounded specialist → critic → lead-editor workflow. The result is staged as a reviewable candidate only; it never auto-accepts committed book state. Run it again only after the current candidate is explicitly accepted or rejected.',
+      parameters: {
+        projectId: {
+          type: 'string',
+          required: true,
+          description: 'ChapterFlow book project id.',
+        },
+        userBrief: {
+          type: 'string',
+          description:
+            'Original story idea or additional author direction. Required at the idea stage and optional later.',
+        },
+      },
+      output: JSON_RESULT_OUTPUT,
+      async execute(args, exec) {
+        if (!exec.agent) {
+          throw new Error(
+            'chapterflow_start_book requires a model-driven Harness agent call',
+          )
+        }
+        const result = await runStartBookWorkflow(
+          store,
+          ctx.workflowEngine,
+          exec.agent,
+          exec.signal,
+          args.projectId,
+          args.userBrief,
+        )
+        return { value: toStartBookHarnessJson(result) }
       },
     }),
   )
