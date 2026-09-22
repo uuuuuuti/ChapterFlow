@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import {
@@ -9,6 +10,7 @@ import {
   type AcceptCandidateResult,
   type BookProject,
   type Candidate,
+  type Chapter,
   type CreateBookProjectInput,
   type ProjectSnapshot,
   type StageCandidateInput,
@@ -46,6 +48,19 @@ function isSnapshot(value: unknown): value is ProjectSnapshot {
     && Array.isArray(record.candidates)
 }
 
+function normalizeSnapshot(value: ProjectSnapshot): ProjectSnapshot {
+  return {
+    ...value,
+    project: {
+      ...value.project,
+      chapters: Array.isArray(value.project.chapters) ? value.project.chapters : [],
+      chapterVersions: Array.isArray(value.project.chapterVersions)
+        ? value.project.chapterVersions
+        : [],
+    },
+  }
+}
+
 export interface LocalProjectStoreOptions {
   rootDir?: string
 }
@@ -73,6 +88,35 @@ export class LocalProjectStore {
 
   private projectFile(projectId: string): string {
     return join(this.projectDir(projectId), 'project.snapshot.json')
+  }
+
+  private chapterVersionFile(
+    projectId: string,
+    chapterId: string,
+    versionId: string,
+  ): string {
+    assertProjectId(chapterId)
+    assertProjectId(versionId)
+    return join(
+      this.projectDir(projectId),
+      'manuscript',
+      chapterId,
+      versionId + '.md',
+    )
+  }
+
+  private async writeChapterVersionContent(
+    projectId: string,
+    chapterId: string,
+    versionId: string,
+    content: string,
+  ): Promise<void> {
+    const target = this.chapterVersionFile(projectId, chapterId, versionId)
+    const dir = join(this.projectDir(projectId), 'manuscript', chapterId)
+    await mkdir(dir, { recursive: true })
+    const temp = target + '.' + process.pid + '.' + Date.now() + '.tmp'
+    await writeFile(temp, content + '\n', 'utf8')
+    await rename(temp, target)
   }
 
   private async withProjectLock<T>(projectId: string, fn: () => Promise<T>): Promise<T> {
@@ -149,11 +193,73 @@ export class LocalProjectStore {
         `project ${projectId} snapshot has an invalid schema`,
       )
     }
-    return value
+    return normalizeSnapshot(value)
   }
 
   async getProject(projectId: string): Promise<BookProject> {
     return (await this.getSnapshot(projectId)).project
+  }
+
+  async getChapter(projectId: string, chapterIndex: number): Promise<Chapter> {
+    const project = await this.getProject(projectId)
+    const chapter = project.chapters.find((item) => item.index === chapterIndex)
+    if (!chapter) {
+      throw new ProjectStoreError(
+        'INVALID_STORE_DATA',
+        `chapter ${chapterIndex} not found in project ${projectId}`,
+      )
+    }
+    return chapter
+  }
+
+  async getAcceptedChapterContent(
+    projectId: string,
+    chapterIndex: number,
+  ): Promise<string> {
+    const snapshot = await this.getSnapshot(projectId)
+    const chapter = snapshot.project.chapters.find(
+      (item) => item.index === chapterIndex,
+    )
+    if (!chapter?.acceptedDraftVersion) {
+      throw new ProjectStoreError(
+        'INVALID_STORE_DATA',
+        `chapter ${chapterIndex} has no accepted version`,
+      )
+    }
+    const version = snapshot.project.chapterVersions.find(
+      (item) => item.id === chapter.acceptedDraftVersion,
+    )
+    if (!version) {
+      throw new ProjectStoreError(
+        'INVALID_STORE_DATA',
+        `accepted version ${chapter.acceptedDraftVersion} is missing`,
+      )
+    }
+
+    let content: string
+    try {
+      content = await readFile(
+        this.chapterVersionFile(projectId, chapter.id, version.id),
+        'utf8',
+      )
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw new ProjectStoreError(
+          'INVALID_STORE_DATA',
+          `accepted chapter body ${version.id} is missing`,
+        )
+      }
+      throw error
+    }
+    const normalized = content.replace(/\n$/, '')
+    const hash = createHash('sha256').update(normalized, 'utf8').digest('hex')
+    if (hash !== version.contentHash) {
+      throw new ProjectStoreError(
+        'INVALID_STORE_DATA',
+        `accepted chapter body ${version.id} failed content hash verification`,
+      )
+    }
+    return normalized
   }
 
   async getNextAction(projectId: string): Promise<ReturnType<typeof nextActionFor>> {
@@ -195,8 +301,23 @@ export class LocalProjectStore {
       }
       const result = acceptCandidate(snapshot.project, snapshot.candidates[index]!)
       snapshot.candidates[index] = result.candidate
-      if (result.status === 'accepted') snapshot.project = result.project
+      if (result.status === 'accepted') {
+        snapshot.project = result.project
+        if (result.chapterVersion && result.chapterContent !== undefined) {
+          await this.writeChapterVersionContent(
+            projectId,
+            result.chapterVersion.chapterId,
+            result.chapterVersion.id,
+            result.chapterContent,
+          )
+        }
+      }
       await this.writeSnapshot(snapshot)
+
+      if (result.status === 'accepted' && result.chapterContent !== undefined) {
+        const { chapterContent: _chapterContent, ...publicResult } = result
+        return publicResult
+      }
       return result
     })
   }
