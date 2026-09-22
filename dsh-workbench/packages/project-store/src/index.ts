@@ -19,6 +19,7 @@ export type ProjectStoreErrorCode =
   | 'PROJECT_ALREADY_EXISTS'
   | 'INVALID_PROJECT_ID'
   | 'INVALID_STORE_DATA'
+  | 'PROJECT_REVISION_CONFLICT'
 
 export class ProjectStoreError extends Error {
   readonly code: ProjectStoreErrorCode
@@ -47,6 +48,10 @@ function isSnapshot(value: unknown): value is ProjectSnapshot {
 
 export interface LocalProjectStoreOptions {
   rootDir?: string
+}
+
+export interface StageCandidateOptions {
+  expectedProjectRevision?: number
 }
 
 export class LocalProjectStore {
@@ -155,9 +160,22 @@ export class LocalProjectStore {
     return nextActionFor(await this.getProject(projectId))
   }
 
-  async stageCandidate(projectId: string, input: StageCandidateInput): Promise<Candidate> {
+  async stageCandidate(
+    projectId: string,
+    input: StageCandidateInput,
+    options: StageCandidateOptions = {},
+  ): Promise<Candidate> {
     return this.withProjectLock(projectId, async () => {
       const snapshot = await this.getSnapshot(projectId)
+      if (
+        options.expectedProjectRevision !== undefined
+        && snapshot.project.revision !== options.expectedProjectRevision
+      ) {
+        throw new ProjectStoreError(
+          'PROJECT_REVISION_CONFLICT',
+          `project ${projectId} changed from revision ${options.expectedProjectRevision} to ${snapshot.project.revision}`,
+        )
+      }
       const candidate = stageCandidate(snapshot.project, input)
       snapshot.candidates.push(candidate)
       await this.writeSnapshot(snapshot)
