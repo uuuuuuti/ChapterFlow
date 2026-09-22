@@ -15,6 +15,7 @@ import {
   type BookProject,
   type Candidate,
   type ChapterDraftCandidatePayload,
+  type ChapterVersion,
   type DomainFactory,
   type ProjectArtifact,
   type ProjectMetadataCandidatePayload,
@@ -149,7 +150,7 @@ export function acceptCandidate(
   const now = factory.now()
   const nextRevision = project.revision + 1
   let artifact: ProjectArtifact | undefined
-  let chapterVersion: AcceptCandidateResult extends { chapterVersion?: infer V } ? V : never
+  let chapterVersion: ChapterVersion | undefined
   let chapterContent: string | undefined
   let parsedChapterDraft: ChapterDraftCandidatePayload | undefined
 
