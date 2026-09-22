@@ -35,7 +35,7 @@ ChapterFlow 只实现 Harness 不知道的“小说专业能力”：
 
 ## 当前进度
 
-**Architecture V0.1 + Harness Adapter Spike V0.1 + Domain Core V0.1**
+**Architecture V0.1 + Harness Adapter Spike V0.1 + Domain Core V0.1 + StartBook Workflow V0.1**
 
 当前已经通过 CI 验证：
 
@@ -53,8 +53,14 @@ ChapterFlow 只实现 Harness 不知道的“小说专业能力”：
 - 生命周期阶段顺序约束
 - 本地持久化 Project Store
 - Session-independent 项目重开
+- `@chapterflow/start-book` 独立领域能力包
+- `chapterflow_start_book` 固定 Workflow façade
+- Specialist → Critic → Lead Editor 三段开书协作
+- 六阶段 StartBook 结构化输出校验
+- Workflow 期间 revision 冲突保护
+- 完整 `idea → opening_blueprint → first_3_chapters` Candidate/Accept 状态机验收
 
-当前仍未实现 StartBook / 写章 / Story Memory / Reader Memory / AI 责编。
+当前仍未实现 Chapter 正文版本、Context Compiler、Story Memory、Reader Memory、AI 责编。
 
 ## 快速运行
 
@@ -82,6 +88,7 @@ npm run dev
 - `chapterflow_book_create`
 - `chapterflow_book_get_state`
 - `chapterflow_book_get_next_action`
+- `chapterflow_start_book`
 - `chapterflow_candidate_stage`
 - `chapterflow_candidate_accept`
 - `chapterflow_candidate_reject`
@@ -105,6 +112,7 @@ topic 设置为 "ChapterFlow Harness integration"。
 - [DOMAIN-MODEL.md](./docs/DOMAIN-MODEL.md) — 小说领域模型、状态与存储规范
 - [V1-ACCEPTANCE.md](./docs/V1-ACCEPTANCE.md) — 第一阶段实现范围与端到端验收标准
 - [ADAPTER-SPIKE.md](./docs/ADAPTER-SPIKE.md) — Harness Adapter Spike 的真实实现、验证结果、集成坑与已确认 ADR
+- [START-BOOK.md](./docs/START-BOOK.md) — StartBook 六阶段 Workflow、Candidate 边界、结构契约与并发保护
 
 ## 关键原则
 
@@ -118,16 +126,19 @@ topic 设置为 "ChapterFlow Harness integration"。
 
 ## 下一阶段
 
-Harness Adapter 与 Domain Core 的基础边界已经验证完成。
+Harness Adapter、Domain Core 与 StartBook 六阶段状态机已经验证完成。
 
-下一步进入第一个真实业务 Slice：
+下一步进入 **Chapter Writing Slice V0.1**：
 
-**StartBook Workflow V0.1**
+`accepted opening_blueprint → Chapter 1 Intent → Context Packet → WriteChapter Workflow → Draft Candidate → Accept → Chapter Version`
 
-目标是把：
+优先实现：
 
-`idea → direction → positioning → story_engine → packaging → opening_blueprint`
+1. Chapter aggregate 与正文版本；
+2. 从 Opening Blueprint 投影 Chapter Intent 1–3；
+3. Context Compiler V0.1；
+4. `chapterflow_write_chapter` 有界 Workflow；
+5. 第一章 Draft Candidate / Accept；
+6. 接受后立即进入最小 Chapter Settlement，为 Story Memory / Reader Memory 铺路。
 
-串成一个真正由 Harness Workflow / Subagent 驱动、但所有正式结果仍通过 Candidate 接受的开书流程。
-
-Domain Core V0.1 当前只允许按生命周期顺序接受 Artifact；已完成阶段的“回改 + 下游失效”将在后续 Revision Domain 中显式建模，不在这里偷偷覆盖。
+Domain Core 当前仍只允许按生命周期顺序接受开书 Artifact；已完成阶段的“回改 + 下游失效”将在 Revision Domain 中显式建模，不通过覆盖旧 Artifact 偷做。
