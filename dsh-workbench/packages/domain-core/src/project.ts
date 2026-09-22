@@ -55,6 +55,15 @@ export function createBookProject(
     activeArtifactRefs: {},
     chapters: [],
     chapterVersions: [],
+    storyMemory: {
+      characterStates: [],
+      relationshipEvents: [],
+      timelineEvents: [],
+      settlements: [],
+    },
+    readerMemory: {
+      promises: [],
+    },
   }
   project.lifecycle = deriveLifecycle(project)
 
