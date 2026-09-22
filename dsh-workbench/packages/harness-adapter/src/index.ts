@@ -386,6 +386,39 @@ export function apply(ctx: Context): void {
 
   ctx.tools.register(
     defineTool({
+      name: 'chapterflow_chapter_get',
+      description:
+        'Read one ChapterFlow chapter metadata record and, when accepted, its hash-verified immutable manuscript body.',
+      parameters: {
+        projectId: {
+          type: 'string',
+          required: true,
+          description: 'ChapterFlow book project id.',
+        },
+        chapterIndex: {
+          type: 'integer',
+          required: true,
+          description: '1-based chapter index.',
+        },
+      },
+      output: JSON_RESULT_OUTPUT,
+      async execute(args) {
+        const chapter = await store.getChapter(args.projectId, args.chapterIndex)
+        const content = chapter.acceptedDraftVersion
+          ? await store.getAcceptedChapterContent(args.projectId, args.chapterIndex)
+          : undefined
+        return {
+          value: toHarnessJson({
+            chapter,
+            ...(content !== undefined ? { content } : {}),
+          }),
+        }
+      },
+    }),
+  )
+
+  ctx.tools.register(
+    defineTool({
       name: 'chapterflow_context_compile',
       description:
         'Compile the explainable committed context packet for the next opening chapter. This is read-only and does not call an LLM.',
