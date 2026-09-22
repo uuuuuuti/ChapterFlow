@@ -835,4 +835,12 @@ Domain Core V0.1 已进一步确认：
 4. Visual ViewSpec 最终通过 Remote service、Session projection，还是两者组合暴露给客户端。
 5. 右侧 Artifact Canvas 是使用 Sidebar keyed tab，还是 Conversation View + Sidebar 的组合。
 
-这些未决项不阻塞 StartBook Workflow V0.1。
+StartBook Workflow V0.1 已进一步确认：
+
+1. **StartBook 必须按 lifecycle stage 可恢复执行。** 每次只生成当前阶段一个 Candidate，接受后 revision +1，再进入下一阶段；禁止一次预生成六个会立即 stale 的 Candidate。
+2. **开书生成采用 Specialist → Critic → Lead Editor。** Harness Workflow 负责临时协作，最终只有 Lead Editor 的结构化 Artifact 能进入 Candidate 校验。
+3. **StartBook Context 只读取 committed active artifacts。** rejected / staged Candidate 不是 Domain Truth，不进入下游正式上下文。
+4. **模型输出必须先经过确定性结构校验。** 无效 JSON、缺字段、多余高风险字段或错误前三章 Intent 结构都不能进入 Candidate。
+5. **Workflow 完成后仍要二次 revision guard。** Project Store 在写锁内核对 `expectedProjectRevision`，防止多 Session 并发把 stale context 结果放进候选队列。
+
+这些未决项不阻塞 Chapter Writing Slice V0.1。
