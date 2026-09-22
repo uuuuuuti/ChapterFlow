@@ -53,6 +53,8 @@ export function createBookProject(
     artifacts: [],
     acceptedArtifactRefs: [],
     activeArtifactRefs: {},
+    chapters: [],
+    chapterVersions: [],
   }
   project.lifecycle = deriveLifecycle(project)
 
