@@ -1,8 +1,8 @@
 # ChapterFlow Domain Model V0.1
 
-> Implementation status: **Domain Core V0.1 implemented**  
-> Implemented now: BookProject, Lifecycle, Candidate, Project Revision, accepted Project Artifact, Local Project Store.  
-> Deferred: Chapter, Settlement, Story Memory, Reader Memory, Review Finding, Context Packet, ViewSpec.
+> Implementation status: **Domain Core + Chapter/Settlement Memory V0.1 implemented**  
+> Implemented now: BookProject, Lifecycle, Candidate, Project Revision, Project Artifact, Chapter/ChapterVersion, Chapter Settlement, Story Memory, Reader Memory, Chapter Handoff, Context Packet, Local Project Store.  
+> Deferred: locked Canon Fact, historical Character State snapshots, Foreshadow Memory, Review Finding, ViewSpec.
 
 ## 0. Domain Core V0.1 Runtime Contract
 
@@ -33,6 +33,10 @@ V0.1 选择单文件原子 rename，是为了先验证 **Session-independent Dom
 6. 已完成阶段暂不允许通过普通 `book_artifact` 静默覆盖；未来由显式 Revision / downstream invalidation 机制处理。
 7. Store 在同一 Harness Host 进程内对同项目写入串行化；跨进程写锁尚未实现。
 8. Harness Session 生命周期不拥有 Project Store；删除或切换 Session 不删除作品事实。
+9. 接受 Chapter Draft 只创建 immutable ChapterVersion，不自动把模型抽取结果写入长期记忆。
+10. 每个 accepted ChapterVersion 必须通过 `chapter_settlement` Candidate 明确结算后，Story Memory / Reader Memory / Handoff 才更新。
+11. 下一章默认要求上一章已 Settlement；Context Compiler 优先读取 Handoff + Memory。
+12. 前三章必须全部 accepted + settled 才完成 `first_3_chapters` 阶段。
 
 ---
 
