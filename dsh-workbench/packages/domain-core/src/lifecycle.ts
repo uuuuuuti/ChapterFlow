@@ -51,6 +51,7 @@ function firstThreeChaptersComplete(project: BookProject): boolean {
   return [1, 2, 3].every((index) => {
     const chapter = project.chapters.find((item) => item.index === index)
     return !!chapter?.acceptedDraftVersion
+      && chapter.settledDraftVersion === chapter.acceptedDraftVersion
   })
 }
 
@@ -151,6 +152,28 @@ export function nextActionFor(project: BookProject): {
   blockers: string[]
 } {
   const lifecycle = deriveLifecycle(project)
+
+  if (lifecycle.currentStage === 'first_3_chapters') {
+    const unsettled = [...project.chapters]
+      .filter((chapter) =>
+        chapter.acceptedDraftVersion
+        && chapter.settledDraftVersion !== chapter.acceptedDraftVersion,
+      )
+      .sort((a, b) => a.index - b.index)[0]
+    if (unsettled) {
+      return {
+        projectId: project.id,
+        revision: project.revision,
+        currentStage: lifecycle.currentStage,
+        nextAction:
+          'Settle accepted chapter '
+          + unsettled.index
+          + ' into Story Memory, Reader Memory, and Chapter Handoff before writing the next chapter.',
+        blockers: ['chapter_' + unsettled.index + '_settlement_required'],
+      }
+    }
+  }
+
   return {
     projectId: project.id,
     revision: project.revision,
