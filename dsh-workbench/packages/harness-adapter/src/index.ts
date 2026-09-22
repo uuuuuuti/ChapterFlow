@@ -10,12 +10,23 @@ import type { JsonValue as HarnessJsonValue } from '@deepseek-ai/dsh-util-values
 import type { CandidateKind, JsonValue as DomainJsonValue } from '@chapterflow/domain-core'
 import { LocalProjectStore } from '@chapterflow/project-store'
 import { runStartBookWorkflow, toStartBookHarnessJson } from './start-book.js'
+import {
+  compileProjectChapterContext,
+  runWriteChapterWorkflow,
+  toWriteChapterHarnessJson,
+} from './write-chapter.js'
 
 export {
   START_BOOK_WORKFLOW_META,
   START_BOOK_WORKFLOW_SCRIPT,
   runStartBookWorkflow,
 } from './start-book.js'
+export {
+  WRITE_CHAPTER_WORKFLOW_META,
+  WRITE_CHAPTER_WORKFLOW_SCRIPT,
+  compileProjectChapterContext,
+  runWriteChapterWorkflow,
+} from './write-chapter.js'
 
 export const name = 'chapterflow-harness-adapter'
 export const inject = ['tools', 'workflowEngine']
@@ -79,6 +90,8 @@ export function getAdapterStatus(): ChapterFlowAdapterStatus {
       'candidate-first',
       'project-revision',
       'start-book-workflow',
+      'context-compiler',
+      'chapter-writing-workflow',
     ],
   }
 }
@@ -367,6 +380,78 @@ export function apply(ctx: Context): void {
           args.userBrief,
         )
         return { value: toStartBookHarnessJson(result) }
+      },
+    }),
+  )
+
+  ctx.tools.register(
+    defineTool({
+      name: 'chapterflow_context_compile',
+      description:
+        'Compile the explainable committed context packet for the next opening chapter. This is read-only and does not call an LLM.',
+      parameters: {
+        projectId: {
+          type: 'string',
+          required: true,
+          description: 'ChapterFlow book project id.',
+        },
+        chapterIndex: {
+          type: 'integer',
+          description:
+            'Optional opening chapter index. When omitted, ChapterFlow selects the next unaccepted chapter.',
+        },
+      },
+      output: JSON_RESULT_OUTPUT,
+      async execute(args) {
+        const packet = await compileProjectChapterContext(
+          store,
+          args.projectId,
+          args.chapterIndex,
+        )
+        return { value: toHarnessJson(packet) }
+      },
+    }),
+  )
+
+  ctx.tools.register(
+    defineTool({
+      name: 'chapterflow_write_chapter',
+      description:
+        'Write exactly the next unaccepted opening chapter through a bounded writer → editor → rewriter workflow. The final prose is staged as a chapter_draft candidate only; committed chapter state changes only after explicit candidate acceptance.',
+      parameters: {
+        projectId: {
+          type: 'string',
+          required: true,
+          description: 'ChapterFlow book project id.',
+        },
+        chapterIndex: {
+          type: 'integer',
+          description:
+            'Optional chapter index. V0.1 only permits the deterministic next unaccepted opening chapter.',
+        },
+        userBrief: {
+          type: 'string',
+          description:
+            'Optional author direction for this chapter. It cannot override committed facts silently.',
+        },
+      },
+      output: JSON_RESULT_OUTPUT,
+      async execute(args, exec) {
+        if (!exec.agent) {
+          throw new Error(
+            'chapterflow_write_chapter requires a model-driven Harness agent call',
+          )
+        }
+        const result = await runWriteChapterWorkflow(
+          store,
+          ctx.workflowEngine,
+          exec.agent,
+          exec.signal,
+          args.projectId,
+          args.chapterIndex,
+          args.userBrief,
+        )
+        return { value: toWriteChapterHarnessJson(result) }
       },
     }),
   )
