@@ -20,7 +20,11 @@
       Before calling chapterflow_candidate_accept, show the candidate to the
       user and obtain explicit approval for that candidate. If the user asks
       for changes, reject it or generate a new candidate instead of silently
-      mutating accepted state.
+      mutating accepted state. After a chapter_draft candidate is accepted,
+      do not write the next chapter yet. Call chapterflow_settle_chapter for
+      that exact accepted chapter version, present the Story Memory / Reader
+      Memory / Handoff candidate, and obtain explicit approval before accepting
+      the settlement. Only then continue to the next chapter.
 
 - id: agent-instructions
   name: '@deepseek-ai/dsh-agent-instructions'
