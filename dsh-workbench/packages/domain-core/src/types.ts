@@ -75,6 +75,116 @@ export interface Chapter {
   intent: ChapterIntent
   status: ChapterStatus
   acceptedDraftVersion?: string
+  settledDraftVersion?: string
+}
+
+export interface CharacterMemoryState {
+  characterKey: string
+  name: string
+  physicalState?: string
+  emotionalState?: string
+  location?: string
+  knows: string[]
+  believes: string[]
+  hides: string[]
+  possessions: string[]
+  unresolvedConflicts: string[]
+  chapterIndex?: number
+  chapterVersionId?: string
+  settlementId?: string
+}
+
+export interface RelationshipMemoryEvent {
+  id?: string
+  fromCharacterKey: string
+  toCharacterKey: string
+  type: string
+  change: string
+  evidence: string
+  tension?: string
+  trust?: string
+  affinity?: string
+  chapterIndex?: number
+  chapterVersionId?: string
+  settlementId?: string
+}
+
+export interface StoryEvent {
+  id?: string
+  title: string
+  summary: string
+  storyOrder: number
+  characterKeys: string[]
+  location?: string
+  chapterIndex?: number
+  chapterVersionId?: string
+  settlementId?: string
+}
+
+export type ReaderPromiseAction = 'OPEN' | 'ADVANCE' | 'PAYOFF'
+
+export interface ReaderPromiseEvent {
+  action: ReaderPromiseAction
+  chapterIndex: number
+  evidence: string
+  note?: string
+}
+
+export interface ReaderPromise {
+  key: string
+  title: string
+  description: string
+  status: 'open' | 'paid_off' | 'abandoned'
+  openedChapterIndex: number
+  events: ReaderPromiseEvent[]
+}
+
+export interface ReaderPromiseOperation {
+  action: ReaderPromiseAction
+  key: string
+  title?: string
+  description?: string
+  evidence: string
+  note?: string
+}
+
+export interface ChapterHandoff {
+  chapterIndex?: number
+  chapterVersionId?: string
+  settlementId?: string
+  endingSituation: string
+  unresolvedConflicts: string[]
+  immediateQuestions: string[]
+  activeCharacterKeys: string[]
+  nextChapterPressures: string[]
+  continuityWarnings: string[]
+}
+
+export interface ChapterSettlement {
+  id: string
+  chapterIndex: number
+  chapterVersionId: string
+  summary: string
+  characterKeys: string[]
+  relationshipEventIds: string[]
+  timelineEventIds: string[]
+  readerPromiseKeys: string[]
+  handoff: ChapterHandoff
+  acceptedCandidateId: string
+  acceptedAt: string
+  projectRevision: number
+}
+
+export interface StoryMemory {
+  characterStates: CharacterMemoryState[]
+  relationshipEvents: RelationshipMemoryEvent[]
+  timelineEvents: StoryEvent[]
+  settlements: ChapterSettlement[]
+  latestHandoff?: ChapterHandoff
+}
+
+export interface ReaderMemory {
+  promises: ReaderPromise[]
 }
 
 export interface ChapterVersion {
@@ -103,9 +213,11 @@ export interface BookProject {
   activeArtifactRefs: Partial<Record<BookArtifactType, string>>
   chapters: Chapter[]
   chapterVersions: ChapterVersion[]
+  storyMemory: StoryMemory
+  readerMemory: ReaderMemory
 }
 
-export type CandidateKind = 'book_artifact' | 'project_metadata' | 'chapter_draft'
+export type CandidateKind = 'book_artifact' | 'project_metadata' | 'chapter_draft' | 'chapter_settlement'
 export type CandidateStatus = 'staged' | 'accepted' | 'rejected' | 'stale'
 
 export interface Candidate {
@@ -138,6 +250,17 @@ export interface ChapterDraftCandidatePayload {
   chapterIndex: number
   title?: string
   content: string
+}
+
+export interface ChapterSettlementCandidatePayload {
+  chapterIndex: number
+  chapterVersionId: string
+  summary: string
+  characterStates: CharacterMemoryState[]
+  relationshipEvents: RelationshipMemoryEvent[]
+  timelineEvents: StoryEvent[]
+  readerPromiseOperations: ReaderPromiseOperation[]
+  handoff: ChapterHandoff
 }
 
 export interface ProjectSnapshot {
@@ -174,6 +297,7 @@ export type AcceptCandidateResult =
       artifact?: ProjectArtifact
       chapterVersion?: ChapterVersion
       chapterContent?: string
+      settlement?: ChapterSettlement
     }
   | {
       status: 'stale'
