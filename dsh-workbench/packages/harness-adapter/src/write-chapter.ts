@@ -148,10 +148,20 @@ async function prepareContext(
     const previous = snapshot.project.chapters.find(
       (item) => item.index === chapterIndex - 1,
     )
+    if (!previous?.acceptedDraftVersion) {
+      throw new Error('Previous chapter ' + (chapterIndex - 1) + ' is not accepted')
+    }
+    if (previous.settledDraftVersion !== previous.acceptedDraftVersion) {
+      throw new Error(
+        'Previous chapter '
+        + (chapterIndex - 1)
+        + ' must be settled before writing chapter '
+        + chapterIndex,
+      )
+    }
+
     const handoff = snapshot.project.storyMemory.latestHandoff
-    const canUseHandoff = !!previous?.acceptedDraftVersion
-      && previous.settledDraftVersion === previous.acceptedDraftVersion
-      && handoff?.chapterIndex === previous.index
+    const canUseHandoff = handoff?.chapterIndex === previous.index
       && handoff.chapterVersionId === previous.acceptedDraftVersion
 
     if (!canUseHandoff) {
