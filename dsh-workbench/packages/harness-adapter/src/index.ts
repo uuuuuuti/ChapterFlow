@@ -15,6 +15,10 @@ import {
   runWriteChapterWorkflow,
   toWriteChapterHarnessJson,
 } from './write-chapter.js'
+import {
+  runSettleChapterWorkflow,
+  toSettleChapterHarnessJson,
+} from './settle-chapter.js'
 
 export {
   START_BOOK_WORKFLOW_META,
@@ -27,6 +31,11 @@ export {
   compileProjectChapterContext,
   runWriteChapterWorkflow,
 } from './write-chapter.js'
+export {
+  SETTLE_CHAPTER_WORKFLOW_META,
+  SETTLE_CHAPTER_WORKFLOW_SCRIPT,
+  runSettleChapterWorkflow,
+} from './settle-chapter.js'
 
 export const name = 'chapterflow-harness-adapter'
 export const inject = ['tools', 'workflowEngine']
@@ -92,6 +101,9 @@ export function getAdapterStatus(): ChapterFlowAdapterStatus {
       'start-book-workflow',
       'context-compiler',
       'chapter-writing-workflow',
+      'story-memory',
+      'reader-memory',
+      'chapter-settlement-workflow',
     ],
   }
 }
@@ -485,6 +497,43 @@ export function apply(ctx: Context): void {
           args.userBrief,
         )
         return { value: toWriteChapterHarnessJson(result) }
+      },
+    }),
+  )
+
+  ctx.tools.register(
+    defineTool({
+      name: 'chapterflow_settle_chapter',
+      description:
+        'Extract Story Memory, Reader Memory, and a next-chapter handoff from one accepted chapter version. The result is staged as a chapter_settlement candidate and never auto-committed.',
+      parameters: {
+        projectId: {
+          type: 'string',
+          required: true,
+          description: 'ChapterFlow book project id.',
+        },
+        chapterIndex: {
+          type: 'integer',
+          required: true,
+          description: 'Accepted chapter index that has not yet been settled.',
+        },
+      },
+      output: JSON_RESULT_OUTPUT,
+      async execute(args, exec) {
+        if (!exec.agent) {
+          throw new Error(
+            'chapterflow_settle_chapter requires a model-driven Harness agent call',
+          )
+        }
+        const result = await runSettleChapterWorkflow(
+          store,
+          ctx.workflowEngine,
+          exec.agent,
+          exec.signal,
+          args.projectId,
+          args.chapterIndex,
+        )
+        return { value: toSettleChapterHarnessJson(result) }
       },
     }),
   )
