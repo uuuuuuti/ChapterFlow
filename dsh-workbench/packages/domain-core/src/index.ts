@@ -1,4 +1,5 @@
 export * from './candidate.js'
+export * from './chapter.js'
 export * from './errors.js'
 export * from './json.js'
 export * from './lifecycle.js'
