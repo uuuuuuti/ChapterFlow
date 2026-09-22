@@ -82,6 +82,50 @@ async function advanceToFirstThree(store, projectId) {
   }
 }
 
+async function settleAcceptedChapter(store, projectId, chapterIndex, versionId) {
+  const candidate = await store.stageCandidate(projectId, {
+    kind: 'chapter_settlement',
+    payload: {
+      chapterIndex,
+      chapterVersionId: versionId,
+      summary: 'settled chapter ' + chapterIndex,
+      characterStates: [
+        {
+          characterKey: 'zhou_cen',
+          name: '周岑',
+          emotionalState: '持续警觉',
+          knows: ['已发生章节 ' + chapterIndex],
+          believes: [],
+          hides: ['能力来源'],
+          possessions: [],
+          unresolvedConflicts: ['继续调查能力与案件'],
+        },
+      ],
+      relationshipEvents: [],
+      timelineEvents: [
+        {
+          title: '章节事件 ' + chapterIndex,
+          summary: '章节 ' + chapterIndex + ' 的核心事件已发生。',
+          storyOrder: chapterIndex,
+          characterKeys: ['zhou_cen'],
+        },
+      ],
+      readerPromiseOperations: [],
+      handoff: {
+        endingSituation: '章节 ' + chapterIndex + ' 结束，新的压力形成。',
+        unresolvedConflicts: ['核心谜团仍未解决'],
+        immediateQuestions: ['下一步如何推进'],
+        activeCharacterKeys: ['zhou_cen'],
+        nextChapterPressures: ['继续推进主线'],
+        continuityWarnings: [],
+      },
+    },
+    summary: 'settlement ' + chapterIndex,
+  })
+  return store.acceptCandidate(projectId, candidate.id)
+}
+
+
 function chapterBody(index) {
   const paragraph =
     '周岑盯着屏幕上的倒计时，没有立刻开口。他知道自己看到的不是答案，只是一种即将发生的选择。柜台外的人还在催促，规则、风险和责任同时压了过来。'
@@ -220,7 +264,7 @@ test('WriteChapter stages prose as a candidate and acceptance stores immutable b
   }
 })
 
-test('chapters must be written sequentially and later context carries the previous accepted body', async () => {
+test('chapters must be written sequentially and prior settlement is mandatory', async () => {
   const root = await mkdtemp(join(tmpdir(), 'chapterflow-writing-'))
   try {
     const store = new LocalProjectStore({ rootDir: root })
@@ -246,13 +290,29 @@ test('chapters must be written sequentially and later context carries the previo
       new AbortController().signal,
       created.project.id,
     )
-    await store.acceptCandidate(created.project.id, chapter1.candidate.id)
+    const accepted1 = await store.acceptCandidate(created.project.id, chapter1.candidate.id)
+
+    await assert.rejects(
+      compileProjectChapterContext(store, created.project.id, 2),
+      /must be settled before writing chapter 2/,
+    )
+
+    const next = await store.getNextAction(created.project.id)
+    assert.match(next.nextAction, /Settle accepted chapter 1/)
+    assert.deepEqual(next.blockers, ['chapter_1_settlement_required'])
+
+    await settleAcceptedChapter(
+      store,
+      created.project.id,
+      1,
+      accepted1.chapterVersion.id,
+    )
 
     const packet2 = await compileProjectChapterContext(store, created.project.id, 2)
-    assert.equal(packet2.previousChapter.index, 1)
-    assert.equal(packet2.previousChapter.content, chapterBody(1))
+    assert.equal(packet2.previousChapter, undefined)
+    assert.equal(packet2.previousHandoff.chapterIndex, 1)
     assert.equal(
-      packet2.manifest.some((item) => item.kind === 'previous_chapter'),
+      packet2.manifest.some((item) => item.kind === 'chapter_handoff'),
       true,
     )
   } finally {
@@ -260,7 +320,7 @@ test('chapters must be written sequentially and later context carries the previo
   }
 })
 
-test('three accepted chapter versions complete first_3_chapters lifecycle stage', async () => {
+test('three accepted and settled chapters complete first_3_chapters lifecycle stage', async () => {
   const root = await mkdtemp(join(tmpdir(), 'chapterflow-writing-'))
   try {
     const store = new LocalProjectStore({ rootDir: root })
@@ -280,17 +340,31 @@ test('three accepted chapter versions complete first_3_chapters lifecycle stage'
         generated.candidate.id,
       )
       assert.equal(accepted.status, 'accepted')
-      assert.equal(accepted.project.revision, 6 + chapterIndex)
+      assert.equal(accepted.project.lifecycle.currentStage, 'first_3_chapters')
+
+      const settled = await settleAcceptedChapter(
+        store,
+        created.project.id,
+        chapterIndex,
+        accepted.chapterVersion.id,
+      )
+      assert.equal(settled.status, 'accepted')
+      assert.equal(settled.project.revision, 6 + chapterIndex * 2)
     }
 
     const snapshot = await store.getSnapshot(created.project.id)
-    assert.equal(snapshot.project.revision, 9)
+    assert.equal(snapshot.project.revision, 12)
     assert.equal(snapshot.project.lifecycle.currentStage, 'opening_review')
     assert.deepEqual(
       snapshot.project.chapters.map((chapter) => chapter.status),
       ['accepted', 'accepted', 'accepted'],
     )
+    assert.deepEqual(
+      snapshot.project.chapters.map((chapter) => chapter.settledDraftVersion),
+      snapshot.project.chapters.map((chapter) => chapter.acceptedDraftVersion),
+    )
     assert.equal(snapshot.project.chapterVersions.length, 3)
+    assert.equal(snapshot.project.storyMemory.settlements.length, 3)
   } finally {
     await rm(root, { recursive: true, force: true })
   }
