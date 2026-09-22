@@ -5,7 +5,10 @@ import { join } from 'node:path'
 import test from 'node:test'
 
 import { LocalProjectStore } from '../packages/project-store/dist/index.js'
-import { compileProjectChapterContext } from '../packages/harness-adapter/dist/index.js'
+import {
+  compileProjectChapterContext,
+  runSettleChapterWorkflow,
+} from '../packages/harness-adapter/dist/index.js'
 
 const OPENING_BLUEPRINT = {
   corePromise: '风险决定会不断逼迫主角干预。',
@@ -157,6 +160,70 @@ function settlementPayload(versionId) {
     },
   }
 }
+
+test('SettleChapter workflow stages memory as a candidate without auto-committing it', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'chapterflow-settlement-'))
+  try {
+    const store = new LocalProjectStore({ rootDir: root })
+    const created = await store.createProject({ title: 'Workflow Settlement Test' })
+    await advanceToWriting(store, created.project.id)
+    const version = await acceptChapterOne(store, created.project.id)
+    const before = await store.getSnapshot(created.project.id)
+
+    const final = settlementPayload(version.id)
+    const engine = {
+      start(request) {
+        assert.equal(request.args.chapterIndex, 1)
+        assert.equal(request.args.chapterVersionId, version.id)
+        assert.match(request.args.chapterContent, /周岑/)
+        return {
+          id: 'settlement-run-1',
+          meta: request.meta,
+          result: Promise.resolve({
+            value: {
+              extracted: JSON.stringify(final),
+              finalSettlement: JSON.stringify(final),
+            },
+            stopReason: 'completed',
+            agentsStarted: 2,
+          }),
+          cancel() {},
+          async dispose() {},
+        }
+      },
+    }
+
+    const result = await runSettleChapterWorkflow(
+      store,
+      engine,
+      { id: 'parent-agent' },
+      new AbortController().signal,
+      created.project.id,
+      1,
+    )
+
+    assert.equal(result.workflowRunId, 'settlement-run-1')
+    assert.equal(result.agentsStarted, 2)
+    assert.equal(result.candidate.kind, 'chapter_settlement')
+    assert.equal(result.candidate.status, 'staged')
+    assert.equal(result.requiresAcceptance, true)
+
+    const staged = await store.getSnapshot(created.project.id)
+    assert.equal(staged.project.revision, before.project.revision)
+    assert.equal(staged.project.storyMemory.settlements.length, 0)
+    assert.equal(staged.project.chapters[0].settledDraftVersion, undefined)
+
+    const accepted = await store.acceptCandidate(
+      created.project.id,
+      result.candidate.id,
+    )
+    assert.equal(accepted.status, 'accepted')
+    assert.equal(accepted.project.revision, before.project.revision + 1)
+    assert.equal(accepted.project.storyMemory.settlements.length, 1)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
 
 test('accepted chapter settlement commits story memory, reader memory, and handoff', async () => {
   const root = await mkdtemp(join(tmpdir(), 'chapterflow-settlement-'))
