@@ -7,6 +7,7 @@ import {
   parseChapterDraftPayload,
 } from './chapter.js'
 import { systemDomainFactory } from './project.js'
+import { acceptChapterSettlement, parseChapterSettlementPayload } from './settlement.js'
 import {
   BOOK_ARTIFACT_TYPES,
   type AcceptCandidateResult,
@@ -15,6 +16,8 @@ import {
   type BookProject,
   type Candidate,
   type ChapterDraftCandidatePayload,
+  type ChapterSettlement,
+  type ChapterSettlementCandidatePayload,
   type ChapterVersion,
   type DomainFactory,
   type ProjectArtifact,
@@ -87,6 +90,10 @@ export function validateCandidatePayload(kind: Candidate['kind'], payload: unkno
     parseChapterDraftPayload(payload)
     return
   }
+  if (kind === 'chapter_settlement') {
+    parseChapterSettlementPayload(payload)
+    return
+  }
   throw new DomainError('UNSUPPORTED_CANDIDATE_KIND', `unsupported candidate kind: ${kind}`)
 }
 
@@ -153,6 +160,8 @@ export function acceptCandidate(
   let chapterVersion: ChapterVersion | undefined
   let chapterContent: string | undefined
   let parsedChapterDraft: ChapterDraftCandidatePayload | undefined
+  let parsedSettlement: ChapterSettlementCandidatePayload | undefined
+  let settlement: ChapterSettlement | undefined
 
   let nextProject: BookProject = {
     ...project,
@@ -163,6 +172,19 @@ export function acceptCandidate(
     activeArtifactRefs: { ...project.activeArtifactRefs },
     chapters: project.chapters.map((chapter) => ({ ...chapter, intent: { ...chapter.intent } })),
     chapterVersions: [...project.chapterVersions],
+    storyMemory: {
+      characterStates: project.storyMemory.characterStates.map((item) => ({ ...item })),
+      relationshipEvents: project.storyMemory.relationshipEvents.map((item) => ({ ...item })),
+      timelineEvents: project.storyMemory.timelineEvents.map((item) => ({ ...item })),
+      settlements: project.storyMemory.settlements.map((item) => ({ ...item, handoff: { ...item.handoff } })),
+      ...(project.storyMemory.latestHandoff ? { latestHandoff: { ...project.storyMemory.latestHandoff } } : {}),
+    },
+    readerMemory: {
+      promises: project.readerMemory.promises.map((item) => ({
+        ...item,
+        events: item.events.map((event) => ({ ...event })),
+      })),
+    },
   }
 
   if (candidate.kind === 'book_artifact') {
@@ -214,6 +236,18 @@ export function acceptCandidate(
     nextProject = acceptedChapter.project
     chapterVersion = acceptedChapter.version
     chapterContent = acceptedChapter.content
+  } else if (candidate.kind === 'chapter_settlement') {
+    parsedSettlement = parseChapterSettlementPayload(candidate.payload)
+    const acceptedSettlement = acceptChapterSettlement(
+      nextProject,
+      candidate.id,
+      parsedSettlement,
+      nextRevision,
+      now,
+      factory,
+    )
+    nextProject = acceptedSettlement.project
+    settlement = acceptedSettlement.settlement
   } else {
     throw new DomainError(
       'UNSUPPORTED_CANDIDATE_KIND',
@@ -231,7 +265,14 @@ export function acceptCandidate(
           contentHash: chapterVersion.contentHash,
           wordCount: chapterVersion.wordCount,
         }
-      : candidate.payload
+      : candidate.kind === 'chapter_settlement' && parsedSettlement && settlement
+        ? {
+            chapterIndex: parsedSettlement.chapterIndex,
+            chapterVersionId: parsedSettlement.chapterVersionId,
+            settlementId: settlement.id,
+            summary: settlement.summary,
+          }
+        : candidate.payload
 
   const accepted: Candidate = {
     ...candidate,
@@ -247,6 +288,7 @@ export function acceptCandidate(
     ...(artifact ? { artifact } : {}),
     ...(chapterVersion ? { chapterVersion } : {}),
     ...(chapterContent ? { chapterContent } : {}),
+    ...(settlement ? { settlement } : {}),
   }
 }
 
