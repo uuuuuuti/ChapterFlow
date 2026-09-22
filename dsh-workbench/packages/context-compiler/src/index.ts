@@ -29,6 +29,13 @@ export interface ChapterContextPacket {
     index: number
     content: string
   }
+  previousHandoff?: ProjectSnapshot['project']['storyMemory']['latestHandoff']
+  storyMemory: {
+    characterStates: ProjectSnapshot['project']['storyMemory']['characterStates']
+    relationshipEvents: ProjectSnapshot['project']['storyMemory']['relationshipEvents']
+    timelineEvents: ProjectSnapshot['project']['storyMemory']['timelineEvents']
+  }
+  readerMemory: ProjectSnapshot['project']['readerMemory']
   manifest: ContextManifestItem[]
 }
 
@@ -101,6 +108,7 @@ export function compileChapterContext(
   }
 
   let previousChapter: ChapterContextPacket['previousChapter']
+  let previousHandoff: ChapterContextPacket['previousHandoff']
   if (chapterIndex > 1) {
     const previous = snapshot.project.chapters.find(
       (item) => item.index === chapterIndex - 1,
@@ -112,20 +120,69 @@ export function compileChapterContext(
         + ' is not accepted',
       )
     }
-    if (previousChapterContent === undefined) {
-      throw new Error(
-        'Cannot compile chapter context: previous accepted chapter body is required',
-      )
+
+    const handoff = snapshot.project.storyMemory.latestHandoff
+    if (
+      previous.settledDraftVersion === previous.acceptedDraftVersion
+      && handoff?.chapterIndex === previous.index
+      && handoff.chapterVersionId === previous.acceptedDraftVersion
+    ) {
+      previousHandoff = { ...handoff }
+      manifest.push({
+        kind: 'chapter_handoff',
+        refId: handoff.settlementId ?? previous.acceptedDraftVersion,
+        reason: 'Use settled chapter handoff for immediate continuity without rereading the whole prior chapter.',
+        priority: 98,
+      })
+    } else {
+      if (previousChapterContent === undefined) {
+        throw new Error(
+          'Cannot compile chapter context: previous accepted chapter body is required until settlement exists',
+        )
+      }
+      previousChapter = {
+        index: previous.index,
+        content: previousChapterContent,
+      }
+      manifest.push({
+        kind: 'previous_chapter',
+        refId: previous.acceptedDraftVersion,
+        reason: 'Fallback continuity source because the previous accepted chapter has not been settled yet.',
+        priority: 95,
+      })
     }
-    previousChapter = {
-      index: previous.index,
-      content: previousChapterContent,
-    }
+  }
+
+  if (snapshot.project.storyMemory.characterStates.length > 0) {
     manifest.push({
-      kind: 'previous_chapter',
-      refId: previous.acceptedDraftVersion,
-      reason: 'Maintain immediate scene continuity until Chapter Handoff is implemented.',
-      priority: 95,
+      kind: 'character_memory',
+      refId: 'story-memory:characters',
+      reason: 'Preserve current character states extracted from accepted chapter settlements.',
+      priority: 94,
+    })
+  }
+  if (snapshot.project.storyMemory.relationshipEvents.length > 0) {
+    manifest.push({
+      kind: 'relationship_memory',
+      refId: 'story-memory:relationships',
+      reason: 'Preserve accepted relationship changes and tensions.',
+      priority: 88,
+    })
+  }
+  if (snapshot.project.storyMemory.timelineEvents.length > 0) {
+    manifest.push({
+      kind: 'timeline_memory',
+      refId: 'story-memory:timeline',
+      reason: 'Preserve causal and chronological story events already committed.',
+      priority: 88,
+    })
+  }
+  if (snapshot.project.readerMemory.promises.length > 0) {
+    manifest.push({
+      kind: 'reader_promises',
+      refId: 'reader-memory:promises',
+      reason: 'Maintain open reader expectations and avoid premature or duplicate payoff.',
+      priority: 92,
     })
   }
 
@@ -148,6 +205,18 @@ export function compileChapterContext(
     ...(storyEngine ? { storyEngine: storyEngine.value } : {}),
     ...(openingBlueprint ? { openingBlueprint: openingBlueprint.value } : {}),
     ...(previousChapter ? { previousChapter } : {}),
+    ...(previousHandoff ? { previousHandoff } : {}),
+    storyMemory: {
+      characterStates: snapshot.project.storyMemory.characterStates.map((item) => ({ ...item })),
+      relationshipEvents: snapshot.project.storyMemory.relationshipEvents.map((item) => ({ ...item })),
+      timelineEvents: snapshot.project.storyMemory.timelineEvents.map((item) => ({ ...item })),
+    },
+    readerMemory: {
+      promises: snapshot.project.readerMemory.promises.map((item) => ({
+        ...item,
+        events: item.events.map((event) => ({ ...event })),
+      })),
+    },
     manifest,
   }
 }
