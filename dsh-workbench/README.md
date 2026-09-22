@@ -35,7 +35,7 @@ ChapterFlow 只实现 Harness 不知道的“小说专业能力”：
 
 ## 当前进度
 
-**Architecture V0.1 + Harness Adapter Spike V0.1 + Domain Core V0.1 + StartBook Workflow V0.1**
+**Architecture V0.1 + Harness Adapter Spike V0.1 + Domain Core V0.1 + StartBook V0.1 + Chapter Writing V0.1 + Settlement/Memory V0.1**
 
 当前已经通过 CI 验证：
 
@@ -59,8 +59,18 @@ ChapterFlow 只实现 Harness 不知道的“小说专业能力”：
 - 六阶段 StartBook 结构化输出校验
 - Workflow 期间 revision 冲突保护
 - 完整 `idea → opening_blueprint → first_3_chapters` Candidate/Accept 状态机验收
+- Chapter Intent 1–3 从 Opening Blueprint materialize
+- immutable ChapterVersion + 正文 hash 校验
+- Context Compiler + explainable manifest
+- Writer → Editor → Rewriter 三段章节 Workflow
+- `chapter_settlement` Candidate boundary
+- Story Memory：人物状态、关系变化、Timeline
+- Reader Memory：Promise OPEN / ADVANCE / PAYOFF 状态机
+- Chapter Handoff
+- 下一章优先使用 Handoff + Memory，不再默认回读上一整章
+- 前三章必须 accepted + settled 才进入 `opening_review`
 
-当前仍未实现 Chapter 正文版本、Context Compiler、Story Memory、Reader Memory、AI 责编。
+当前主要未实现：结构化 AI 责编 Review Finding、Revision/Diff/Recheck、Character Graph / Timeline 可视化、Signing Readiness。
 
 ## 快速运行
 
@@ -111,6 +121,7 @@ topic 设置为 "ChapterFlow Harness integration"。
 - [ARCHITECTURE.md](./docs/ARCHITECTURE.md) — 总体架构、职责边界、生命周期、Harness 映射、UI 与运行时
 - [DOMAIN-MODEL.md](./docs/DOMAIN-MODEL.md) — 小说领域模型、状态与存储规范
 - [V1-ACCEPTANCE.md](./docs/V1-ACCEPTANCE.md) — 第一阶段实现范围与端到端验收标准
+- [SETTLEMENT.md](./docs/SETTLEMENT.md) — 章节 Settlement、Story Memory、Reader Memory 与 Handoff
 - [ADAPTER-SPIKE.md](./docs/ADAPTER-SPIKE.md) — Harness Adapter Spike 的真实实现、验证结果、集成坑与已确认 ADR
 - [START-BOOK.md](./docs/START-BOOK.md) — StartBook 六阶段 Workflow、Candidate 边界、结构契约与并发保护
 
