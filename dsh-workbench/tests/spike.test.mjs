@@ -23,6 +23,7 @@ test('adapter status exposes spike and domain-core capabilities', () => {
     'project-store',
     'candidate-first',
     'project-revision',
+    'start-book-workflow',
   ])
 })
 
@@ -44,6 +45,7 @@ test('adapter registers spike plus bounded ChapterFlow domain tools', () => {
       'chapterflow_book_create',
       'chapterflow_book_get_state',
       'chapterflow_book_get_next_action',
+      'chapterflow_start_book',
       'chapterflow_candidate_stage',
       'chapterflow_candidate_accept',
       'chapterflow_candidate_reject',
