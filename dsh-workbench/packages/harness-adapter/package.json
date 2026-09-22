@@ -10,6 +10,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@chapterflow/chapter-writing": "file:../chapter-writing",
+    "@chapterflow/context-compiler": "file:../context-compiler",
     "@chapterflow/domain-core": "file:../domain-core",
     "@chapterflow/project-store": "file:../project-store",
     "@chapterflow/start-book": "file:../start-book",
