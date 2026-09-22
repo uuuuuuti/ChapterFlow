@@ -1,6 +1,11 @@
 import { DomainError } from './errors.js'
 import { assertJsonValue, isRecord } from './json.js'
 import { artifactStageFor, deriveLifecycle } from './lifecycle.js'
+import {
+  acceptChapterDraft,
+  materializeOpeningChapters,
+  parseChapterDraftPayload,
+} from './chapter.js'
 import { systemDomainFactory } from './project.js'
 import {
   BOOK_ARTIFACT_TYPES,
@@ -9,6 +14,7 @@ import {
   type BookArtifactType,
   type BookProject,
   type Candidate,
+  type ChapterDraftCandidatePayload,
   type DomainFactory,
   type ProjectArtifact,
   type ProjectMetadataCandidatePayload,
@@ -76,6 +82,10 @@ export function validateCandidatePayload(kind: Candidate['kind'], payload: unkno
     parseMetadataPayload(payload)
     return
   }
+  if (kind === 'chapter_draft') {
+    parseChapterDraftPayload(payload)
+    return
+  }
   throw new DomainError('UNSUPPORTED_CANDIDATE_KIND', `unsupported candidate kind: ${kind}`)
 }
 
@@ -139,6 +149,10 @@ export function acceptCandidate(
   const now = factory.now()
   const nextRevision = project.revision + 1
   let artifact: ProjectArtifact | undefined
+  let chapterVersion: AcceptCandidateResult extends { chapterVersion?: infer V } ? V : never
+  let chapterContent: string | undefined
+  let parsedChapterDraft: ChapterDraftCandidatePayload | undefined
+
   let nextProject: BookProject = {
     ...project,
     revision: nextRevision,
@@ -146,6 +160,8 @@ export function acceptCandidate(
     artifacts: [...project.artifacts],
     acceptedArtifactRefs: [...project.acceptedArtifactRefs],
     activeArtifactRefs: { ...project.activeArtifactRefs },
+    chapters: project.chapters.map((chapter) => ({ ...chapter, intent: { ...chapter.intent } })),
+    chapterVersions: [...project.chapterVersions],
   }
 
   if (candidate.kind === 'book_artifact') {
@@ -169,6 +185,10 @@ export function acceptCandidate(
     nextProject.artifacts.push(artifact)
     nextProject.acceptedArtifactRefs.push(artifact.id)
     nextProject.activeArtifactRefs[payload.artifactType] = artifact.id
+
+    if (payload.artifactType === 'opening_blueprint') {
+      nextProject = materializeOpeningChapters(nextProject, payload.value, factory)
+    }
   } else if (candidate.kind === 'project_metadata') {
     const payload = parseMetadataPayload(candidate.payload)
     if (payload.title !== undefined) nextProject.title = payload.title
@@ -180,6 +200,19 @@ export function acceptCandidate(
       if (payload.platformTarget === null) delete nextProject.platformTarget
       else nextProject.platformTarget = payload.platformTarget
     }
+  } else if (candidate.kind === 'chapter_draft') {
+    parsedChapterDraft = parseChapterDraftPayload(candidate.payload)
+    const acceptedChapter = acceptChapterDraft(
+      nextProject,
+      candidate.id,
+      parsedChapterDraft,
+      nextRevision,
+      now,
+      factory,
+    )
+    nextProject = acceptedChapter.project
+    chapterVersion = acceptedChapter.version
+    chapterContent = acceptedChapter.content
   } else {
     throw new DomainError(
       'UNSUPPORTED_CANDIDATE_KIND',
@@ -188,8 +221,20 @@ export function acceptCandidate(
   }
 
   nextProject.lifecycle = deriveLifecycle(nextProject)
+  const acceptedPayload =
+    candidate.kind === 'chapter_draft' && parsedChapterDraft && chapterVersion
+      ? {
+          chapterIndex: parsedChapterDraft.chapterIndex,
+          ...(parsedChapterDraft.title ? { title: parsedChapterDraft.title } : {}),
+          versionId: chapterVersion.id,
+          contentHash: chapterVersion.contentHash,
+          wordCount: chapterVersion.wordCount,
+        }
+      : candidate.payload
+
   const accepted: Candidate = {
     ...candidate,
+    payload: acceptedPayload,
     status: 'accepted',
     decidedAt: now,
   }
@@ -199,6 +244,8 @@ export function acceptCandidate(
     project: nextProject,
     candidate: accepted,
     ...(artifact ? { artifact } : {}),
+    ...(chapterVersion ? { chapterVersion } : {}),
+    ...(chapterContent ? { chapterContent } : {}),
   }
 }
 
